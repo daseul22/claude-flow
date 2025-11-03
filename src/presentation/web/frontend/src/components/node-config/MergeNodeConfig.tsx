@@ -4,10 +4,9 @@
  * 병합 노드의 설정을 관리합니다.
  */
 
-import React, { useState } from 'react'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import React from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { FileText, Maximize2, ChevronDown } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { WorkflowNode } from '@/lib/api'
 import { useNodeConfig } from './hooks/useNodeConfig'
@@ -29,7 +28,6 @@ interface MergeNodeData {
 }
 
 export const MergeNodeConfig: React.FC<MergeNodeConfigProps> = ({ node }) => {
-  const [activeTab, setActiveTab] = useState('settings')
   const [isLogDetailOpen, setIsLogDetailOpen] = useState(false)
   const [isExamplesOpen, setIsExamplesOpen] = useState(false)
   const nodeInputs = useWorkflowStore((state) => state.execution.nodeInputs)
@@ -115,31 +113,7 @@ export const MergeNodeConfig: React.FC<MergeNodeConfigProps> = ({ node }) => {
 
   return (
     <div className="h-full flex flex-col">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex items-center gap-2 mx-3 mt-3">
-          <TabsList className="flex w-auto gap-1 flex-1">
-            <TabsTrigger value="settings" className="text-sm flex-1">
-              설정
-            </TabsTrigger>
-            <TabsTrigger value="logs" className="text-sm flex-1">
-              <FileText className="h-3 w-3 mr-1" />
-              로그
-            </TabsTrigger>
-          </TabsList>
-          {activeTab === 'logs' && (
-            <button
-              onClick={() => setIsLogDetailOpen(true)}
-              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors"
-              title="로그 상세 보기"
-            >
-              <Maximize2 className="w-3 h-3" />
-              상세
-            </button>
-          )}
-        </div>
-
-        {/* 설정 탭 */}
-        <TabsContent value="settings" className="flex-1 overflow-y-auto px-3 pb-3 space-y-3 mt-3">
+      <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-3 pt-3">
         {/* 병합 전략 선택 */}
         <div>
           <label className="block text-sm font-medium mb-2">
@@ -226,73 +200,7 @@ export const MergeNodeConfig: React.FC<MergeNodeConfigProps> = ({ node }) => {
             </div>
           </CollapsibleContent>
         </Collapsible>
-        </TabsContent>
-
-        {/* 로그 탭 */}
-        <TabsContent value="logs" className="flex-1 overflow-y-auto px-3 pb-3 space-y-3 mt-3">
-          <div className="space-y-3">
-
-            {/* 노드 입력 */}
-            <div className="border rounded-md overflow-hidden">
-              <div className="bg-muted px-3 py-2 border-b">
-                <div className="text-sm font-medium">노드 입력</div>
-                <div className="text-xs text-muted-foreground">이 노드가 받은 입력 데이터 (모든 부모 노드 출력)</div>
-              </div>
-              <div className="p-3">
-                <AutoScrollContainer maxHeight="400px" dependency={nodeInputs[node.id]}>
-                  <ParsedContent content={nodeInputs[node.id] || ''} />
-                </AutoScrollContainer>
-              </div>
-            </div>
-
-            {/* 노드 출력 */}
-            <div className="border rounded-md overflow-hidden">
-              <div className="bg-muted px-3 py-2 border-b">
-                <div className="text-sm font-medium">노드 출력</div>
-                <div className="text-xs text-muted-foreground">병합된 결과 (전략에 따라 처리됨)</div>
-              </div>
-              <div className="p-3">
-                <AutoScrollContainer maxHeight="400px" dependency={nodeOutputs[node.id]}>
-                  <ParsedContent content={nodeOutputs[node.id] || ''} />
-                </AutoScrollContainer>
-              </div>
-            </div>
-
-            {/* 통계 정보 */}
-            <div className="border rounded-md p-3 bg-purple-50 border-purple-200">
-              <div className="text-sm font-medium mb-2 text-purple-900">통계</div>
-              <div className="space-y-1 text-xs text-purple-800">
-                <div>
-                  <span className="font-medium">입력 길이:</span>{' '}
-                  {nodeInputs[node.id] ? `${nodeInputs[node.id].length.toLocaleString()}자` : '0자'}
-                </div>
-                <div>
-                  <span className="font-medium">출력 길이:</span>{' '}
-                  {nodeOutputs[node.id] ? `${nodeOutputs[node.id].length.toLocaleString()}자` : '0자'}
-                </div>
-                <div>
-                  <span className="font-medium">상태:</span>{' '}
-                  {nodeOutputs[node.id] ? (
-                    <span className="text-green-600 font-medium">✓ 완료</span>
-                  ) : nodeInputs[node.id] ? (
-                    <span className="text-yellow-600 font-medium">⏳ 진행중</span>
-                  ) : (
-                    <span className="text-gray-500">⏸ 대기중</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </TabsContent>
-      </Tabs>
-
-      {/* 로그 상세 모달 */}
-      <LogDetailModal
-        isOpen={isLogDetailOpen}
-        onClose={() => setIsLogDetailOpen(false)}
-        sections={logSections}
-        title="Merge 노드 실행 로그 상세"
-      />
+      </div>
     </div>
   )
 }

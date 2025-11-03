@@ -4,10 +4,9 @@
  * 조건 분기 노드의 설정을 관리합니다.
  */
 
-import React, { useState } from 'react'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import React from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { FileText, ChevronDown } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { WorkflowNode } from '@/lib/api'
 import { useNodeConfig } from './hooks/useNodeConfig'
@@ -30,7 +29,6 @@ interface ConditionNodeData {
 }
 
 export const ConditionNodeConfig: React.FC<ConditionNodeConfigProps> = ({ node }) => {
-  const [activeTab, setActiveTab] = useState('settings')
   const [isExamplesOpen, setIsExamplesOpen] = useState(false)
   const nodeInputs = useWorkflowStore((state) => state.execution.nodeInputs)
   const nodeOutputs = useWorkflowStore((state) => state.execution.nodeOutputs)
@@ -82,19 +80,7 @@ export const ConditionNodeConfig: React.FC<ConditionNodeConfigProps> = ({ node }
 
   return (
     <div className="h-full flex flex-col">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="flex w-auto mx-3 mt-3 gap-1">
-          <TabsTrigger value="settings" className="text-sm flex-1">
-            설정
-          </TabsTrigger>
-          <TabsTrigger value="logs" className="text-sm flex-1">
-            <FileText className="h-3 w-3 mr-1" />
-            로그
-          </TabsTrigger>
-        </TabsList>
-
-        {/* 설정 탭 */}
-        <TabsContent value="settings" className="flex-1 overflow-y-auto px-3 pb-3 space-y-3 mt-3">
+      <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-3 pt-3">
         {/* 조건 타입 선택 */}
         <div>
           <label className="block text-sm font-medium mb-2">
@@ -217,65 +203,7 @@ export const ConditionNodeConfig: React.FC<ConditionNodeConfigProps> = ({ node }
             <div><strong>길이 비교:</strong> <code>"&gt;20"</code> → 출력 길이 20자 이상 시 True</div>
           </CollapsibleContent>
         </Collapsible>
-        </TabsContent>
-
-        {/* 로그 탭 */}
-        <TabsContent value="logs" className="flex-1 overflow-y-auto px-3 pb-3 space-y-3 mt-3">
-          <div className="space-y-3">
-
-            {/* 노드 입력 */}
-            <div className="border rounded-md overflow-hidden">
-              <div className="bg-muted px-3 py-2 border-b">
-                <div className="text-sm font-medium">노드 입력</div>
-                <div className="text-xs text-muted-foreground">이 노드가 받은 입력 데이터 (부모 노드 출력)</div>
-              </div>
-              <div className="p-3">
-                <AutoScrollContainer maxHeight="400px" dependency={nodeInputs[node.id]}>
-                  <ParsedContent content={nodeInputs[node.id] || ''} />
-                </AutoScrollContainer>
-              </div>
-            </div>
-
-            {/* 노드 출력 */}
-            <div className="border rounded-md overflow-hidden">
-              <div className="bg-muted px-3 py-2 border-b">
-                <div className="text-sm font-medium">노드 출력</div>
-                <div className="text-xs text-muted-foreground">조건 평가 결과 (True/False 분기 정보)</div>
-              </div>
-              <div className="p-3">
-                <AutoScrollContainer maxHeight="400px" dependency={nodeOutputs[node.id]}>
-                  <ParsedContent content={nodeOutputs[node.id] || ''} />
-                </AutoScrollContainer>
-              </div>
-            </div>
-
-            {/* 통계 정보 */}
-            <div className="border rounded-md p-3 bg-purple-50 border-purple-200">
-              <div className="text-sm font-medium mb-2 text-purple-900">통계</div>
-              <div className="space-y-1 text-xs text-purple-800">
-                <div>
-                  <span className="font-medium">입력 길이:</span>{' '}
-                  {nodeInputs[node.id] ? `${nodeInputs[node.id].length.toLocaleString()}자` : '0자'}
-                </div>
-                <div>
-                  <span className="font-medium">출력 길이:</span>{' '}
-                  {nodeOutputs[node.id] ? `${nodeOutputs[node.id].length.toLocaleString()}자` : '0자'}
-                </div>
-                <div>
-                  <span className="font-medium">상태:</span>{' '}
-                  {nodeOutputs[node.id] ? (
-                    <span className="text-green-600 font-medium">✓ 완료</span>
-                  ) : nodeInputs[node.id] ? (
-                    <span className="text-yellow-600 font-medium">⏳ 진행중</span>
-                  ) : (
-                    <span className="text-gray-500">⏸ 대기중</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </TabsContent>
-      </Tabs>
+      </div>
     </div>
   )
 }

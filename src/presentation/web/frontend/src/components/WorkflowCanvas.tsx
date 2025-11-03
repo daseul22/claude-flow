@@ -40,11 +40,7 @@ const nodeTypes: NodeTypes = {
   merge: MergeNode,
 }
 
-interface WorkflowCanvasProps {
-  onNodeDoubleClick?: () => void
-}
-
-export const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ onNodeDoubleClick }) => {
+export const WorkflowCanvas: React.FC = () => {
   const {
     nodes: storeNodes,
     edges: storeEdges,
@@ -315,16 +311,6 @@ export const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ onNodeDoubleClic
     [setSelectedNodeId]
   )
 
-  // 노드 더블클릭 핸들러 (Dialog 열기)
-  const handleNodeDoubleClick = useCallback(
-    (_event: React.MouseEvent, node: any) => {
-      setSelectedNodeId(node.id)
-      if (onNodeDoubleClick) {
-        onNodeDoubleClick()
-      }
-    },
-    [setSelectedNodeId, onNodeDoubleClick]
-  )
 
   // 캔버스 클릭 핸들러 (선택 해제)
   const handlePaneClick = useCallback(() => {
@@ -378,7 +364,6 @@ export const WorkflowCanvas: React.FC<WorkflowCanvasProps> = ({ onNodeDoubleClic
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
         onNodeClick={handleNodeClick}
-        onNodeDoubleClick={handleNodeDoubleClick}
         onNodeDragStop={handleNodeDragStop}
         onPaneClick={handlePaneClick}
         onDrop={onDrop}

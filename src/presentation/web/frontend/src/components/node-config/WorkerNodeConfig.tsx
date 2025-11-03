@@ -5,23 +5,19 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
 import { useWorkflowStore } from '@/stores/workflowStore'
-import { HelpCircle, Search, Maximize2, Loader2, AlertCircle, Info, ChevronDown } from 'lucide-react'
+import { HelpCircle, Search, Info, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { WorkflowNode, getAgents, Agent, getTools, Tool, sendUserInput } from '@/lib/api'
+import { WorkflowNode, getAgents, Agent, getTools, Tool } from '@/lib/api'
 import { useNodeConfig } from './hooks/useNodeConfig'
 import { useAutoSave } from './hooks/useAutoSave'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { generateTemplatePreview } from '@/lib/templateRenderer'
-import { ParsedContent } from '@/components/ParsedContent'
-import { AutoScrollContainer } from '@/components/AutoScrollContainer'
-import { LogDetailModal } from '@/components/LogDetailModal'
 import { FieldHint } from '@/components/ui/field-hint'
 
 interface WorkerNodeConfigProps {
@@ -41,15 +37,8 @@ interface WorkerNodeData {
 }
 
 export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
-  const [activeTab, setActiveTab] = useState('settings')
-  const [isLogDetailOpen, setIsLogDetailOpen] = useState(false)
   const [isToolsOpen, setIsToolsOpen] = useState(false)
   const [isExamplesOpen, setIsExamplesOpen] = useState(false)
-
-  // 대화 입력 상태 (Human-in-the-Loop)
-  const [userInput, setUserInput] = useState('')
-  const [isSending, setIsSending] = useState(false)
-  const [sendError, setSendError] = useState<string | null>(null)
   const [agents, setAgents] = useState<Agent[]>([])
   const [tools, setTools] = useState<Tool[]>([])
   const [toolSearchQuery, setToolSearchQuery] = useState('')
@@ -58,9 +47,6 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
   const [systemPrompt, setSystemPrompt] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
   const nodes = useWorkflowStore((state) => state.nodes)
-  const logs = useWorkflowStore((state) => state.execution.logs)
-  const pendingUserInput = useWorkflowStore((state) => state.execution.pendingUserInput)
-  const clearPendingUserInput = useWorkflowStore((state) => state.clearPendingUserInput)
   const deleteNode = useWorkflowStore((state) => state.deleteNode)
   const setSelectedNodeId = useWorkflowStore((state) => state.setSelectedNodeId)
 
@@ -192,17 +178,6 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
   // 현재 Agent 정보
   const currentAgent = agents.find((a) => a.name === node.data.agent_name)
 
-  // 로그 상세 모달용 sections 생성
-  const logSections = React.useMemo(() => {
-    const nodeLogs = logs.filter(log => log.nodeId === node.id)
-    if (nodeLogs.length === 0) return []
-
-    return [{
-      nodeId: node.id,
-      nodeName: `${node.data.agent_name || 'Worker'} (${node.id.substring(0, 8)})`,
-      logs: nodeLogs
-    }]
-  }, [logs, node.id, node.data.agent_name])
 
   // 노드 삭제 핸들러
   const handleDelete = () => {
@@ -212,30 +187,8 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
 
   return (
     <div className="h-full overflow-hidden flex flex-col">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex items-center gap-2 px-3 pt-3">
-          <TabsList className="flex w-auto gap-1 flex-1">
-            <TabsTrigger value="settings" className="text-sm flex-1">
-              설정
-            </TabsTrigger>
-            <TabsTrigger value="logs" className="text-sm flex-1">
-              로그
-            </TabsTrigger>
-          </TabsList>
-          {activeTab === 'logs' && (
-            <button
-              onClick={() => setIsLogDetailOpen(true)}
-              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors"
-              title="로그 상세 보기"
-            >
-              <Maximize2 className="w-3 h-3" />
-              상세
-            </button>
-          )}
-        </div>
-
-        {/* 설정 탭 (기본 + 도구 + 고급 통합) */}
-        <TabsContent value="settings" className="flex-1 overflow-y-auto px-3 pb-3 space-y-3 mt-3">
+      {/* 설정 내용 */}
+      <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-3 pt-3">
           {/* 작업 템플릿 */}
           <div className="space-y-2">
             <label className="text-sm font-medium">작업 템플릿</label>
@@ -422,172 +375,7 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
               </AccordionContent>
             </AccordionItem>
           </Accordion>
-        </TabsContent>
-
-        {/* 로그 탭 */}
-        <TabsContent value="logs" className="flex-1 overflow-y-auto px-3 pb-3 space-y-3 mt-3">
-          <div className="space-y-3">
-
-            {/* 입력 섹션 */}
-            <div className="border rounded-md overflow-hidden">
-              <div className="bg-blue-50 px-3 py-2 border-b">
-                <div className="text-sm font-medium text-blue-900">📥 입력</div>
-                <div className="text-xs text-blue-700">이 노드가 받은 작업 설명</div>
-              </div>
-              <AutoScrollContainer
-                className="p-3"
-                maxHeight="240px"
-                dependency={logs.filter(log => log.nodeId === node.id && log.type === 'input').length}
-              >
-                {logs.filter(log => log.nodeId === node.id && log.type === 'input').length > 0 ? (
-                  logs
-                    .filter(log => log.nodeId === node.id && log.type === 'input')
-                    .map((log, idx) => (
-                      <ParsedContent key={idx} content={log.message} />
-                    ))
-                ) : (
-                  <div className="text-xs text-gray-500">입력 대기 중...</div>
-                )}
-              </AutoScrollContainer>
-            </div>
-
-            {/* 실행 과정 섹션 */}
-            <div className="border rounded-md overflow-hidden">
-              <div className="bg-purple-50 px-3 py-2 border-b">
-                <div className="text-sm font-medium text-purple-900">🔧 실행 과정</div>
-                <div className="text-xs text-purple-700">Thinking, 도구 호출 등</div>
-              </div>
-              <AutoScrollContainer
-                className="p-3"
-                maxHeight="320px"
-                dependency={logs.filter(log => log.nodeId === node.id && log.type === 'execution').length}
-              >
-                {logs.filter(log => log.nodeId === node.id && log.type === 'execution').length > 0 ? (
-                  logs
-                    .filter(log => log.nodeId === node.id && log.type === 'execution')
-                    .map((log, idx) => (
-                      <ParsedContent key={idx} content={log.message} />
-                    ))
-                ) : (
-                  <div className="text-xs text-gray-500">실행 대기 중...</div>
-                )}
-              </AutoScrollContainer>
-            </div>
-
-            {/* 출력 섹션 */}
-            <div className="border rounded-md overflow-hidden">
-              <div className="bg-green-50 px-3 py-2 border-b">
-                <div className="text-sm font-medium text-green-900">📤 출력</div>
-                <div className="text-xs text-green-700">최종 결과 (다음 노드로 전달됨)</div>
-              </div>
-              <AutoScrollContainer
-                className="p-3"
-                maxHeight="320px"
-                dependency={logs.filter(log => log.nodeId === node.id && log.type === 'output').length}
-              >
-                {logs.filter(log => log.nodeId === node.id && log.type === 'output').length > 0 ? (
-                  logs
-                    .filter(log => log.nodeId === node.id && log.type === 'output')
-                    .map((log, idx) => (
-                      <ParsedContent key={idx} content={log.message} />
-                    ))
-                ) : (
-                  <div className="text-xs text-gray-500">출력 대기 중...</div>
-                )}
-              </AutoScrollContainer>
-            </div>
-
-
-            {/* 대화 입력 섹션 (Human-in-the-Loop) */}
-            {pendingUserInput && pendingUserInput.nodeId === node.id && (
-              <div className="border-2 rounded-md p-4 bg-amber-50 border-amber-300 space-y-3">
-                <div className="flex items-start gap-2">
-                  <div className="text-lg">💬</div>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-amber-900 mb-2">
-                      Worker가 입력을 요청했습니다
-                    </div>
-                    <div className="text-sm text-amber-800 mb-3 p-2 bg-white rounded border border-amber-200">
-                      {pendingUserInput.question}
-                    </div>
-                    {sendError && (
-                      <Alert variant="destructive" className="mb-2">
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertDescription className="text-sm">
-                          ❌ 전송 실패: {sendError}
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={userInput}
-                        onChange={(e) => setUserInput(e.target.value)}
-                        onKeyPress={async (e) => {
-                          if (e.key === 'Enter' && userInput.trim() && !isSending) {
-                            setIsSending(true)
-                            setSendError(null)
-                            try {
-                              await sendUserInput(pendingUserInput.sessionId, userInput)
-                              clearPendingUserInput()
-                              setUserInput('')
-                            } catch (error) {
-                              console.error('사용자 입력 전송 실패:', error)
-                              setSendError(error instanceof Error ? error.message : '알 수 없는 에러')
-                            } finally {
-                              setIsSending(false)
-                            }
-                          }
-                        }}
-                        placeholder="답변을 입력하세요..."
-                        className="flex-1 px-3 py-2 text-sm border border-amber-300 rounded focus:outline-none focus:ring-2 focus:ring-amber-500"
-                        disabled={isSending}
-                        autoFocus
-                      />
-                      <Button
-                        onClick={async () => {
-                          if (!userInput.trim() || isSending) return
-                          setIsSending(true)
-                          setSendError(null)
-                          try {
-                            await sendUserInput(pendingUserInput.sessionId, userInput)
-                            clearPendingUserInput()
-                            setUserInput('')
-                          } catch (error) {
-                            console.error('사용자 입력 전송 실패:', error)
-                            setSendError(error instanceof Error ? error.message : '알 수 없는 에러')
-                          } finally {
-                            setIsSending(false)
-                          }
-                        }}
-                        disabled={!userInput.trim() || isSending}
-                        className="bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50"
-                      >
-                        {isSending ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                            전송 중...
-                          </>
-                        ) : (
-                          '전송'
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </TabsContent>
-      </Tabs>
-
-      {/* 로그 상세 모달 */}
-      <LogDetailModal
-        isOpen={isLogDetailOpen}
-        onClose={() => setIsLogDetailOpen(false)}
-        sections={logSections}
-        title={`${node.data.agent_name || 'Worker'} 실행 로그 상세`}
-      />
+      </div>
     </div>
   )
 }
