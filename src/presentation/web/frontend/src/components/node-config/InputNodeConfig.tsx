@@ -6,6 +6,7 @@
 
 import React from 'react'
 import { FieldHint } from '@/components/ui/field-hint'
+import { Badge } from '@/components/ui/badge'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { WorkflowNode } from '@/lib/api'
 import { useNodeConfig } from './hooks/useNodeConfig'
@@ -28,7 +29,7 @@ interface InputNodeData {
 export const InputNodeConfig: React.FC<InputNodeConfigProps> = ({ node }) => {
 
   // 노드 설정 Hook 사용
-  const { data, setData, hasChanges, saveMessage, save, reset } = useNodeConfig<InputNodeData>({
+  const { data, setData, hasChanges, save, reset } = useNodeConfig<InputNodeData>({
     nodeId: node.id,
     initialData: {
       initial_input: node.data.initial_input || '',
@@ -64,10 +65,6 @@ export const InputNodeConfig: React.FC<InputNodeConfigProps> = ({ node }) => {
   // 연결 상태 확인
   const edges = useWorkflowStore((state) => state.edges)
   const connectedEdges = edges.filter((e) => e.source === node.id)
-
-  // 로그 상세 모달용 sections 생성
-  const nodes = useWorkflowStore((state) => state.nodes)
-  const logs = useWorkflowStore((state) => state.execution.logs)
 
   return (
     <div className="h-full overflow-hidden flex flex-col">

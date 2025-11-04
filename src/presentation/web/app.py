@@ -23,8 +23,26 @@ from src.presentation.web.routers import (
     custom_workers_router,
 )
 
-# .env 파일 로드 (프로젝트 루트)
-load_dotenv()
+# .env 파일 로드 (여러 경로 시도)
+# 1. 현재 작업 디렉토리 (사용자가 실행한 위치)
+# 2. 홈 디렉토리의 .claude-flow/.env
+# 3. 프로젝트 루트 (개발 모드)
+env_paths = [
+    Path.cwd() / ".env",  # 현재 디렉토리
+    Path.home() / ".claude-flow" / ".env",  # 홈 디렉토리
+    Path(__file__).parent.parent.parent.parent / ".env",  # 프로젝트 루트 (개발)
+]
+
+env_loaded = False
+for env_path in env_paths:
+    if env_path.exists():
+        load_dotenv(env_path)
+        env_loaded = True
+        break
+
+if not env_loaded:
+    # .env 파일이 없으면 시스템 환경변수만 사용
+    load_dotenv()
 
 # 로그 시스템 초기화 (웹 앱 시작 시 필수)
 configure_structlog(
@@ -91,7 +109,19 @@ def main():
     import uvicorn
 
     # .env 파일 다시 로드 (main 함수에서도)
-    load_dotenv()
+    # 여러 경로 시도
+    env_paths = [
+        Path.cwd() / ".env",  # 현재 디렉토리
+        Path.home() / ".claude-flow" / ".env",  # 홈 디렉토리
+        Path(__file__).parent.parent.parent.parent / ".env",  # 프로젝트 루트 (개발)
+    ]
+
+    for env_path in env_paths:
+        if env_path.exists():
+            load_dotenv(env_path)
+            break
+    else:
+        load_dotenv()
 
     host = os.getenv("WEB_HOST", "127.0.0.1")
     port = int(os.getenv("WEB_PORT", "8000"))

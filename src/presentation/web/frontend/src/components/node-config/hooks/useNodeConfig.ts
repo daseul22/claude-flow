@@ -43,7 +43,7 @@ export function useNodeConfig<T extends Record<string, any>>({
 
   const [data, setData] = useState<T>(initialData)
   const isInitialMount = useRef(true)
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null)
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 초기 데이터 변경 시 로컬 상태 업데이트
   useEffect(() => {

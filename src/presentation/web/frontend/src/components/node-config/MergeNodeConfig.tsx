@@ -4,17 +4,13 @@
  * 병합 노드의 설정을 관리합니다.
  */
 
-import React from 'react'
+import React, { useState } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { WorkflowNode } from '@/lib/api'
 import { useNodeConfig } from './hooks/useNodeConfig'
 import { useAutoSave } from './hooks/useAutoSave'
-import { useWorkflowStore } from '@/stores/workflowStore'
-import { ParsedContent } from '@/components/ParsedContent'
-import { AutoScrollContainer } from '@/components/AutoScrollContainer'
-import { LogDetailModal } from '@/components/LogDetailModal'
 import { FieldHint } from '@/components/ui/field-hint'
 
 interface MergeNodeConfigProps {
@@ -28,10 +24,7 @@ interface MergeNodeData {
 }
 
 export const MergeNodeConfig: React.FC<MergeNodeConfigProps> = ({ node }) => {
-  const [isLogDetailOpen, setIsLogDetailOpen] = useState(false)
   const [isExamplesOpen, setIsExamplesOpen] = useState(false)
-  const nodeInputs = useWorkflowStore((state) => state.execution.nodeInputs)
-  const nodeOutputs = useWorkflowStore((state) => state.execution.nodeOutputs)
 
   // 초기 데이터 설정
   const initialData: MergeNodeData = {
@@ -41,7 +34,7 @@ export const MergeNodeConfig: React.FC<MergeNodeConfigProps> = ({ node }) => {
   }
 
   // 노드 설정 Hook
-  const { data, setData, hasChanges, saveMessage, save, reset } = useNodeConfig<MergeNodeData>({
+  const { data, setData, hasChanges, save } = useNodeConfig<MergeNodeData>({
     nodeId: node.id,
     initialData,
     onValidate: (data) => {
@@ -70,46 +63,6 @@ export const MergeNodeConfig: React.FC<MergeNodeConfigProps> = ({ node }) => {
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
     e.stopPropagation()
   }
-
-  // 로그 상세 모달용 sections 생성 (Merge 노드 + 부모 노드들)
-  const edges = useWorkflowStore((state) => state.edges)
-  const nodes = useWorkflowStore((state) => state.nodes)
-  const logs = useWorkflowStore((state) => state.execution.logs)
-
-  const logSections = React.useMemo(() => {
-    const sections = []
-
-    // Merge 노드 자체 로그
-    const mergeLogs = logs.filter(log => log.nodeId === node.id)
-    if (mergeLogs.length > 0) {
-      sections.push({
-        nodeId: node.id,
-        nodeName: `Merge (${node.id.substring(0, 8)})`,
-        logs: mergeLogs
-      })
-    }
-
-    // 부모 노드들의 로그
-    const parentEdges = edges.filter(e => e.target === node.id)
-    parentEdges.forEach(edge => {
-      const parentNode = nodes.find(n => n.id === edge.source)
-      const parentLogs = logs.filter(log => log.nodeId === edge.source)
-
-      if (parentLogs.length > 0) {
-        const nodeName = parentNode?.type === 'worker'
-          ? (parentNode.data.agent_name || 'Worker')
-          : (parentNode?.type === 'input' ? 'Input' : parentNode?.type || 'Unknown')
-
-        sections.push({
-          nodeId: edge.source,
-          nodeName: `${nodeName} (${edge.source.substring(0, 8)})`,
-          logs: parentLogs
-        })
-      }
-    })
-
-    return sections
-  }, [logs, node.id, edges, nodes])
 
   return (
     <div className="h-full flex flex-col">

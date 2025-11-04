@@ -10,6 +10,7 @@
 import { memo } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { Loader2, CheckCircle2, XCircle, Clock, AlertTriangle, AlertCircle, Info } from 'lucide-react'
 import { useWorkflowStore } from '@/stores/workflowStore'

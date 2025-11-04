@@ -4,16 +4,13 @@
  * 조건 분기 노드의 설정을 관리합니다.
  */
 
-import React from 'react'
+import React, { useState } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { WorkflowNode } from '@/lib/api'
 import { useNodeConfig } from './hooks/useNodeConfig'
 import { useAutoSave } from './hooks/useAutoSave'
-import { useWorkflowStore } from '@/stores/workflowStore'
-import { ParsedContent } from '@/components/ParsedContent'
-import { AutoScrollContainer } from '@/components/AutoScrollContainer'
 import { FieldHint } from '@/components/ui/field-hint'
 
 interface ConditionNodeConfigProps {
@@ -30,8 +27,6 @@ interface ConditionNodeData {
 
 export const ConditionNodeConfig: React.FC<ConditionNodeConfigProps> = ({ node }) => {
   const [isExamplesOpen, setIsExamplesOpen] = useState(false)
-  const nodeInputs = useWorkflowStore((state) => state.execution.nodeInputs)
-  const nodeOutputs = useWorkflowStore((state) => state.execution.nodeOutputs)
 
   // 초기 데이터 설정
   const initialData: ConditionNodeData = {
@@ -43,7 +38,7 @@ export const ConditionNodeConfig: React.FC<ConditionNodeConfigProps> = ({ node }
   }
 
   // 노드 설정 Hook
-  const { data, setData, hasChanges, saveMessage, save, reset } = useNodeConfig<ConditionNodeData>({
+  const { data, setData, hasChanges, save } = useNodeConfig<ConditionNodeData>({
     nodeId: node.id,
     initialData,
     onValidate: (data) => {
