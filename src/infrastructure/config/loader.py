@@ -5,9 +5,12 @@ JsonConfigLoader: JSON 파일에서 설정 로드
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Dict, Any
+
+import yaml
 
 from src.domain.models import AgentConfig
 from src.infrastructure.logging import get_logger
@@ -95,6 +98,7 @@ class JsonConfigLoader:
     JSON 설정 로더
 
     config/agent_config.json, config/system_config.json에서 설정 로드
+    prompts/ 디렉토리 자동 스캔 기능 추가
     """
 
     def __init__(self, project_root: Path):
@@ -105,58 +109,201 @@ class JsonConfigLoader:
         self.project_root = project_root
         self.agent_config_path = project_root / "config" / "agent_config.json"
         self.system_config_path = project_root / "config" / "system_config.json"
+        self.prompts_dir = project_root / "prompts"
 
-    def load_agent_configs(self) -> List[AgentConfig]:
+    def _parse_prompt_metadata(self, prompt_file: Path) -> Optional[Dict[str, Any]]:
         """
-        에이전트 설정 로드
+        프롬프트 파일에서 YAML Front Matter 메타데이터 추출
+
+        형식:
+        ---
+        role: 역할 설명
+        allowed_tools:
+          - read
+          - write
+        model: claude-sonnet-4-5-20250929
+        thinking: true
+        ---
+
+        [프롬프트 내용...]
+
+        Args:
+            prompt_file: 프롬프트 파일 경로
+
+        Returns:
+            메타데이터 딕셔너리 (없으면 None)
+        """
+        try:
+            content = prompt_file.read_text(encoding='utf-8')
+
+            # YAML Front Matter 정규식 패턴
+            pattern = r'^---\s*\n(.*?)\n---\s*\n'
+            match = re.match(pattern, content, re.DOTALL)
+
+            if not match:
+                return None
+
+            yaml_content = match.group(1)
+            metadata = yaml.safe_load(yaml_content)
+
+            return metadata if isinstance(metadata, dict) else None
+
+        except Exception as e:
+            logger.warning(
+                "Failed to parse prompt metadata",
+                prompt_file=str(prompt_file),
+                error=str(e)
+            )
+            return None
+
+    def _scan_prompts_directory(self) -> List[AgentConfig]:
+        """
+        prompts/ 디렉토리 스캔하여 AgentConfig 자동 생성
+
+        YAML Front Matter가 있는 파일: 메타데이터 사용
+        YAML Front Matter가 없는 파일: 기본값 사용
+
+        Returns:
+            AgentConfig 리스트
+        """
+        if not self.prompts_dir.exists():
+            logger.warning(f"Prompts directory not found: {self.prompts_dir}")
+            return []
+
+        agent_configs = []
+        prompt_files = sorted(self.prompts_dir.glob("*.txt"))
+
+        for prompt_file in prompt_files:
+            # 파일명에서 이름 추출 (확장자 제외)
+            name = prompt_file.stem
+
+            # local.txt는 빈 파일이므로 스킵
+            if name == "local":
+                continue
+
+            # 메타데이터 파싱
+            metadata = self._parse_prompt_metadata(prompt_file)
+
+            # 기본값
+            default_role = f"{name} 전문가"
+            default_tools = ["read", "write", "edit", "glob", "grep"]
+            default_model = "claude-sonnet-4-5-20250929"
+            default_thinking = True
+
+            # 메타데이터가 있으면 사용, 없으면 기본값
+            if metadata:
+                role = metadata.get("role", default_role)
+                allowed_tools = metadata.get("allowed_tools", default_tools)
+                model = metadata.get("model", default_model)
+                thinking = metadata.get("thinking", default_thinking)
+            else:
+                role = default_role
+                allowed_tools = default_tools
+                model = default_model
+                thinking = default_thinking
+
+            # AgentConfig 생성
+            config = AgentConfig(
+                name=name,
+                role=role,
+                system_prompt=f"prompts/{prompt_file.name}",  # 상대 경로
+                allowed_tools=allowed_tools,
+                model=model,
+                thinking=thinking
+            )
+
+            agent_configs.append(config)
+            logger.debug(
+                "Scanned prompt file",
+                name=name,
+                has_metadata=metadata is not None
+            )
+
+        return agent_configs
+
+    def load_agent_configs(self, auto_scan: bool = True) -> List[AgentConfig]:
+        """
+        에이전트 설정 로드 (하이브리드 방식)
+
+        1. agent_config.json 로드 (있는 경우)
+        2. prompts/ 디렉토리 자동 스캔 (auto_scan=True 시)
+        3. agent_config.json에 없는 프롬프트만 자동 추가
+
+        Args:
+            auto_scan: prompts/ 디렉토리 자동 스캔 여부 (기본값: True)
 
         Returns:
             AgentConfig 리스트
 
         Raises:
-            FileNotFoundError: 설정 파일이 없을 경우
             ValueError: 설정 파일 형식이 잘못된 경우
         """
-        if not self.agent_config_path.exists():
-            raise FileNotFoundError(f"설정 파일을 찾을 수 없습니다: {self.agent_config_path}")
+        agent_configs = []
+        config_names = set()
 
-        try:
-            with open(self.agent_config_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+        # 1. agent_config.json 로드 (선택 사항)
+        if self.agent_config_path.exists():
+            try:
+                with open(self.agent_config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
 
-            # 유효성 검증
-            if "agents" not in data:
-                raise ValueError("설정 파일에 'agents' 필드가 없습니다")
+                # 유효성 검증
+                if "agents" in data and isinstance(data["agents"], list):
+                    agents_data = data["agents"]
 
-            agents_data = data["agents"]
-            if not isinstance(agents_data, list):
-                raise ValueError("'agents'는 리스트여야 합니다")
+                    # AgentConfig 객체 생성
+                    for agent_data in agents_data:
+                        # 필수 필드 검증
+                        required_fields = ["name", "role", "system_prompt_file", "allowed_tools", "model"]
+                        for field in required_fields:
+                            if field not in agent_data:
+                                logger.warning(
+                                    f"에이전트 설정에 필수 필드 '{field}'가 없습니다. 스킵합니다.",
+                                    agent_data=agent_data
+                                )
+                                continue
 
-            # AgentConfig 객체 생성
-            agent_configs = []
-            for agent_data in agents_data:
-                # 필수 필드 검증
-                required_fields = ["name", "role", "system_prompt_file", "allowed_tools", "model"]
-                for field in required_fields:
-                    if field not in agent_data:
-                        raise ValueError(f"에이전트 설정에 필수 필드 '{field}'가 없습니다: {agent_data}")
+                        # system_prompt_file을 system_prompt로 변환
+                        agent_data_copy = agent_data.copy()
+                        agent_data_copy["system_prompt"] = agent_data_copy.pop("system_prompt_file")
 
-                # system_prompt_file을 system_prompt로 변환
-                agent_data_copy = agent_data.copy()
-                agent_data_copy["system_prompt"] = agent_data_copy.pop("system_prompt_file")
+                        config = AgentConfig.from_dict(agent_data_copy)
+                        agent_configs.append(config)
+                        config_names.add(config.name)
 
-                config = AgentConfig.from_dict(agent_data_copy)
-                agent_configs.append(config)
+                    logger.info("Agent configs loaded from JSON", count=len(agent_configs))
 
-            logger.info("Agent configs loaded", count=len(agent_configs))
-            return agent_configs
+            except json.JSONDecodeError as e:
+                logger.error("JSON parsing failed", config_path=str(self.agent_config_path), error=str(e))
+                raise ValueError(f"JSON 파싱 실패: {e}")
+            except Exception as e:
+                logger.error("Config loading failed", config_path=str(self.agent_config_path), error=str(e))
+                # agent_config.json 로드 실패 시 자동 스캔으로 폴백
+                logger.warning("agent_config.json 로드 실패. prompts/ 자동 스캔으로 폴백합니다.")
 
-        except json.JSONDecodeError as e:
-            logger.error("JSON parsing failed", config_path=str(self.agent_config_path), error=str(e))
-            raise ValueError(f"JSON 파싱 실패: {e}")
-        except Exception as e:
-            logger.error("Config loading failed", config_path=str(self.agent_config_path), error=str(e))
-            raise ValueError(f"설정 파일 로드 실패: {e}")
+        # 2. prompts/ 디렉토리 자동 스캔
+        if auto_scan:
+            scanned_configs = self._scan_prompts_directory()
+
+            # agent_config.json에 없는 프롬프트만 추가
+            for config in scanned_configs:
+                if config.name not in config_names:
+                    agent_configs.append(config)
+                    config_names.add(config.name)
+                    logger.info(
+                        "Auto-added agent from prompts directory",
+                        name=config.name,
+                        role=config.role
+                    )
+
+        # 3. 결과 로깅
+        total_count = len(agent_configs)
+        if total_count == 0:
+            logger.warning("No agent configs loaded. Check agent_config.json and prompts/ directory.")
+        else:
+            logger.info("Total agent configs loaded", total=total_count)
+
+        return agent_configs
 
     def load_system_config(self) -> SystemConfig:
         """

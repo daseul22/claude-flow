@@ -209,7 +209,7 @@ Worker가 `@ASK_USER: 질문내용` 패턴 출력 → Frontend가 AskUserModal �
 
 ## 프롬프트 라이브러리
 
-`prompts/` 디렉토리에 27개의 사전 정의 Worker 프롬프트 제공:
+`prompts/` 디렉토리에 47개의 사전 정의 Worker 프롬프트 제공:
 
 - `feature_planner.txt`: 기능 기획
 - `backend_coder.txt`: 백엔드 코딩
@@ -218,7 +218,56 @@ Worker가 `@ASK_USER: 질문내용` 패턴 출력 → Frontend가 AskUserModal �
 - `test_coder.txt`: 테스트 코드 작성
 - `security_reviewer.txt`: 보안 리뷰
 - `documenter.txt`: 문서화
-- 등 (총 27개)
+- 등 (총 47개)
+
+### 프롬프트 자동 등록 시스템
+
+**v4.0.0부터 프롬프트 자동 스캔 기능 추가**
+
+`prompts/` 디렉토리의 모든 `.txt` 파일이 자동으로 Worker로 등록됩니다. `agent_config.json`에 수동 등록할 필요가 없습니다.
+
+#### YAML Front Matter (선택 사항)
+
+프롬프트 파일 상단에 YAML Front Matter를 추가하여 메타데이터를 지정할 수 있습니다:
+
+```txt
+---
+role: 통합 테스트 실행
+allowed_tools:
+  - read
+  - bash
+  - glob
+  - grep
+model: claude-haiku-4-5-20251001
+thinking: false
+---
+
+# Integration Tester
+
+[프롬프트 내용...]
+```
+
+**메타데이터 필드**:
+- `role` (문자열): Worker 역할 설명
+- `allowed_tools` (배열): 허용 도구 목록 (`read`, `write`, `edit`, `bash`, `glob`, `grep`)
+- `model` (문자열): Claude 모델 (`claude-sonnet-4-5-20250929`, `claude-haiku-4-5-20251001` 등)
+- `thinking` (boolean): Thinking 모드 활성화 여부
+
+**기본값**:
+- 메타데이터가 없는 프롬프트는 기본값 사용:
+  - `role`: `{파일명} 전문가`
+  - `allowed_tools`: `["read", "write", "edit", "glob", "grep"]`
+  - `model`: `"claude-sonnet-4-5-20250929"`
+  - `thinking`: `true`
+
+#### 새 프롬프트 추가 방법
+
+1. `prompts/` 디렉토리에 `.txt` 파일 생성
+2. (선택) YAML Front Matter로 메타데이터 지정
+3. 프롬프트 내용 작성
+4. 서버 재시작 → 자동으로 UI에 표시됨
+
+**주의**: `local.txt`는 범용 Worker로 빈 프롬프트 파일이므로 자동 스캔에서 제외됩니다.
 
 ### 프롬프트 사용 방법
 
@@ -297,7 +346,10 @@ Worker 노드 설정 시 `agent_name` 필드에 프롬프트 파일명 (확장�
 - `src/presentation/web/services/node_executors/worker_executor.py`: Worker 실행
 
 ### 설정 및 로깅
-- `src/infrastructure/config/loader.py`: 설정 로더
+- `src/infrastructure/config/loader.py`: 설정 로더 (자동 스캔 로직 포함)
+  - `JsonConfigLoader.load_agent_configs(auto_scan=True)`: 하이브리드 로딩
+  - `_scan_prompts_directory()`: prompts/ 디렉토리 자동 스캔
+  - `_parse_prompt_metadata()`: YAML Front Matter 파싱
 - `src/infrastructure/logging/structured_logger.py`: 구조화 로깅
 
 ### API 라우터
@@ -376,9 +428,27 @@ claude-flow-web/
 
 ### 새로운 Worker 프롬프트 추가
 
-1. `prompts/` 디렉토리에 새 `.txt` 파일 생성
-2. 프롬프트 내용 작성 (시스템 프롬프트 형식)
-3. Worker 노드 설정에서 `agent_name`으로 참조
+**자동 등록 방식 (v4.0.0+)**:
+
+1. `prompts/` 디렉토리에 새 `.txt` 파일 생성 (예: `my_custom_worker.txt`)
+2. (선택) YAML Front Matter로 메타데이터 지정:
+   ```txt
+   ---
+   role: 커스텀 작업 수행
+   allowed_tools:
+     - read
+     - write
+   model: claude-sonnet-4-5-20250929
+   thinking: true
+   ---
+   ```
+3. 프롬프트 내용 작성 (시스템 프롬프트 형식)
+4. 서버 재시작 → 자동으로 UI에 표시됨
+5. Worker 노드 설정에서 `agent_name: "my_custom_worker"`로 참조
+
+**기존 방식 (하위 호환)**:
+- `config/agent_config.json`에 등록된 Worker는 자동 스캔보다 우선 적용됨
+- 동일한 이름의 Worker가 있으면 `agent_config.json` 설정 사용
 
 ### 새로운 템플릿 추가
 
