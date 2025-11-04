@@ -197,6 +197,9 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
         // onComplete
         () => {
           stopExecution()
+          // 워크플로우 완료 시 세션 ID 제거 (다음 새로고침 시 복원하지 않도록)
+          localStorage.removeItem(STORAGE_KEY_SESSION_ID)
+          console.log('[InputNode] 워크플로우 완료 - 세션 ID 제거')
         },
         // onError
         (error) => {

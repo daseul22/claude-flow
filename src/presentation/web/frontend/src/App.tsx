@@ -130,22 +130,67 @@ function App() {
           console.log('🔄 세션 복원 시도:', lastSessionId)
           const session = await getWorkflowSession(lastSessionId)
 
-          // 1️⃣ 세션에서 프로젝트 경로 복원 (세션에 저장된 project_path 사용)
+          // 1️⃣ 프로젝트 경로 복원 (세션 → localStorage 순서)
+          let restoredProjectPath: string | null = null
+
+          // 1-1. 세션에서 프로젝트 경로 복원 시도
           if (session.project_path) {
             try {
               const result = await selectProject(session.project_path)
+              restoredProjectPath = result.project_path
               setCurrentProjectPath(result.project_path)
+              localStorage.setItem(STORAGE_KEY_PROJECT_PATH, result.project_path)
               console.log(`✅ 세션에서 프로젝트 경로 복원: ${session.project_path}`)
             } catch (err) {
               console.warn('세션 프로젝트 경로 복원 실패:', err)
             }
-          } else {
-            console.warn('⚠️  세션에 프로젝트 경로 정보 없음')
+          }
+
+          // 1-2. 세션에 없으면 localStorage에서 복원 시도
+          if (!restoredProjectPath) {
+            const lastProjectPath = localStorage.getItem(STORAGE_KEY_PROJECT_PATH)
+            if (lastProjectPath) {
+              try {
+                const result = await selectProject(lastProjectPath)
+                restoredProjectPath = result.project_path
+                setCurrentProjectPath(result.project_path)
+                console.log(`✅ localStorage에서 프로젝트 경로 복원: ${lastProjectPath}`)
+              } catch (err) {
+                console.warn('localStorage 프로젝트 경로 복원 실패:', err)
+                localStorage.removeItem(STORAGE_KEY_PROJECT_PATH)
+              }
+            }
+          }
+
+          if (!restoredProjectPath) {
+            console.warn('⚠️  프로젝트 경로 복원 실패 - 사용자가 수동으로 선택해야 함')
           }
 
           // 2️⃣ 워크플로우 세션 복원 (기존 로그 복원 - 모든 세션)
           restoreFromSession(session)
-          console.log('✅ 세션 복원 완료:', session.session_id)
+          // 워크플로우 파일명도 복원 (자동 저장을 위해 필수)
+          const fileName = session.workflow_file_name || `${session.workflow.name}.json`
+          setCurrentWorkflowFileName(fileName)
+          console.log('✅ 세션 복원 완료:', session.session_id, '| 워크플로우:', fileName)
+
+          // 2-1️⃣ 파일 시스템에서 최신 워크플로우 다시 로드 (수정사항 반영)
+          // 프로젝트 경로가 복원된 경우에만 시도
+          if (restoredProjectPath) {
+            try {
+              const latestWorkflow = await loadProjectWorkflowByName(fileName)
+              // 노드와 엣지만 최신 파일로 교체 (로그는 유지)
+              const store = useWorkflowStore.getState()
+              store.setNodes(latestWorkflow.workflow.nodes)
+              store.setEdges(latestWorkflow.workflow.edges)
+              store.setWorkflowName(latestWorkflow.workflow.name)
+              store.setWorkflowDescription(latestWorkflow.workflow.description || '')
+              console.log('✅ 최신 워크플로우 반영 완료 (파일 시스템)')
+            } catch (err) {
+              console.warn('⚠️  최신 워크플로우 로드 실패, 세션 워크플로우 사용:', err)
+            }
+          } else {
+            console.log('ℹ️  프로젝트 경로 없음 - 세션 워크플로우 사용')
+          }
 
           // 3️⃣ 실행 중인 세션만 스트림 재접속 (완료 확인)
           const hasWorkflowComplete = session.logs.some((log: any) => log.event_type === 'workflow_complete')
@@ -240,6 +285,9 @@ function App() {
                         store.addLog('', 'complete', eventData.message || '🎉 워크플로우 실행 완료')
                         store.setCurrentNode(null)
                         store.stopExecution()
+                        // 워크플로우 완료 시 세션 ID 제거
+                        localStorage.removeItem(STORAGE_KEY_SESSION_ID)
+                        console.log('[App] 워크플로우 완료 - 세션 ID 제거')
                         break
                     }
                   },
@@ -247,6 +295,9 @@ function App() {
                   () => {
                     console.log('✅ 스트림 재접속 완료 - 워크플로우 실행 완료')
                     useWorkflowStore.getState().stopExecution()
+                    // 워크플로우 완료 시 세션 ID 제거
+                    localStorage.removeItem(STORAGE_KEY_SESSION_ID)
+                    console.log('[App] 스트림 재접속 완료 - 세션 ID 제거')
                   },
                   // onError
                   (error) => {
