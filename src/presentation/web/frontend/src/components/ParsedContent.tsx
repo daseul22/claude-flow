@@ -12,6 +12,8 @@ interface ParsedContentProps {
   content: string
   className?: string
   toolUseIdToName?: Record<string, string>
+  showToolLogs?: boolean
+  showThinkingLogs?: boolean
 }
 
 /**
@@ -167,7 +169,13 @@ const ParsedBlock: React.FC<{ block: ParsedLogMessage; blockIndex: number }> = (
 /**
  * 파싱된 내용을 블럭 종류별로 렌더링
  */
-export const ParsedContent: React.FC<ParsedContentProps> = ({ content, className = '', toolUseIdToName }) => {
+export const ParsedContent: React.FC<ParsedContentProps> = ({
+  content,
+  className = '',
+  toolUseIdToName,
+  showToolLogs = true,
+  showThinkingLogs = true
+}) => {
   if (!content || content.trim() === '') {
     return (
       <div className={`text-sm text-muted-foreground text-center py-4 ${className}`}>
@@ -179,9 +187,27 @@ export const ParsedContent: React.FC<ParsedContentProps> = ({ content, className
   // 여러 블록으로 파싱 (텍스트와 JSON 혼합 지원)
   const { blocks } = parseLogMessageBlocks(content, toolUseIdToName)
 
+  // 필터링된 블록만 렌더링
+  const filteredBlocks = blocks.filter((block) => {
+    // 툴 로그 필터링
+    if (!showToolLogs && (block.type === 'tool_use' || block.type === 'tool_result')) {
+      return false
+    }
+    // 사고과정 로그 필터링
+    if (!showThinkingLogs && block.type === 'thinking') {
+      return false
+    }
+    return true
+  })
+
+  // 필터링 후 블록이 없으면 렌더링하지 않음
+  if (filteredBlocks.length === 0) {
+    return null
+  }
+
   return (
     <div className={`space-y-2 ${className}`}>
-      {blocks.map((block, index) => (
+      {filteredBlocks.map((block, index) => (
         <ParsedBlock key={index} block={block} blockIndex={index} />
       ))}
     </div>

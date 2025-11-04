@@ -7,9 +7,19 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
 import { useWorkflowStore } from '@/stores/workflowStore'
-import { FileText, Clock, Zap, CheckCircle2, AlertCircle, Info, Filter } from 'lucide-react'
+import { FileText, Clock, Zap, CheckCircle2, AlertCircle, Info, Filter, Eye, EyeOff, Maximize2 } from 'lucide-react'
 import { ParsedContent } from './ParsedContent'
+import { LogDetailModal } from './LogDetailModal'
 
 export const ExecutionLogsPanel: React.FC = () => {
   const { execution, nodes, selectedNodeId: canvasSelectedNodeId } = useWorkflowStore()
@@ -19,6 +29,12 @@ export const ExecutionLogsPanel: React.FC = () => {
   const [selectedNodeId, setSelectedNodeId] = useState<string>('all')
   const [selectedLogType, setSelectedLogType] = useState<string>('all')
   const [showSystemLogs, setShowSystemLogs] = useState<boolean>(false) // 시스템 로그 기본 숨김
+  const [showToolLogs, setShowToolLogs] = useState<boolean>(true) // 툴 로그 기본 표시
+  const [showThinkingLogs, setShowThinkingLogs] = useState<boolean>(true) // 사고과정 로그 기본 표시
+
+  // 로그 상세 모달 상태
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
+  const [detailModalNodeId, setDetailModalNodeId] = useState<string | null>(null)
 
   // 캔버스에서 노드 선택 시 자동으로 필터 적용
   useEffect(() => {
@@ -241,6 +257,26 @@ export const ExecutionLogsPanel: React.FC = () => {
     return groups
   }, [filteredLogs])
 
+  // 상세보기 모달 열기
+  const openDetailModal = (nodeId: string | null) => {
+    setDetailModalNodeId(nodeId)
+    setIsDetailModalOpen(true)
+  }
+
+  // 모달에 전달할 섹션 데이터 생성
+  const detailModalSections = useMemo(() => {
+    if (!isDetailModalOpen) return []
+
+    // 특정 노드 또는 전체 로그
+    const targetNodeIds = detailModalNodeId ? [detailModalNodeId] : uniqueNodeIds
+
+    return targetNodeIds.map(nodeId => ({
+      nodeId,
+      nodeName: getNodeName(nodeId),
+      logs: execution.logs.filter(log => log.nodeId === nodeId)
+    }))
+  }, [isDetailModalOpen, detailModalNodeId, execution.logs, uniqueNodeIds])
+
   return (
     <Card className="h-full flex flex-col overflow-hidden">
       <CardHeader className="pb-3 flex-shrink-0">
@@ -249,55 +285,103 @@ export const ExecutionLogsPanel: React.FC = () => {
             <FileText className="h-4 w-4" />
             실행 로그
           </CardTitle>
-          {execution.isExecuting && (
-            <Badge variant="default" className="animate-pulse">
-              실행 중
-            </Badge>
-          )}
+          <div className="flex items-center gap-2">
+            {execution.logs.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openDetailModal(null)}
+                className="h-7 text-xs"
+              >
+                <Maximize2 className="h-3 w-3 mr-1" />
+                전체 상세보기
+              </Button>
+            )}
+            {execution.isExecuting && (
+              <Badge variant="default" className="animate-pulse">
+                실행 중
+              </Badge>
+            )}
+          </div>
         </div>
 
         {/* 필터 UI */}
-        <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <Filter className="h-4 w-4 text-muted-foreground" />
-          <select
-            value={selectedNodeId}
-            onChange={(e) => setSelectedNodeId(e.target.value)}
-            className="text-sm border rounded px-2 py-1 bg-white"
-          >
-            <option value="all">모든 노드</option>
-            {uniqueNodeIds.map(nodeId => (
-              <option key={nodeId} value={nodeId}>
-                {getNodeName(nodeId)}
-              </option>
-            ))}
-          </select>
-          <select
-            value={selectedLogType}
-            onChange={(e) => setSelectedLogType(e.target.value)}
-            className="text-sm border rounded px-2 py-1 bg-white"
-          >
-            <option value="all">모든 타입</option>
-            <option value="input">입력</option>
-            <option value="execution">실행</option>
-            <option value="output">출력</option>
-            <option value="start">시작</option>
-            <option value="complete">완료</option>
-            <option value="error">에러</option>
-          </select>
-          <label className="flex items-center gap-1 text-sm text-gray-600 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showSystemLogs}
-              onChange={(e) => setShowSystemLogs(e.target.checked)}
-              className="rounded"
-            />
-            <span>시스템 로그</span>
-          </label>
-          {(selectedNodeId !== 'all' || selectedLogType !== 'all' || !showSystemLogs) && (
-            <Badge variant="outline" className="text-xs">
-              {filteredLogs.length} / {execution.logs.length}
-            </Badge>
-          )}
+        <div className="space-y-3">
+          {/* 필터 헤더 */}
+          <div className="flex items-center gap-2">
+            <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">필터</span>
+            {(selectedNodeId !== 'all' || selectedLogType !== 'all' || !showSystemLogs || !showToolLogs || !showThinkingLogs) && (
+              <Badge variant="secondary" className="text-xs ml-auto">
+                {filteredLogs.length} / {execution.logs.length}
+              </Badge>
+            )}
+          </div>
+
+          {/* 노드 및 타입 선택 */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <Select value={selectedNodeId} onValueChange={setSelectedNodeId}>
+              <SelectTrigger className="h-8 w-[140px] text-xs">
+                <SelectValue placeholder="노드 선택" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">모든 노드</SelectItem>
+                {uniqueNodeIds.map(nodeId => (
+                  <SelectItem key={nodeId} value={nodeId}>
+                    {getNodeName(nodeId)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={selectedLogType} onValueChange={setSelectedLogType}>
+              <SelectTrigger className="h-8 w-[120px] text-xs">
+                <SelectValue placeholder="타입 선택" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">모든 타입</SelectItem>
+                <SelectItem value="input">입력</SelectItem>
+                <SelectItem value="execution">실행</SelectItem>
+                <SelectItem value="output">출력</SelectItem>
+                <SelectItem value="start">시작</SelectItem>
+                <SelectItem value="complete">완료</SelectItem>
+                <SelectItem value="error">에러</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Separator />
+
+          {/* 로그 표시 옵션 */}
+          <div className="space-y-2">
+            <span className="text-xs font-medium text-muted-foreground">표시 옵션</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge
+                variant={showSystemLogs ? "default" : "outline"}
+                className="cursor-pointer select-none text-xs transition-colors"
+                onClick={() => setShowSystemLogs(!showSystemLogs)}
+              >
+                {showSystemLogs ? <Eye className="h-3 w-3 mr-1" /> : <EyeOff className="h-3 w-3 mr-1" />}
+                시스템 로그
+              </Badge>
+              <Badge
+                variant={showToolLogs ? "default" : "outline"}
+                className="cursor-pointer select-none text-xs transition-colors"
+                onClick={() => setShowToolLogs(!showToolLogs)}
+              >
+                {showToolLogs ? <Eye className="h-3 w-3 mr-1" /> : <EyeOff className="h-3 w-3 mr-1" />}
+                툴 로그
+              </Badge>
+              <Badge
+                variant={showThinkingLogs ? "default" : "outline"}
+                className="cursor-pointer select-none text-xs transition-colors"
+                onClick={() => setShowThinkingLogs(!showThinkingLogs)}
+              >
+                {showThinkingLogs ? <Eye className="h-3 w-3 mr-1" /> : <EyeOff className="h-3 w-3 mr-1" />}
+                사고과정
+              </Badge>
+            </div>
+          </div>
         </div>
 
         {formatTokenUsage()}
@@ -354,9 +438,20 @@ export const ExecutionLogsPanel: React.FC = () => {
                           </span>
                         )}
                         {group.nodeId && (
-                          <Badge variant="outline" className="text-xs">
-                            {getNodeName(group.nodeId)}
-                          </Badge>
+                          <>
+                            <Badge variant="outline" className="text-xs">
+                              {getNodeName(group.nodeId)}
+                            </Badge>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openDetailModal(group.nodeId)}
+                              className="h-5 px-2 text-xs hover:bg-gray-100"
+                            >
+                              <Maximize2 className="h-3 w-3 mr-1" />
+                              상세
+                            </Button>
+                          </>
                         )}
                         <span className="text-xs text-muted-foreground flex items-center gap-1">
                           <Clock className="h-3 w-3" />
@@ -367,7 +462,13 @@ export const ExecutionLogsPanel: React.FC = () => {
                       {/* 로그 내용들 (채팅처럼 연속으로) */}
                       <div className="space-y-1">
                         {group.logs.map((log, logIndex) => (
-                          <ParsedContent key={logIndex} content={log.message} toolUseIdToName={toolUseIdToName} />
+                          <ParsedContent
+                            key={logIndex}
+                            content={log.message}
+                            toolUseIdToName={toolUseIdToName}
+                            showToolLogs={showToolLogs}
+                            showThinkingLogs={showThinkingLogs}
+                          />
                         ))}
                       </div>
                     </div>
@@ -381,6 +482,14 @@ export const ExecutionLogsPanel: React.FC = () => {
           )}
         </div>
       </CardContent>
+
+      {/* 로그 상세 모달 */}
+      <LogDetailModal
+        isOpen={isDetailModalOpen}
+        onClose={() => setIsDetailModalOpen(false)}
+        sections={detailModalSections}
+        title={detailModalNodeId ? `${getNodeName(detailModalNodeId)} 로그 상세` : "전체 로그 상세"}
+      />
     </Card>
   )
 }

@@ -197,7 +197,7 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
   }
 
   return (
-    <div style={{ width: '260px', display: 'block', boxSizing: 'border-box' }}>
+    <div style={{ width: '260px', display: 'block', boxSizing: 'border-box', position: 'relative' }}>
       <Card
         style={{ width: '260px', boxSizing: 'border-box' }}
         className={cn(

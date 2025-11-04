@@ -111,7 +111,7 @@ export const WorkerNode = memo(({ id, data, selected }: NodeProps<WorkerNodeData
   }
 
   return (
-    <div style={{ width: '260px', display: 'block', boxSizing: 'border-box' }}>
+    <div style={{ width: '260px', display: 'block', boxSizing: 'border-box', position: 'relative' }}>
       {/* 입력 핸들 (위쪽 가운데) */}
       <Handle
         type="target"
