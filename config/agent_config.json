@@ -331,6 +331,283 @@
       "thinking": true
     },
     {
+      "name": "api_endpoint_coder",
+      "role": "FastAPI 라우터 및 엔드포인트 구현",
+      "system_prompt_file": "prompts/api_endpoint_coder.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "thinking": false
+    },
+    {
+      "name": "business_logic_coder",
+      "role": "도메인 모델 및 서비스 레이어 구현",
+      "system_prompt_file": "prompts/business_logic_coder.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "thinking": true
+    },
+    {
+      "name": "data_access_coder",
+      "role": "Repository/ORM 및 데이터베이스 연동",
+      "system_prompt_file": "prompts/data_access_coder.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "thinking": false
+    },
+    {
+      "name": "ui_component_coder",
+      "role": "React 컴포넌트 구현",
+      "system_prompt_file": "prompts/ui_component_coder.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "thinking": false
+    },
+    {
+      "name": "state_management_coder",
+      "role": "Zustand/Redux 스토어 및 상태 관리",
+      "system_prompt_file": "prompts/state_management_coder.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "thinking": false
+    },
+    {
+      "name": "api_client_coder",
+      "role": "API 클라이언트 코드 구현",
+      "system_prompt_file": "prompts/api_client_coder.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "thinking": false
+    },
+    {
+      "name": "unit_test_coder",
+      "role": "단위 테스트 코드 작성",
+      "system_prompt_file": "prompts/unit_test_coder.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-haiku-4-5-20251001",
+      "thinking": false
+    },
+    {
+      "name": "integration_test_coder",
+      "role": "통합 테스트 코드 작성",
+      "system_prompt_file": "prompts/integration_test_coder.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-haiku-4-5-20251001",
+      "thinking": false
+    },
+    {
+      "name": "e2e_test_coder",
+      "role": "E2E 테스트 코드 작성",
+      "system_prompt_file": "prompts/e2e_test_coder.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-haiku-4-5-20251001",
+      "thinking": false
+    },
+    {
+      "name": "api_documenter",
+      "role": "API 문서 작성 (OpenAPI/Swagger)",
+      "system_prompt_file": "prompts/api_documenter.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-haiku-4-5-20251001",
+      "thinking": false
+    },
+    {
+      "name": "code_documenter",
+      "role": "코드 주석 및 Docstring 작성",
+      "system_prompt_file": "prompts/code_documenter.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-haiku-4-5-20251001",
+      "thinking": false
+    },
+    {
+      "name": "user_guide_writer",
+      "role": "사용자 가이드 및 튜토리얼 작성",
+      "system_prompt_file": "prompts/user_guide_writer.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-haiku-4-5-20251001",
+      "thinking": false
+    },
+    {
+      "name": "code_reviewer",
+      "role": "일반 코드 품질 검토",
+      "system_prompt_file": "prompts/code_reviewer.txt",
+      "allowed_tools": [
+        "read",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-haiku-4-5-20251001",
+      "thinking": false
+    },
+    {
+      "name": "api_tester",
+      "role": "API 수동 테스트",
+      "system_prompt_file": "prompts/api_tester.txt",
+      "allowed_tools": [
+        "read",
+        "bash",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-haiku-4-5-20251001",
+      "thinking": false
+    },
+    {
+      "name": "pr_creator",
+      "role": "GitHub PR 생성 및 상세 설명",
+      "system_prompt_file": "prompts/pr_creator.txt",
+      "allowed_tools": [
+        "bash",
+        "read",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-haiku-4-5-20251001",
+      "thinking": false
+    },
+    {
+      "name": "deployment_manager",
+      "role": "배포 실행 및 롤백 관리",
+      "system_prompt_file": "prompts/deployment_manager.txt",
+      "allowed_tools": [
+        "bash",
+        "read",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-haiku-4-5-20251001",
+      "thinking": false
+    },
+    {
+      "name": "error_handler_coder",
+      "role": "예외 처리 및 에러 핸들러 구현",
+      "system_prompt_file": "prompts/error_handler_coder.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "thinking": false
+    },
+    {
+      "name": "validator_coder",
+      "role": "입력 검증 로직 구현",
+      "system_prompt_file": "prompts/validator_coder.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "thinking": false
+    },
+    {
+      "name": "data_migration_coder",
+      "role": "데이터 이관/변환 스크립트 작성",
+      "system_prompt_file": "prompts/data_migration_coder.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "thinking": false
+    },
+    {
+      "name": "release_manager",
+      "role": "릴리스 노트 및 체인지로그 작성",
+      "system_prompt_file": "prompts/release_manager.txt",
+      "allowed_tools": [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "glob",
+        "grep"
+      ],
+      "model": "claude-haiku-4-5-20251001",
+      "thinking": false
+    },
+    {
       "name": "local",
       "role": "범용 AI 어시스턴트 (유저/프로젝트 설정만 사용)",
       "system_prompt_file": "prompts/local.txt",
