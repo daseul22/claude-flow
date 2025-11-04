@@ -59,8 +59,16 @@ export const MergeNodeConfig: React.FC<MergeNodeConfigProps> = ({ node }) => {
     delay: 3000,
   })
 
-  // 입력 필드에서 키 이벤트 전파 방지
+  // 입력 필드에서 키 이벤트 전파 방지 (단, 저장 단축키는 예외)
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+    const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey
+
+    // Cmd+S / Ctrl+S는 전파 허용 (저장 기능)
+    if (cmdOrCtrl && e.key === 's') {
+      return // stopPropagation 하지 않고 전파 허용
+    }
+
     e.stopPropagation()
   }
 
