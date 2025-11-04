@@ -2,7 +2,6 @@ import { X, Maximize2, Send, Loader2, RefreshCw, History } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { LogItem, useWorkflowStore } from '@/stores/workflowStore'
 import { ParsedContent } from './ParsedContent'
-import { AutoScrollContainer } from './AutoScrollContainer'
 import { Button } from './ui/button'
 import { continueNodeConversation, API_BASE, getNodeSessions, type NodeSession } from '@/lib/api'
 

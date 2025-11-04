@@ -5,13 +5,11 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react'
-import { Button } from '@/components/ui/button'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
 import { useWorkflowStore } from '@/stores/workflowStore'
-import { HelpCircle, Search, Info, ChevronDown } from 'lucide-react'
+import { Search, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { WorkflowNode, getAgents, Agent, getTools, Tool } from '@/lib/api'
 import { useNodeConfig } from './hooks/useNodeConfig'
@@ -38,7 +36,6 @@ interface WorkerNodeData {
 
 export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
   const [isToolsOpen, setIsToolsOpen] = useState(false)
-  const [isExamplesOpen, setIsExamplesOpen] = useState(false)
   const [agents, setAgents] = useState<Agent[]>([])
   const [tools, setTools] = useState<Tool[]>([])
   const [toolSearchQuery, setToolSearchQuery] = useState('')
@@ -47,8 +44,6 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
   const [systemPrompt, setSystemPrompt] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
   const nodes = useWorkflowStore((state) => state.nodes)
-  const deleteNode = useWorkflowStore((state) => state.deleteNode)
-  const setSelectedNodeId = useWorkflowStore((state) => state.setSelectedNodeId)
 
   // Agent 및 Tool 목록 로드
   useEffect(() => {
@@ -111,7 +106,7 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
   }, [agents, node.data.agent_name, node.data.system_prompt])
 
   // 노드 설정 Hook
-  const { data, setData, hasChanges, saveMessage, save, reset } = useNodeConfig<WorkerNodeData>({
+  const { data, setData, hasChanges, save, reset } = useNodeConfig<WorkerNodeData>({
     nodeId: node.id,
     initialData,
     onValidate: (data) => {
@@ -177,13 +172,6 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
 
   // 현재 Agent 정보
   const currentAgent = agents.find((a) => a.name === node.data.agent_name)
-
-
-  // 노드 삭제 핸들러
-  const handleDelete = () => {
-    deleteNode(node.id)
-    setSelectedNodeId(null)
-  }
 
   return (
     <div className="h-full overflow-hidden flex flex-col">

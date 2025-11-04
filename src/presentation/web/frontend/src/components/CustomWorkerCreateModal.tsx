@@ -596,6 +596,61 @@ export const CustomWorkerCreateModal: React.FC<CustomWorkerCreateModalProps> = (
         {/* 단계: 입력 */}
         {step === 'input' && (
           <div className="space-y-4">
+            {/* 템플릿 빠른 선택 */}
+            <div>
+              <Label>빠른 템플릿 선택 (선택사항)</Label>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setWorkerRequirements('코드 품질을 검토하고 개선 사항을 제안하는 워커. 보안 취약점, 성능 이슈, 코드 스타일을 분석합니다.')}
+                  className="text-left h-auto py-2"
+                >
+                  <div>
+                    <div className="font-medium text-xs">코드 리뷰어</div>
+                    <div className="text-xs text-muted-foreground">품질 & 보안 검토</div>
+                  </div>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setWorkerRequirements('프로젝트 문서를 생성하고 API 명세를 작성하는 워커. 코드를 분석하여 README, 사용 가이드를 작성합니다.')}
+                  className="text-left h-auto py-2"
+                >
+                  <div>
+                    <div className="font-medium text-xs">문서 작성자</div>
+                    <div className="text-xs text-muted-foreground">README & API 문서</div>
+                  </div>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setWorkerRequirements('데이터를 분석하고 인사이트를 추출하는 워커. CSV, JSON 파일을 읽고 통계를 계산하며 트렌드를 발견합니다.')}
+                  className="text-left h-auto py-2"
+                >
+                  <div>
+                    <div className="font-medium text-xs">데이터 분석가</div>
+                    <div className="text-xs text-muted-foreground">통계 & 인사이트</div>
+                  </div>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setWorkerRequirements('프로젝트 의존성과 라이선스를 검토하는 워커. 보안 취약점이 있는 패키지를 탐지하고 업데이트를 제안합니다.')}
+                  className="text-left h-auto py-2"
+                >
+                  <div>
+                    <div className="font-medium text-xs">의존성 관리자</div>
+                    <div className="text-xs text-muted-foreground">패키지 & 라이선스</div>
+                  </div>
+                </Button>
+              </div>
+            </div>
+
             <div>
               <Label htmlFor="requirements">원하는 워커의 요구사항</Label>
               <Textarea

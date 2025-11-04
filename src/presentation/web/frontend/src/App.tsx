@@ -11,7 +11,6 @@ import { NodePanel } from './components/NodePanel'
 import { RightSidebar } from './components/RightSidebar'
 import { WorkflowSelector } from './components/WorkflowSelector'
 import { Button } from './components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './components/ui/dialog'
 import { useWorkflowStore } from './stores/workflowStore'
 import {
   selectProject,
@@ -48,7 +47,6 @@ function App() {
     edges,
     restoreFromSession,
     execution,
-    getSelectedNode,
     setSelectedNodeId,
     clearPendingUserInput,
   } = useWorkflowStore()

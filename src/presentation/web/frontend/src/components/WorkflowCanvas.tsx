@@ -49,7 +49,6 @@ export const WorkflowCanvas: React.FC = () => {
     addEdge: addStoreEdge,
     updateNodePosition,
     deleteNode,
-    deleteEdge,
     execution,
     setSelectedNodeId,
     selectedNodeId,

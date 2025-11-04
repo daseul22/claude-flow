@@ -21,7 +21,7 @@ interface WorkflowSelectorProps {
 
 export function WorkflowSelector({
   currentProjectPath,
-  currentWorkflow,
+  currentWorkflow: _currentWorkflow,
   currentWorkflowName,
   onWorkflowChange,
   onWorkflowNameChange,

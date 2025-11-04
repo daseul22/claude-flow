@@ -13,7 +13,7 @@ import { NodeConfigPanel } from './NodeConfigPanel'
 import { ExecutionLogsPanel } from './ExecutionLogsPanel'
 import { ValidationErrorsPanel } from './ValidationErrorsPanel'
 import { useWorkflowStore } from '@/stores/workflowStore'
-import { Settings, FileText, AlertCircle, ChevronRight } from 'lucide-react'
+import { Settings, FileText, AlertCircle } from 'lucide-react'
 import { Badge } from './ui/badge'
 
 interface RightSidebarProps {
