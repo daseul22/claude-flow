@@ -2,11 +2,22 @@
 워크플로우 라우터 공통 의존성
 
 워크플로우 관련 라우터에서 사용하는 공통 의존성을 제공합니다.
+
+의존성 주입 패턴:
+    - lru_cache: 싱글톤 패턴 (ConfigLoader 등)
+    - 프로젝트별 캐싱: WorkflowExecutor는 프로젝트별로 인스턴스 유지
+    - Depends(): FastAPI 의존성 주입
+
+Example:
+    @router.post("/execute")
+    async def execute_workflow(
+        executor: WorkflowExecutor = Depends(get_workflow_executor)
+    ):
+        ...
 """
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict
 
 from fastapi import Depends
 
@@ -26,7 +37,7 @@ WORKFLOWS_DIR: Path = ProjectConfig.WORKFLOWS_DIR
 WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
 
 # 프로젝트별 WorkflowExecutor 캐시
-_executors: Dict[str, WorkflowExecutor] = {}
+_executors: dict[str, WorkflowExecutor] = {}
 
 
 @lru_cache()

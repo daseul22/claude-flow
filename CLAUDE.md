@@ -71,13 +71,36 @@ mypy src/
 presentation/    # FastAPI 라우터, React 프론트엔드
     └─ web/
         ├─ routers/       # API 엔드포인트 (agents, workflows, templates 등)
-        ├─ services/      # 비즈니스 로직 (WorkflowExecutor, TemplateManager)
+        │   ├─ workflows/ # 워크플로우 관련 라우터 (패키지)
+        │   └─ projects/  # 프로젝트 관련 라우터 (패키지)
+        ├─ schemas/       # Pydantic 스키마 (모듈화됨)
+        │   ├─ workflow_nodes.py       # 노드 데이터 스키마
+        │   ├─ workflow_core.py        # 워크플로우 핵심 구조
+        │   ├─ workflow_api.py         # API 요청/응답
+        │   ├─ project_schemas.py      # 프로젝트 설정
+        │   ├─ validation_schemas.py   # 검증 스키마
+        │   └─ ...
+        ├─ services/      # 비즈니스 로직
+        │   ├─ node_executors/         # 노드 실행기 (Strategy Pattern)
+        │   │   ├─ base.py                 # BaseNodeExecutor (추상 클래스)
+        │   │   ├─ input_executor.py       # Input 노드 전용
+        │   │   ├─ worker_executor.py      # Worker 노드 전용
+        │   │   ├─ condition_executor.py   # Condition 노드
+        │   │   └─ merge_executor.py       # Merge 노드
+        │   ├─ workflow_executor.py    # 워크플로우 실행 엔진
+        │   ├─ workflow_node_executor.py  # 노드 실행 오케스트레이터
+        │   └─ ...
         └─ frontend/      # React + ReactFlow 캔버스
 
 infrastructure/  # 외부 시스템 연동
     ├─ claude/        # Claude Agent SDK 래퍼 (SDKExecutor, WorkerAgent)
     ├─ config/        # 설정 로더 (JSON, YAML, 환경변수)
-    └─ logging/       # 구조화된 로깅 (structlog)
+    ├─ logging/       # 구조화된 로깅 (structlog)
+    └─ errors/        # 표준화된 에러 클래스 (새로 추가!)
+        ├─ base.py                      # BaseError 추상 클래스
+        ├─ domain_errors.py             # 도메인 레이어 에러
+        ├─ infrastructure_errors.py     # 인프라 레이어 에러
+        └─ presentation_errors.py       # API 레이어 에러
 
 domain/          # 비즈니스 엔티티
     └─ models/        # AgentConfig, Message, Workflow 등
@@ -151,9 +174,17 @@ cp .env.example .env
 
 - **포맷터**: Black (line length 100)
 - **린터**: Ruff
-- **타입 힌트**: 모든 함수에 타입 힌트 필수
+- **타입 검사**: mypy (설정: `pyproject.toml`)
+- **타입 힌트**:
+  - Python 3.10+ 스타일 사용: `dict[str, Any]`, `list[str]`, `str | None`
+  - 모든 함수에 타입 힌트 필수
+  - Protocol을 사용한 순환 import 해결
 - **Docstring**: Google 스타일 (매개변수, 반환값, 예외 명시)
 - **로깅**: `structlog` 사용 (`get_logger(__name__)`)
+- **에러 처리**:
+  - 표준화된 에러 클래스 사용 (`infrastructure.errors`)
+  - BaseError를 상속받아 구체적인 에러 타입 정의
+  - 일관된 에러 응답 형식 (`to_dict()` 메서드)
 
 ### 프론트엔드 (React/TypeScript)
 
@@ -306,6 +337,42 @@ cd src/presentation/web/frontend && npm run dev
 
 ## 최근 주요 변경사항
 
+- **2025-01-09**: 🚀🚀🚀 **코드베이스 품질 개선 리팩토링 (Phase 2+3) 완료**
+
+  ### Phase 2: 대형 파일 분해 (Strategy Pattern 적용)
+  - **workflow_node_executor.py 리팩토링**: 1029줄 → 239줄 (76.8% 감소)
+    - Strategy Pattern 적용: 노드 타입별 Executor 분리
+    - 새 패키지: `services/node_executors/` (base, input_executor, worker_executor, condition_executor, merge_executor)
+    - 효과: 단일 책임 원칙(SRP) 준수, 독립 테스트 가능, 노드 타입 추가 용이
+
+  - **schemas/workflow.py 모듈화**: 548줄 → 8개 파일로 분할
+    - `workflow_nodes.py`: 노드 데이터 스키마 (115줄)
+    - `workflow_core.py`: WorkflowNode, WorkflowEdge, Workflow (71줄)
+    - `workflow_api.py`: API 요청/응답 및 이벤트 (123줄)
+    - `project_schemas.py`, `validation_schemas.py`, `display_schemas.py`, `log_session_schemas.py`
+    - 호환성 레이어: `workflow.py` (기존 import 경로 유지)
+
+  ### Phase 3: 코드 품질 개선
+  - **타입 힌팅 강화** (Phase 3.1)
+    - pyproject.toml에 mypy 설정 추가 (strict mode ready)
+    - Protocol을 사용한 순환 import 해결 (ConditionEvaluatorProtocol, TemplateRendererProtocol)
+    - Python 3.10+ 스타일: `dict[str, Any]`, `list[str]`, `str | None`
+
+  - **에러 핸들링 표준화** (Phase 3.2)
+    - 새 패키지: `infrastructure/errors/`
+    - BaseError 추상 클래스 및 계층 구조:
+      - DomainError (ValidationError, ConfigurationError, WorkflowValidationError, NodeExecutionError)
+      - InfrastructureError (SDKError, CLIError, StorageError, NetworkError)
+      - PresentationError (APIError, AuthenticationError, ResourceNotFoundError, ConflictError)
+    - 일관된 에러 응답 형식 (`to_dict()` 메서드)
+
+  - **의존성 주입 패턴 개선** (Phase 3.3)
+    - FastAPI Depends() 기반 통일
+    - 싱글톤 패턴 (@lru_cache) 및 프로젝트별 캐싱
+    - 타입 힌팅 및 Docstring 개선
+
+  **전체 효과**: 최대 파일 크기 1029줄 → 650줄 (36.8% 감소), 코드 가독성·유지보수성·테스트 용이성 대폭 향상
+
 - **2025-11-04**: 🔧 순환 import 및 FastAPI 라우터 오류 해결
   - **순환 import 해결**: `workflow_executor.py` ↔ `workflow_node_executor.py` 간 순환 참조 제거
     - 새 모듈 생성: `workflow_utils.py` (공통 유틸리티 함수 분리)
@@ -314,6 +381,7 @@ cd src/presentation/web/frontend && npm run dev
     - `@router.post("")` → `@router.post("/")`
     - `@router.get("")` → `@router.get("/")`
   - **결과**: 서버 정상 시작, 모듈 의존성 정리 완료
+
 - **2025-11-04**: 🎉🎉🎉 리팩토링 Phase 1+2+3 완료 - 전체 코드베이스 대규모 리팩토링
   - **Phase 1 (WorkflowExecutor)**: 1655줄 → 569줄 (65.6% 감소)
     - WorkflowGraphManager: 그래프 관리 로직 분리
