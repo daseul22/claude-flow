@@ -7,7 +7,7 @@
 import asyncio
 import time
 from datetime import datetime
-from typing import Dict, Any, AsyncIterator, List, Optional, Tuple
+from typing import Dict, Any, AsyncIterator, List, Optional, Tuple, Set
 from collections import deque
 from dataclasses import replace
 from pathlib import Path
@@ -200,6 +200,11 @@ class WorkflowExecutor:
         # Human-in-the-Loop 지원: Worker가 사용자 입력을 요청할 때 사용
         self.user_input_queues: Dict[str, asyncio.Queue] = {}
 
+        # 취소 요청 플래그 (세션별)
+        # {session_id}
+        # 워크플로우 실행 중 취소 요청이 들어오면 즉시 중단
+        self.cancelled_sessions: Set[str] = set()
+
         # 커스텀 워커 로드 (프로젝트 경로가 주어진 경우)
         self.custom_worker_names = set()
         if project_path:
@@ -259,6 +264,30 @@ class WorkflowExecutor:
             logger.error(error_msg)
             raise ValueError(error_msg)
         return config
+
+    def cancel_session(self, session_id: str) -> None:
+        """
+        세션 취소 요청
+
+        Args:
+            session_id: 취소할 세션 ID
+        """
+        self.cancelled_sessions.add(session_id)
+        logger.info(f"[{session_id}] 세션 취소 요청 등록")
+
+    def _check_cancellation(self, session_id: str) -> None:
+        """
+        취소 플래그 체크
+
+        Args:
+            session_id: 세션 ID
+
+        Raises:
+            asyncio.CancelledError: 취소 요청이 있는 경우
+        """
+        if session_id in self.cancelled_sessions:
+            logger.info(f"[{session_id}] 취소 플래그 감지 - CancelledError 발생")
+            raise asyncio.CancelledError(f"Session {session_id} was cancelled")
 
     def _topological_sort(
         self, nodes: List[WorkflowNode], edges: List[WorkflowEdge], start_node_id: Optional[str] = None
@@ -1097,6 +1126,9 @@ class WorkflowExecutor:
         """
         node_id = node.id
 
+        # 취소 플래그 체크 (각 노드 실행 전)
+        self._check_cancellation(session_id)
+
         # Input 노드 처리
         if node.type == "input":
             if isinstance(node.data, InputNodeData):
@@ -1418,6 +1450,9 @@ class WorkflowExecutor:
                     resume_session_id=previous_session_id,
                     user_input_callback=user_input_callback_impl
                 ):
+                    # 🔴 취소 플래그 체크 (SDK 스트리밍 중에도 즉시 중단)
+                    self._check_cancellation(session_id)
+
                     # 특수 이벤트 마커 감지 (Human-in-the-Loop)
                     if chunk.startswith("@EVENT:user_input_request:"):
                         import json
@@ -1961,6 +1996,9 @@ class WorkflowExecutor:
             raise
 
         finally:
+            # 취소 플래그 제거 (메모리 누수 방지)
+            self.cancelled_sessions.discard(session_id)
+
             # 세션별 파일 핸들러 제거 (메모리 누수 방지)
             remove_session_file_handlers(session_id)
 

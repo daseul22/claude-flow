@@ -332,10 +332,14 @@ class BackgroundWorkflowManager:
 
         bg_task = self.tasks[session_id]
 
-        # Task 취소
+        # WorkflowExecutor에 취소 플래그 등록 (각 노드 실행 전 체크)
+        self.executor.cancel_session(session_id)
+
+        # Task 취소 (asyncio.CancelledError 발생)
         bg_task.task.cancel()
 
         try:
+            # Task가 완전히 종료될 때까지 대기 (정리 작업 완료)
             await bg_task.task
         except asyncio.CancelledError:
             logger.info(f"[{session_id}] 워크플로우 취소 완료")

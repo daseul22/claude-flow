@@ -38,6 +38,7 @@ export interface PendingUserInput {
 interface WorkflowExecutionState {
   isExecuting: boolean
   currentNodeId: string | null
+  currentSessionId: string | null  // 현재 실행 중인 세션 ID (중지 버튼용)
   nodeOutputs: Record<string, string>
   nodeInputs: Record<string, string>  // 노드별 입력 (디버깅용)
   nodeMeta: Record<string, NodeExecutionMeta>
@@ -103,6 +104,7 @@ interface WorkflowStore {
   startExecution: () => void
   stopExecution: () => void
   setCurrentNode: (nodeId: string | null) => void
+  setCurrentSessionId: (sessionId: string | null) => void
   setNodeInput: (nodeId: string, input: string) => void
   addNodeOutput: (nodeId: string, output: string) => void
   addLog: (nodeId: string, type: WorkflowExecutionState['logs'][0]['type'], message: string) => void
@@ -132,6 +134,7 @@ interface WorkflowStore {
 const initialExecutionState: WorkflowExecutionState = {
   isExecuting: false,
   currentNodeId: null,
+  currentSessionId: null,
   nodeOutputs: {},
   nodeInputs: {},  // 노드별 입력 초기화
   nodeMeta: {},
@@ -349,6 +352,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         ...state.execution,
         isExecuting: false,
         currentNodeId: null,
+        currentSessionId: null,  // 세션 ID도 초기화
         // 모든 노드 상태 초기화 (실행 중단 시)
         nodeMeta: Object.keys(state.execution.nodeMeta).reduce((acc, nodeId) => {
           acc[nodeId] = {
@@ -366,6 +370,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       execution: {
         ...state.execution,
         currentNodeId: nodeId,
+      },
+    })),
+
+  setCurrentSessionId: (sessionId) =>
+    set((state) => ({
+      execution: {
+        ...state.execution,
+        currentSessionId: sessionId,
       },
     })),
 
@@ -607,6 +619,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     const execution: WorkflowExecutionState = {
       isExecuting: isStillRunning,
       currentNodeId: isStillRunning ? session.current_node_id : null,
+      currentSessionId: isStillRunning ? session.session_id : null,
       nodeOutputs: session.node_outputs,
       nodeInputs: session.node_inputs || {},  // 노드 입력 복원
       nodeMeta,
@@ -623,7 +636,25 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
           case 'node_output':
             message = eventData.chunk || ''
-            break
+            // chunk_type에 따라 로그 타입을 결정 (InputNode.tsx와 동일한 로직)
+            const chunkType = eventData.chunk_type || 'text'
+            let logType: 'input' | 'execution' | 'output' = 'output'
+
+            if (chunkType === 'input') {
+              logType = 'input'
+            } else if (chunkType === 'thinking' || chunkType === 'tool') {
+              logType = 'execution'
+            } else {
+              logType = 'output'
+            }
+
+            // 타입을 eventType 대신 logType으로 설정
+            return {
+              nodeId: log.node_id,
+              type: logType,
+              message,
+              timestamp: new Date(log.timestamp || Date.now()).getTime(),
+            }
 
           case 'node_complete':
             message = `✅ ${eventData.agent_name || eventData.node_type || 'Unknown'} 완료`

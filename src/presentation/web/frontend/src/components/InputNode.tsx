@@ -12,9 +12,9 @@ import { Handle, Position, NodeProps } from 'reactflow'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { Play, Zap } from 'lucide-react'
+import { Play, Zap, Square } from 'lucide-react'
 import { useWorkflowStore } from '@/stores/workflowStore'
-import { executeWorkflow } from '@/lib/api'
+import { executeWorkflow, cancelWorkflowSession } from '@/lib/api'
 
 interface InputNodeData {
   initial_input: string
@@ -33,6 +33,7 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
     startExecution,
     stopExecution,
     setCurrentNode,
+    setCurrentSessionId,
     addNodeOutput,
     setNodeInput,
     addLog,
@@ -45,6 +46,34 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
 
   // 워크플로우 진행 중 여부 확인 (전역 실행 상태)
   const isWorkflowRunning = execution.isExecuting
+
+  // 워크플로우 중지
+  const handleStop = async () => {
+    // AbortController로 프론트엔드 스트림 취소
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+
+    // 백엔드 세션도 취소 (실행 중인 SDK 종료)
+    // Zustand store에서 currentSessionId 가져오기 (즉시 중단 가능)
+    const sessionId = execution.currentSessionId
+
+    if (sessionId) {
+      try {
+        await cancelWorkflowSession(sessionId)
+        console.log('[InputNode] 워크플로우 세션 취소 완료:', sessionId)
+      } catch (err) {
+        console.error('[InputNode] 워크플로우 세션 취소 실패:', err)
+      }
+    } else {
+      console.warn('[InputNode] 현재 실행 중인 세션 ID를 찾을 수 없습니다')
+    }
+
+    stopExecution()
+    setCurrentSessionId(null)
+    addLog('', 'error', '⏹️ 사용자가 워크플로우 실행을 중지했습니다')
+  }
 
   // 워크플로우 실행 (이 Input 노드에서 시작)
   const handleExecute = async () => {
@@ -181,13 +210,18 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
         // lastEventIndex (중복 방지용)
         lastEventIndex,
         // startNodeId (이 Input 노드에서만 시작)
-        id
+        id,
+        // onSessionId (세션 ID를 즉시 받아서 store에 저장)
+        (sessionId) => {
+          setCurrentSessionId(sessionId)
+          localStorage.setItem('claude-flow-workflow-session-id', sessionId)
+          console.log('[InputNode] 세션 ID 즉시 저장:', sessionId)
+        }
       )
 
-      // 세션 ID를 localStorage에 저장 (새로고침 후 복원용)
+      // 최종 세션 ID 확인 (await 완료 후)
       if (sessionId) {
-        localStorage.setItem('claude-flow-workflow-session-id', sessionId)
-        console.log('[InputNode] 세션 ID 저장:', sessionId)
+        console.log('[InputNode] 워크플로우 실행 완료, 세션 ID:', sessionId)
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
@@ -222,16 +256,27 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
             {(initial_input?.length || 0) > 80 && '...'}
           </div>
 
-          {/* 실행 버튼 */}
-          <Button
-            onClick={handleExecute}
-            disabled={!initial_input?.trim() || isWorkflowRunning}
-            size="sm"
-            className="w-full h-6 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] disabled:opacity-50"
-          >
-            <Play className="mr-1 h-3 w-3" />
-            시작
-          </Button>
+          {/* 실행/중지 버튼 */}
+          {isWorkflowRunning ? (
+            <Button
+              onClick={handleStop}
+              size="sm"
+              className="w-full h-6 bg-red-600 hover:bg-red-700 text-white text-[10px]"
+            >
+              <Square className="mr-1 h-3 w-3" />
+              중지
+            </Button>
+          ) : (
+            <Button
+              onClick={handleExecute}
+              disabled={!initial_input?.trim()}
+              size="sm"
+              className="w-full h-6 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] disabled:opacity-50"
+            >
+              <Play className="mr-1 h-3 w-3" />
+              시작
+            </Button>
+          )}
         </CardContent>
       </Card>
 

@@ -159,7 +159,8 @@ export async function executeWorkflow(
   signal?: AbortSignal,
   sessionId?: string,
   lastEventIndex?: number,
-  startNodeId?: string
+  startNodeId?: string,
+  onSessionId?: (sessionId: string) => void
 ): Promise<string | null> {
   const requestBody: any = {
     workflow,
@@ -201,6 +202,11 @@ export async function executeWorkflow(
   // 세션 ID 추출 (X-Session-ID 헤더)
   const returnedSessionId = response.headers.get('X-Session-ID')
   console.log('[executeWorkflow] 반환된 세션 ID:', returnedSessionId)
+
+  // 세션 ID를 즉시 콜백으로 전달 (중지 버튼이 즉시 작동하도록)
+  if (returnedSessionId && onSessionId) {
+    onSessionId(returnedSessionId)
+  }
 
   const reader = response.body?.getReader()
   if (!reader) {

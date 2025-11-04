@@ -155,6 +155,9 @@ function App() {
           if (isActuallyRunning) {
             console.log('🔌 실행 중인 세션 감지 - 스트림 자동 재접속 시작')
 
+              // 재접속 시 즉시 세션 ID를 store에 설정 (중지 버튼이 작동하도록)
+              useWorkflowStore.getState().setCurrentSessionId(lastSessionId)
+
               // 현재 로그 개수 확인 (중복 방지용)
               const lastEventIndex = session.logs.length > 0 ? session.logs.length - 1 : undefined
 
@@ -184,9 +187,25 @@ function App() {
                         break
 
                       case 'node_output':
-                        store.addNodeOutput(node_id, eventData.chunk)
+                        // log_type이 'output'인 경우만 다음 노드로 전달
+                        if (eventData.log_type === 'output') {
+                          store.addNodeOutput(node_id, eventData.chunk)
+                        }
+                        // 모든 chunk를 로그에 추가 (InputNode.tsx와 동일한 로직)
                         if (eventData.chunk && eventData.chunk.trim().length > 0) {
-                          store.addLog(node_id, 'output', eventData.chunk)
+                          // chunk_type에 따라 로그 타입 결정
+                          const chunkType = eventData.chunk_type || 'text'
+                          let logType: 'input' | 'execution' | 'output' = 'output'
+
+                          if (chunkType === 'input') {
+                            logType = 'input'
+                          } else if (chunkType === 'thinking' || chunkType === 'tool') {
+                            logType = 'execution'
+                          } else {
+                            logType = 'output'
+                          }
+
+                          store.addLog(node_id, logType, eventData.chunk)
                         }
                         break
 
