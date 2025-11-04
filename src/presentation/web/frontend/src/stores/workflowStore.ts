@@ -61,6 +61,9 @@ interface WorkflowStore {
   // 선택된 노드
   selectedNodeId: string | null
 
+  // 복사된 노드 (복사/붙여넣기)
+  copiedNode: WorkflowNode | null
+
   // 실행 상태
   execution: WorkflowExecutionState
 
@@ -81,6 +84,10 @@ interface WorkflowStore {
   // 노드 선택
   setSelectedNodeId: (nodeId: string | null) => void
   getSelectedNode: () => WorkflowNode | null
+
+  // 복사/붙여넣기
+  copyNode: (nodeId: string) => void
+  pasteNode: () => WorkflowNode | null
 
   // 워크플로우 메타데이터
   setWorkflowName: (name: string) => void
@@ -145,6 +152,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   workflowDescription: '',
   currentWorkflowFileName: 'default',
   selectedNodeId: null,
+  copiedNode: null,
   execution: initialExecutionState,
   validationErrors: [],
   isValidating: false,
@@ -212,6 +220,51 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     const state = get()
     if (!state.selectedNodeId) return null
     return state.nodes.find((node) => node.id === state.selectedNodeId) || null
+  },
+
+  // 복사/붙여넣기
+  copyNode: (nodeId) => {
+    const state = get()
+    const nodeToCopy = state.nodes.find((node) => node.id === nodeId)
+    if (!nodeToCopy) {
+      console.warn(`[workflowStore] 노드를 찾을 수 없습니다: ${nodeId}`)
+      return
+    }
+    set({ copiedNode: nodeToCopy })
+    console.log('[workflowStore] 노드 복사됨:', nodeId)
+  },
+
+  pasteNode: () => {
+    const state = get()
+    if (!state.copiedNode) {
+      console.warn('[workflowStore] 복사된 노드가 없습니다')
+      return null
+    }
+
+    // 새 노드 ID 생성
+    const newNodeId = `${state.copiedNode.type}-${Date.now()}`
+
+    // 새 노드 위치 (원본에서 오프셋)
+    const newPosition = {
+      x: state.copiedNode.position.x + 50,
+      y: state.copiedNode.position.y + 50,
+    }
+
+    // 새 노드 생성
+    const newNode: WorkflowNode = {
+      ...state.copiedNode,
+      id: newNodeId,
+      position: newPosition,
+    }
+
+    // 노드 추가
+    set((state) => ({
+      nodes: [...state.nodes, newNode],
+      selectedNodeId: newNodeId,  // 새 노드 선택
+    }))
+
+    console.log('[workflowStore] 노드 붙여넣기 완료:', newNodeId)
+    return newNode
   },
 
   // 워크플로우 메타데이터

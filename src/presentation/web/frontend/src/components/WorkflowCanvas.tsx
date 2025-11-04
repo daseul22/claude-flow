@@ -52,6 +52,9 @@ export const WorkflowCanvas: React.FC = () => {
     deleteEdge,
     execution,
     setSelectedNodeId,
+    selectedNodeId,
+    copyNode,
+    pasteNode,
     validationErrors,
     setValidationErrors,
     setIsValidating,
@@ -196,6 +199,49 @@ export const WorkflowCanvas: React.FC = () => {
     setLocalNodes,
   })
 
+  // 키보드 단축키 핸들러
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // 입력 필드에 포커스가 있으면 단축키 비활성화
+      const target = event.target as HTMLElement
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+      const ctrlOrCmd = isMac ? event.metaKey : event.ctrlKey
+
+      // Ctrl+C / Cmd+C: 노드 복사
+      if (ctrlOrCmd && event.key === 'c' && selectedNodeId) {
+        event.preventDefault()
+        copyNode(selectedNodeId)
+        console.log('[WorkflowCanvas] 노드 복사:', selectedNodeId)
+      }
+
+      // Ctrl+V / Cmd+V: 노드 붙여넣기
+      if (ctrlOrCmd && event.key === 'v') {
+        event.preventDefault()
+        const newNode = pasteNode()
+        if (newNode) {
+          console.log('[WorkflowCanvas] 노드 붙여넣기:', newNode.id)
+        }
+      }
+
+      // Delete / Backspace: 노드 삭제
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedNodeId) {
+        event.preventDefault()
+        deleteNode(selectedNodeId)
+        console.log('[WorkflowCanvas] 노드 삭제:', selectedNodeId)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedNodeId, copyNode, pasteNode, deleteNode])
 
   // 노드 변경 핸들러
   const handleNodesChange: OnNodesChange = useCallback(
@@ -374,10 +420,27 @@ export const WorkflowCanvas: React.FC = () => {
         elevateNodesOnSelect={false}
         fitView={false}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+        snapToGrid={true}
+        snapGrid={[16, 16]}
       >
-        <Background />
+        <Background gap={16} />
         <Controls />
-        <MiniMap />
+        <MiniMap
+          nodeColor={(node) => {
+            // 노드 상태에 따른 색상
+            if (node.data?.hasError) return '#ef4444' // 빨강 (에러)
+            if (node.data?.isExecuting) return '#eab308' // 노랑 (실행 중)
+            if (node.data?.isCompleted) return '#22c55e' // 초록 (완료)
+            // 노드 타입별 기본 색상
+            if (node.type === 'input') return '#10b981' // emerald
+            if (node.type === 'worker') return '#3b82f6' // blue
+            if (node.type === 'condition') return '#f59e0b' // amber
+            if (node.type === 'merge') return '#8b5cf6' // violet
+            return '#9ca3af' // 기본 회색
+          }}
+          zoomable
+          pannable
+        />
 
         {/* 자동 레이아웃 버튼 */}
         <Panel position="bottom-right" className="flex gap-2">
