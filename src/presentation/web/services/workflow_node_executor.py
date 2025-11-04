@@ -687,15 +687,50 @@ class WorkflowNodeExecutor:
                 logger.info(f"[{session_id}] ✅ 사용자 답변 수신: {answer[:100]}...")
                 return answer
 
+            # SDK 세션 ID 콜백 (ResultMessage에서 추출 시 호출됨)
+            session_event_sent = [False]  # 이벤트 전송 플래그 (중복 방지)
+
+            def session_id_callback_impl(sdk_session_id: str) -> None:
+                """SDK 세션 ID 저장 및 이벤트 전송 (ResultMessage 수신 시)"""
+                logger.info(
+                    f"[{session_id}] ⚡ SDK 세션 ID 획득: {sdk_session_id[:8]}... "
+                    f"(노드 {node_id}, ResultMessage에서 추출)"
+                )
+                # 세션 저장
+                self._save_worker_node_session(node_id, agent_name, sdk_session_id, session_id)
+                # 이벤트 전송 플래그 설정 (다음 청크에서 전송)
+                session_event_sent[0] = False
+
             # Worker 실행
             async for chunk in worker.execute_task(
                 task_description,
                 usage_callback=usage_callback,
                 resume_session_id=previous_session_id,
                 user_input_callback=user_input_callback_impl,
+                session_id_callback=session_id_callback_impl,
             ):
                 # 취소 플래그 체크
                 self._check_cancellation(session_id)
+
+                # 새 세션 생성 시 프론트엔드로 이벤트 전송 (최초 1회)
+                if not session_event_sent[0] and not previous_session_id:
+                    current_sdk_session = self.node_sessions.get(node_id)
+                    if current_sdk_session:
+                        session_event = WorkflowNodeExecutionEvent(
+                            event_type="node_session_created",
+                            node_id=node_id,
+                            data={
+                                "session_id": current_sdk_session,
+                                "agent_name": agent_name,
+                                "created_at": datetime.now().isoformat(),
+                            },
+                        )
+                        logger.info(
+                            f"[{session_id}] 📡 이벤트 전송: node_session_created "
+                            f"(node: {node_id}, sdk_session: {current_sdk_session[:8]}...)"
+                        )
+                        yield session_event
+                        session_event_sent[0] = True
 
                 # 특수 이벤트 마커 감지
                 if chunk.startswith("@EVENT:user_input_request:"):
@@ -910,11 +945,28 @@ class WorkflowNodeExecutor:
                     f"(입력: {node_token_usage.input_tokens}, 출력: {node_token_usage.output_tokens})"
                 )
 
+            # SDK 세션 ID 콜백 (추가 프롬프트 실행 시에도 즉시 저장)
+            def session_id_callback_impl(sdk_session_id: str) -> None:
+                logger.info(
+                    f"⚡ SDK 세션 ID 조기 획득 (추가 프롬프트): {sdk_session_id[:8]}... "
+                    f"(노드 {node_id})"
+                )
+                # 즉시 업데이트
+                self.node_sessions[node_id] = sdk_session_id
+                if node_id in self.node_session_history:
+                    existing_session = next(
+                        (s for s in self.node_session_history[node_id] if s["session_id"] == sdk_session_id),
+                        None,
+                    )
+                    if existing_session:
+                        existing_session["last_used_at"] = datetime.now().isoformat()
+
             async for chunk in worker.execute_task(
                 additional_prompt,
                 usage_callback=usage_callback,
                 resume_session_id=previous_session_id,
                 user_input_callback=None,
+                session_id_callback=session_id_callback_impl,
             ):
                 node_output_chunks.append(chunk)
 

@@ -281,6 +281,21 @@ function App() {
                         store.addLog(node_id, 'error', `❌ ${eventData.error || 'Unknown error'}`)
                         break
 
+                      case 'node_session_created':
+                        // 노드별 SDK 세션 ID가 생성되었을 때
+                        console.log('[App] 노드 세션 생성:', {
+                          node_id,
+                          session_id: eventData.session_id,
+                          agent_name: eventData.agent_name,
+                        })
+                        // 로그에 기록 (선택적)
+                        store.addLog(
+                          node_id,
+                          'execution',
+                          `🔗 세션 생성: ${eventData.session_id?.substring(0, 8)}... (${eventData.agent_name})`
+                        )
+                        break
+
                       case 'workflow_complete':
                         store.addLog('', 'complete', eventData.message || '🎉 워크플로우 실행 완료')
                         store.setCurrentNode(null)

@@ -160,7 +160,8 @@ Use your thinking process liberally throughout your response to show your reason
         task_description: str,
         usage_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         resume_session_id: Optional[str] = None,
-        user_input_callback: Optional[Callable[[str], Awaitable[str]]] = None
+        user_input_callback: Optional[Callable[[str], Awaitable[str]]] = None,
+        session_id_callback: Optional[Callable[[str], None]] = None
     ) -> AsyncIterator[str]:
         """
         Claude Agent SDK를 사용하여 작업 실행 (Human-in-the-Loop 지원)
@@ -171,6 +172,8 @@ Use your thinking process liberally throughout your response to show your reason
             resume_session_id: 재개할 SDK 세션 ID (선택, 이전 실행의 컨텍스트 유지)
             user_input_callback: 사용자 입력이 필요할 때 호출되는 async 함수 (선택)
                                  질문(str)을 받아서 답변(str)을 반환해야 함
+            session_id_callback: SDK 세션 ID가 추출되면 즉시 호출되는 콜백 함수 (선택)
+                                session_id(str)를 받아서 즉시 저장할 수 있음
 
         Yields:
             스트리밍 응답 청크
@@ -227,11 +230,12 @@ Use your thinking process liberally throughout your response to show your reason
                 worker_name=self.config.name
             )
 
-            # 스트림 실행 (resume_session_id 및 user_input_callback 전달)
+            # 스트림 실행 (resume_session_id, user_input_callback, session_id_callback 전달)
             async for text in executor.execute_stream(
                 prompt=full_prompt,
                 resume_session_id=resume_session_id,
-                user_input_callback=user_input_callback
+                user_input_callback=user_input_callback,
+                session_id_callback=session_id_callback
             ):
                 yield text
 

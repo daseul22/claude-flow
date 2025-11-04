@@ -616,13 +616,14 @@ class WorkerSDKExecutor:
         self.response_handler = response_handler
         self.worker_name = worker_name or "Unknown"
         self.logger = get_logger(__name__, component=self.worker_name)
-        self.last_session_id: Optional[str] = None  # 마지막 실행의 세션 ID 저장
+        self.last_session_id: Optional[str] = None  # 마지막 실행의 세션 ID 저장 (ResultMessage에서 추출)
 
     async def execute_stream(
         self,
         prompt: str,
         resume_session_id: Optional[str] = None,
-        user_input_callback: Optional[Callable[[str], Awaitable[str]]] = None
+        user_input_callback: Optional[Callable[[str], Awaitable[str]]] = None,
+        session_id_callback: Optional[Callable[[str], None]] = None
     ) -> AsyncIterator[str]:
         """스트림 실행 (연속 대화 지원).
 
@@ -631,6 +632,8 @@ class WorkerSDKExecutor:
             resume_session_id: 재개할 SDK 세션 ID (선택, 이전 실행의 컨텍스트 유지)
             user_input_callback: 사용자 입력이 필요할 때 호출되는 async 함수
                                  질문(str)을 받아서 답변(str)을 반환해야 함
+            session_id_callback: ResultMessage에서 session_id가 추출되면 호출되는 콜백 함수
+                                session_id(str)를 받아서 즉시 저장할 수 있음
 
         Yields:
             str: 응답 텍스트 청크
@@ -639,9 +642,12 @@ class WorkerSDKExecutor:
             WorkerExecutionError: SDK 실행 중 에러 발생 시
 
         Note:
-            Worker가 "@ASK_USER: 질문내용" 패턴으로 출력하면
-            user_input_callback이 호출되어 사용자 입력을 받고,
-            같은 세션에서 대화를 계속 진행합니다.
+            - Worker가 "@ASK_USER: 질문내용" 패턴으로 출력하면
+              user_input_callback이 호출되어 사용자 입력을 받고,
+              같은 세션에서 대화를 계속 진행합니다.
+            - session_id_callback은 ResultMessage에서 session_id가 추출되는 즉시
+              호출되어 노드별 세션 ID를 저장할 수 있습니다. (Python SDK는
+              ResultMessage에서만 session_id를 제공)
         """
         from claude_agent_sdk.types import ClaudeAgentOptions
 
@@ -710,14 +716,27 @@ class WorkerSDKExecutor:
                             f"{type(response).__name__}"
                         )
 
-                        # ResultMessage에서 session_id 추출 (보통 마지막 응답)
-                        if type(response).__name__ == 'ResultMessage':
+                        # ResultMessage에서 session_id 추출 및 콜백 호출
+                        # Python SDK는 ResultMessage에서만 session_id를 제공함
+                        if type(response).__name__ == 'ResultMessage' and not self.last_session_id:
                             if hasattr(response, 'session_id') and response.session_id:
                                 self.last_session_id = response.session_id
                                 self.logger.info(
-                                    f"[{self.worker_name}] ✓ SDK 세션 ID 저장 성공: {self.last_session_id[:8]}... "
+                                    f"[{self.worker_name}] ✓ SDK 세션 ID 획득: {self.last_session_id[:8]}... "
                                     f"(ResultMessage에서 추출)"
                                 )
+
+                                # 세션 ID 콜백 호출 (노드별 세션 저장)
+                                if session_id_callback:
+                                    try:
+                                        session_id_callback(self.last_session_id)
+                                        self.logger.info(
+                                            f"[{self.worker_name}] ✓ 세션 ID 콜백 호출 완료: {self.last_session_id[:8]}..."
+                                        )
+                                    except Exception as e:
+                                        self.logger.error(
+                                            f"[{self.worker_name}] ⚠️  세션 ID 콜백 호출 실패: {e}"
+                                        )
 
                         # 응답 처리하면서 텍스트 수집
                         async for text in self.response_handler.process_response(response):

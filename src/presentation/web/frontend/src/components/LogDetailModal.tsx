@@ -302,9 +302,19 @@ function LogSection({ section }: { section: NodeLogSection }) {
     }
   }
 
-  // 컴포넌트 마운트 시 세션 목록 불러오기
+  // 컴포넌트 마운트 시 세션 목록 불러오기 + 주기적 새로고침
   useEffect(() => {
     loadSessions()
+
+    // 5초마다 세션 목록 자동 새로고침 (워크플로우 실행 중에만)
+    const interval = setInterval(() => {
+      const isExecuting = useWorkflowStore.getState().execution.isExecuting
+      if (isExecuting) {
+        loadSessions()
+      }
+    }, 5000)
+
+    return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section.nodeId])
 
