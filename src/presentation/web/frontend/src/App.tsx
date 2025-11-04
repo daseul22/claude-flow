@@ -19,6 +19,7 @@ import {
   loadProjectWorkflowByName,
   listProjectWorkflows,
   getWorkflowSession,
+  sendUserInput,
   clearProjectSessions,
   clearProjectLogs,
   clearNodeSessions,
@@ -30,6 +31,7 @@ import { DirectoryBrowser } from './components/DirectoryBrowser'
 import { ToastContainer, ToastType } from './components/Toast'
 import { TemplateGallery } from './components/TemplateGallery'
 import { LogsAndSessionsViewer } from './components/LogsAndSessionsViewer'
+import { AskUserModal } from './components/AskUserModal'
 
 const STORAGE_KEY_PROJECT_PATH = 'claude-flow-last-project-path'
 const STORAGE_KEY_SESSION_ID = 'claude-flow-workflow-session-id'
@@ -48,6 +50,7 @@ function App() {
     execution,
     getSelectedNode,
     setSelectedNodeId,
+    clearPendingUserInput,
   } = useWorkflowStore()
 
   // 프로젝트 관련 상태
@@ -353,6 +356,25 @@ function App() {
       addToast('warning', '저장할 프로젝트 또는 노드가 없습니다')
     }
   }, [execution.isExecuting, currentProjectPath, nodes, getCurrentWorkflow, addToast, currentWorkflowFileName])
+
+  // Human-in-the-Loop: 사용자 입력 핸들러
+  const handleUserInputSubmit = useCallback(async (answer: string) => {
+    if (!execution.pendingUserInput) return
+
+    try {
+      await sendUserInput(execution.pendingUserInput.sessionId, answer)
+      clearPendingUserInput()
+      addToast('success', '답변이 Worker에게 전달되었습니다')
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err)
+      addToast('error', `답변 전송 실패: ${errorMsg}`)
+    }
+  }, [execution.pendingUserInput, clearPendingUserInput, addToast])
+
+  const handleUserInputCancel = useCallback(() => {
+    clearPendingUserInput()
+    addToast('warning', '사용자 입력이 취소되었습니다')
+  }, [clearPendingUserInput, addToast])
 
   // 전역 키보드 단축키 핸들링
   useEffect(() => {
@@ -919,6 +941,15 @@ function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Human-in-the-Loop: 사용자 입력 모달 */}
+        {execution.pendingUserInput && (
+          <AskUserModal
+            question={execution.pendingUserInput.question}
+            onSubmit={handleUserInputSubmit}
+            onCancel={handleUserInputCancel}
+          />
         )}
       </div>
     </ReactFlowProvider>
