@@ -11,6 +11,7 @@ import { parseLogMessageBlocks, ParsedLogMessage } from '@/lib/logParser'
 interface ParsedContentProps {
   content: string
   className?: string
+  toolUseIdToName?: Record<string, string>
 }
 
 /**
@@ -27,8 +28,8 @@ const ParsedBlock: React.FC<{ block: ParsedLogMessage; blockIndex: number }> = (
     case 'user_message':
       return (
         <div className="space-y-1" key={blockIndex}>
-          <div className="text-xs font-semibold text-blue-700">👤 사용자 메시지</div>
-          <div className="text-sm whitespace-pre-wrap bg-blue-50 p-2 rounded border border-blue-200">
+          <div className="text-xs font-medium text-gray-600">👤 사용자</div>
+          <div className="text-sm whitespace-pre-wrap text-gray-800">
             {block.content}
           </div>
         </div>
@@ -37,8 +38,8 @@ const ParsedBlock: React.FC<{ block: ParsedLogMessage; blockIndex: number }> = (
     case 'assistant_message':
       return (
         <div className="space-y-1" key={blockIndex}>
-          <div className="text-xs font-semibold text-purple-700">🤖 어시스턴트 응답</div>
-          <div className="text-sm whitespace-pre-wrap bg-purple-50 p-2 rounded border border-purple-200">
+          <div className="text-xs font-medium text-gray-600">🤖 어시스턴트</div>
+          <div className="text-sm whitespace-pre-wrap text-gray-800">
             {block.content}
           </div>
         </div>
@@ -48,25 +49,25 @@ const ParsedBlock: React.FC<{ block: ParsedLogMessage; blockIndex: number }> = (
       return (
         <div className="space-y-1" key={blockIndex}>
           <div
-            className="flex items-center gap-2 cursor-pointer hover:bg-orange-50 p-1 rounded"
+            className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded transition-colors"
             onClick={toggleExpanded}
           >
             {isExpanded ? (
-              <ChevronDown className="h-3 w-3 text-orange-600 flex-shrink-0" />
+              <ChevronDown className="h-3 w-3 text-gray-500 flex-shrink-0" />
             ) : (
-              <ChevronRight className="h-3 w-3 text-orange-600 flex-shrink-0" />
+              <ChevronRight className="h-3 w-3 text-gray-500 flex-shrink-0" />
             )}
-            <div className="text-xs font-semibold text-orange-700 overflow-hidden text-ellipsis whitespace-nowrap">
-              🔧 도구 호출: {block.toolUse?.toolName}
+            <div className="text-xs font-medium text-gray-700 overflow-hidden text-ellipsis whitespace-nowrap">
+              🔧 {block.toolUse?.toolName}
             </div>
           </div>
 
           {isExpanded && block.toolUse && (
-            <div className="ml-5 bg-orange-50 border border-orange-200 rounded p-2 space-y-2 max-h-[300px] overflow-y-auto">
+            <div className="ml-5 pl-3 border-l-2 border-gray-200 space-y-1 max-h-[300px] overflow-y-auto">
               {Object.keys(block.toolUse.input).length > 0 && (
                 <div>
-                  <div className="text-xs font-medium text-gray-700 mb-1">입력 파라미터:</div>
-                  <pre className="text-xs bg-white p-2 rounded overflow-x-auto break-words whitespace-pre-wrap">
+                  <div className="text-xs text-gray-500 mb-1">파라미터:</div>
+                  <pre className="text-xs text-gray-700 bg-gray-50 p-2 rounded overflow-x-auto break-words whitespace-pre-wrap">
                     {JSON.stringify(block.toolUse.input, null, 2)}
                   </pre>
                 </div>
@@ -75,7 +76,7 @@ const ParsedBlock: React.FC<{ block: ParsedLogMessage; blockIndex: number }> = (
           )}
 
           {!isExpanded && (
-            <div className="ml-5 text-xs text-gray-600 overflow-hidden text-ellipsis whitespace-nowrap">
+            <div className="ml-5 text-xs text-gray-500">
               {Object.keys(block.toolUse?.input || {}).length}개 파라미터
             </div>
           )}
@@ -86,24 +87,24 @@ const ParsedBlock: React.FC<{ block: ParsedLogMessage; blockIndex: number }> = (
       return (
         <div className="space-y-1" key={blockIndex}>
           <div
-            className="flex items-center gap-2 cursor-pointer hover:bg-green-50 p-1 rounded"
+            className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded transition-colors"
             onClick={toggleExpanded}
           >
             {isExpanded ? (
-              <ChevronDown className="h-3 w-3 text-green-600 flex-shrink-0" />
+              <ChevronDown className="h-3 w-3 text-gray-500 flex-shrink-0" />
             ) : (
-              <ChevronRight className="h-3 w-3 text-green-600 flex-shrink-0" />
+              <ChevronRight className="h-3 w-3 text-gray-500 flex-shrink-0" />
             )}
-            <div className="text-xs font-semibold text-green-700 overflow-hidden text-ellipsis whitespace-nowrap">
-              ✅ 도구 결과: {block.toolUse?.toolName}
+            <div className="text-xs font-medium text-gray-700 overflow-hidden text-ellipsis whitespace-nowrap">
+              ✅ {block.toolUse?.toolName} 결과
             </div>
           </div>
 
           {isExpanded && (
-            <div className="ml-5 bg-green-50 border border-green-200 rounded p-2 space-y-2 max-h-[300px] overflow-y-auto">
+            <div className="ml-5 pl-3 border-l-2 border-gray-200 space-y-1 max-h-[300px] overflow-y-auto">
               <div>
-                <div className="text-xs font-medium text-gray-700 mb-1">결과:</div>
-                <div className="text-xs whitespace-pre-wrap bg-white p-2 rounded break-words">
+                <div className="text-xs text-gray-500 mb-1">결과:</div>
+                <div className="text-xs whitespace-pre-wrap text-gray-700 break-words">
                   {block.content}
                 </div>
               </div>
@@ -111,7 +112,7 @@ const ParsedBlock: React.FC<{ block: ParsedLogMessage; blockIndex: number }> = (
           )}
 
           {!isExpanded && (
-            <div className="ml-5 text-xs text-gray-600 overflow-hidden text-ellipsis whitespace-nowrap">
+            <div className="ml-5 text-xs text-gray-500 overflow-hidden text-ellipsis whitespace-nowrap">
               {block.content.length > 100 ? `${block.content.substring(0, 100)}...` : block.content}
             </div>
           )}
@@ -122,30 +123,30 @@ const ParsedBlock: React.FC<{ block: ParsedLogMessage; blockIndex: number }> = (
       return (
         <div className="space-y-1" key={blockIndex}>
           <div
-            className="flex items-center gap-2 cursor-pointer hover:bg-purple-50 p-1 rounded transition-colors"
+            className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded transition-colors"
             onClick={toggleExpanded}
           >
             {isExpanded ? (
-              <ChevronDown className="h-3 w-3 text-purple-600 flex-shrink-0" />
+              <ChevronDown className="h-3 w-3 text-gray-500 flex-shrink-0" />
             ) : (
-              <ChevronRight className="h-3 w-3 text-purple-600 flex-shrink-0" />
+              <ChevronRight className="h-3 w-3 text-gray-500 flex-shrink-0" />
             )}
-            <Brain className="h-3.5 w-3.5 text-purple-600 flex-shrink-0" />
-            <div className="text-xs font-semibold text-purple-700 overflow-hidden text-ellipsis whitespace-nowrap">
-              사고 과정 (Extended Thinking)
+            <Brain className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
+            <div className="text-xs font-medium text-gray-700 overflow-hidden text-ellipsis whitespace-nowrap">
+              사고 과정
             </div>
           </div>
 
           {isExpanded && (
-            <div className="ml-5 bg-purple-50 border border-purple-200 rounded p-3 max-h-[300px] overflow-y-auto">
-              <div className="text-xs whitespace-pre-wrap break-words text-purple-900">
+            <div className="ml-5 pl-3 border-l-2 border-gray-200 max-h-[300px] overflow-y-auto">
+              <div className="text-xs whitespace-pre-wrap break-words text-gray-600 italic">
                 {block.content}
               </div>
             </div>
           )}
 
           {!isExpanded && (
-            <div className="ml-5 text-xs text-purple-600 italic overflow-hidden text-ellipsis whitespace-nowrap">
+            <div className="ml-5 text-xs text-gray-500 italic overflow-hidden text-ellipsis whitespace-nowrap">
               {block.content.length > 80 ? `${block.content.substring(0, 80)}...` : block.content}
             </div>
           )}
@@ -166,7 +167,7 @@ const ParsedBlock: React.FC<{ block: ParsedLogMessage; blockIndex: number }> = (
 /**
  * 파싱된 내용을 블럭 종류별로 렌더링
  */
-export const ParsedContent: React.FC<ParsedContentProps> = ({ content, className = '' }) => {
+export const ParsedContent: React.FC<ParsedContentProps> = ({ content, className = '', toolUseIdToName }) => {
   if (!content || content.trim() === '') {
     return (
       <div className={`text-sm text-muted-foreground text-center py-4 ${className}`}>
@@ -176,7 +177,7 @@ export const ParsedContent: React.FC<ParsedContentProps> = ({ content, className
   }
 
   // 여러 블록으로 파싱 (텍스트와 JSON 혼합 지원)
-  const { blocks } = parseLogMessageBlocks(content)
+  const { blocks } = parseLogMessageBlocks(content, toolUseIdToName)
 
   return (
     <div className={`space-y-2 ${className}`}>

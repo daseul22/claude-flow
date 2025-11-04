@@ -358,14 +358,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           return acc
         }, {} as Record<string, NodeExecutionMeta>),
       },
-      // 노드 데이터의 isExecuting 플래그도 초기화
-      nodes: state.nodes.map(node => ({
-        ...node,
-        data: {
-          ...node.data,
-          isExecuting: false,
-        }
-      })),
+      // nodeMeta를 사용하므로 nodes.data 업데이트 불필요 (리렌더링 방지)
     })),
 
   setCurrentNode: (nodeId) =>
@@ -602,27 +595,11 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       }
     }
 
-    // 각 노드의 data 속성도 업데이트 (UI 동기화)
-    const updatedNodes = session.workflow.nodes.map((node: WorkflowNode) => {
-      const meta = nodeMeta[node.id]
-      if (!meta) return node
-
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          isExecuting: meta.status === 'running',
-          isCompleted: meta.status === 'completed',
-          hasError: meta.status === 'error',
-        }
-      }
-    })
-
-    // 워크플로우 정의 복원 (업데이트된 노드 포함)
+    // 워크플로우 정의 복원 (nodeMeta를 사용하므로 nodes.data 업데이트 불필요)
     set({
       workflowName: session.workflow.name,
       workflowDescription: session.workflow.description || '',
-      nodes: updatedNodes,
+      nodes: session.workflow.nodes,
       edges: session.workflow.edges,
     })
 

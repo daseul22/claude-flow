@@ -187,7 +187,7 @@ function parseUserMessageRepr(message: string): ParsedLogMessage | null {
       type: 'tool_result',
       content: extracted.content,
       toolUse: {
-        toolName: '도구 실행',  // ToolResultBlock에는 도구 이름이 없음
+        toolName: '도구',  // ToolResultBlock에는 도구 이름이 없음
         input: {},
         output: extracted.content,
       }
@@ -275,7 +275,7 @@ function parseJSONMessage(message: string): ParsedLogMessage | null {
             type: 'tool_result',
             content,
             toolUse: {
-              toolName: '도구 결과',
+              toolName: '도구',
               input: { tool_use_id: block.tool_use_id },
               output: content,
             }
@@ -352,8 +352,11 @@ export function parseLogMessage(message: string): ParsedLogMessage {
  *
  * 텍스트와 JSON이 혼합된 경우를 처리합니다.
  * 예: "텍스트 내용{"role": "assistant", ...}더 많은 텍스트"
+ *
+ * @param message - 파싱할 메시지
+ * @param toolUseIdToNameGlobal - 전역 tool_use_id → tool_name 매핑 (선택)
  */
-export function parseLogMessageBlocks(message: string): ParsedLogBlocks {
+export function parseLogMessageBlocks(message: string, toolUseIdToNameGlobal?: Record<string, string>): ParsedLogBlocks {
   if (!message || typeof message !== 'string') {
     return {
       blocks: [{ type: 'text', content: message }],
@@ -414,7 +417,12 @@ export function parseLogMessageBlocks(message: string): ParsedLogBlocks {
             if (data.role === 'user' && Array.isArray(data.content)) {
               for (const contentBlock of data.content) {
                 if (contentBlock.type === 'tool_result' && contentBlock.tool_use_id) {
-                  const toolName = toolUseIdToName[contentBlock.tool_use_id]
+                  // 로컬 매핑 테이블에서 먼저 찾기
+                  let toolName = toolUseIdToName[contentBlock.tool_use_id]
+                  // 없으면 전역 매핑 테이블에서 찾기
+                  if (!toolName && toolUseIdToNameGlobal) {
+                    toolName = toolUseIdToNameGlobal[contentBlock.tool_use_id]
+                  }
                   if (toolName) {
                     jsonParsed.toolUse.toolName = toolName
                   }

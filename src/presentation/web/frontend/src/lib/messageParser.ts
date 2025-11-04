@@ -181,6 +181,146 @@ function parseAssistantMessage(text: string): string | null {
 }
 
 /**
+ * JSON 형태의 Claude 메시지 블록 타입
+ */
+export interface JsonThinkingBlock {
+  type: 'thinking'
+  thinking: string
+}
+
+export interface JsonTextBlock {
+  type: 'text'
+  text: string
+}
+
+export interface JsonToolUseBlock {
+  type: 'tool_use'
+  id: string
+  name: string
+  input: Record<string, unknown>
+}
+
+export interface JsonToolResultBlock {
+  type: 'tool_result'
+  tool_use_id: string
+  content: string | unknown[]
+  is_error?: boolean
+}
+
+export type JsonContentBlock = JsonThinkingBlock | JsonTextBlock | JsonToolUseBlock | JsonToolResultBlock
+
+export interface JsonMessage {
+  role: 'user' | 'assistant'
+  content: JsonContentBlock[]
+  model?: string
+}
+
+/**
+ * JSON 형태의 Claude 메시지 파싱
+ *
+ * @param text - JSON 문자열
+ * @returns 파싱된 메시지 또는 null
+ */
+function parseJsonMessage(text: string): ParsedMessage | null {
+  try {
+    const trimmed = text.trim()
+    if (!trimmed.startsWith('{') || !trimmed.includes('"role"')) {
+      return null
+    }
+
+    const msg: JsonMessage = JSON.parse(trimmed)
+
+    if (!msg.role || !Array.isArray(msg.content)) {
+      return null
+    }
+
+    // content 블록들을 파싱
+    const formattedBlocks: string[] = []
+    let hasThinking = false
+    let hasText = false
+    let blockTypes: Set<string> = new Set()
+
+    for (const block of msg.content) {
+      if (!block || typeof block !== 'object' || !('type' in block)) {
+        continue
+      }
+
+      blockTypes.add(block.type)
+
+      switch (block.type) {
+        case 'thinking':
+          hasThinking = true
+          const thinkingBlock = block as JsonThinkingBlock
+          formattedBlocks.push(`💭 사고 과정:\n${thinkingBlock.thinking}`)
+          break
+
+        case 'text':
+          hasText = true
+          const textBlock = block as JsonTextBlock
+          formattedBlocks.push(textBlock.text)
+          break
+
+        case 'tool_use':
+          const toolUseBlock = block as JsonToolUseBlock
+          const inputStr = JSON.stringify(toolUseBlock.input, null, 2)
+            .split('\n')
+            .map((line, i) => i === 0 ? line : '   ' + line)
+            .join('\n')
+          formattedBlocks.push(
+            `🔧 도구 호출: ${toolUseBlock.name}\n` +
+            `   ID: ${toolUseBlock.id.substring(0, 12)}...\n` +
+            `   매개변수:\n${inputStr}`
+          )
+          break
+
+        case 'tool_result':
+          const toolResultBlock = block as JsonToolResultBlock
+          const icon = toolResultBlock.is_error ? '❌' : '✅'
+          const content = typeof toolResultBlock.content === 'string'
+            ? toolResultBlock.content
+            : JSON.stringify(toolResultBlock.content, null, 2)
+          formattedBlocks.push(
+            `${icon} 도구 실행 결과 [${toolResultBlock.tool_use_id.substring(0, 12)}...]\n${content}`
+          )
+          break
+      }
+    }
+
+    if (formattedBlocks.length === 0) {
+      return null
+    }
+
+    // role prefix는 텍스트가 있고 도구 호출/결과가 아닌 경우에만 표시
+    const needsRolePrefix = hasText && !blockTypes.has('tool_use') && !blockTypes.has('tool_result')
+    const rolePrefix = needsRolePrefix
+      ? (msg.role === 'assistant' ? '🤖 Assistant' : '📨 User')
+      : ''
+
+    const content = rolePrefix
+      ? `${rolePrefix}:\n${formattedBlocks.join('\n\n')}`
+      : formattedBlocks.join('\n\n')
+
+    // 타입 결정: 우선순위 thinking > tool_use > tool_result > text
+    let messageType: 'user' | 'assistant' | 'tool_result' | 'tool_use' | 'text' | 'thinking' | 'raw' = msg.role
+    if (hasThinking) {
+      messageType = 'thinking'
+    } else if (blockTypes.has('tool_use') && !hasText) {
+      messageType = 'tool_use'
+    } else if (blockTypes.has('tool_result') && !hasText) {
+      messageType = 'tool_result'
+    }
+
+    return {
+      type: messageType,
+      content,
+      isCollapsible: hasThinking || formattedBlocks.length > 3
+    }
+  } catch (e) {
+    return null
+  }
+}
+
+/**
  * 메시지 타입 감지
  */
 export interface ParsedMessage {
@@ -200,6 +340,12 @@ export interface ParsedMessage {
 export function parseClaudeMessage(text: string): ParsedMessage {
   if (!text || typeof text !== 'string') {
     return { type: 'raw', content: text, isCollapsible: false }
+  }
+
+  // JSON 형태 메시지 파싱 시도 (우선순위 높음)
+  const jsonMsg = parseJsonMessage(text)
+  if (jsonMsg) {
+    return jsonMsg
   }
 
   // UserMessage 파싱 시도 (접을 수 있음)

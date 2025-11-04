@@ -7,7 +7,7 @@
  * - 검증 (Validation)
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { NodeConfigPanel } from './NodeConfigPanel'
 import { ExecutionLogsPanel } from './ExecutionLogsPanel'
@@ -27,20 +27,30 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ className = '' }) =>
 
   const [activeTab, setActiveTab] = useState<'node-config' | 'logs' | 'validation'>('node-config')
 
-  // 노드 선택 시 자동으로 노드 설정 탭 활성화
+  // 이전 실행 상태 추적 (실행 시작 감지용)
+  const prevIsExecutingRef = useRef(false)
+
+  // 노드 선택 시 자동으로 노드 설정 탭 활성화 (실행 중이 아닐 때만)
   useEffect(() => {
     const selectedNode = getSelectedNode()
-    if (selectedNode) {
+    if (selectedNode && !execution.isExecuting) {
       setActiveTab('node-config')
     }
-  }, [getSelectedNode])
+  }, [getSelectedNode, execution.isExecuting])
 
-  // 실행 중일 때는 로그 탭을 자동으로 활성화 (선택사항)
+  // 실행 시작 시 또는 세션 복원 시에만 로그 탭으로 자동 전환 (한 번만)
   useEffect(() => {
-    if (execution.isExecuting && activeTab !== 'logs') {
-      // 실행 시작 시 로그 탭으로 자동 전환 (선택사항)
-      // setActiveTab('logs')
+    const wasNotExecuting = !prevIsExecutingRef.current
+    const isNowExecuting = execution.isExecuting
+
+    // 실행 상태가 false → true로 변경될 때만 자동 전환
+    if (wasNotExecuting && isNowExecuting) {
+      setActiveTab('logs')
+      console.log('[RightSidebar] 실행 시작/복원 → 로그 탭으로 자동 전환')
     }
+
+    // 이전 상태 업데이트
+    prevIsExecutingRef.current = execution.isExecuting
   }, [execution.isExecuting])
 
   // 검증 오류 개수
@@ -79,21 +89,21 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ className = '' }) =>
         </TabsList>
 
         {/* 탭 내용 */}
-        <div className="flex-1 overflow-hidden">
-          <TabsContent value="node-config" className="h-full m-0 p-0 data-[state=active]:flex data-[state=active]:flex-col">
+        <div className="flex-1 overflow-hidden min-h-0">
+          <TabsContent value="node-config" className="h-full m-0 p-0 flex flex-col">
             <div className="flex-1 overflow-y-auto px-4 py-4">
               <NodeConfigPanel />
             </div>
           </TabsContent>
 
-          <TabsContent value="logs" className="h-full m-0 p-0 data-[state=active]:flex data-[state=active]:flex-col">
-            <div className="flex-1 overflow-y-auto px-4 py-4">
+          <TabsContent value="logs" className="h-full m-0 p-0 flex flex-col">
+            <div className="h-full px-4 py-4 overflow-hidden flex flex-col">
               <ExecutionLogsPanel />
             </div>
           </TabsContent>
 
-          <TabsContent value="validation" className="h-full m-0 p-0 data-[state=active]:flex data-[state=active]:flex-col">
-            <div className="flex-1 overflow-y-auto px-4 py-4">
+          <TabsContent value="validation" className="h-full m-0 p-0 flex flex-col">
+            <div className="h-full px-4 py-4 overflow-hidden flex flex-col">
               <ValidationErrorsPanel />
             </div>
           </TabsContent>

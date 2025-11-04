@@ -7,14 +7,14 @@
  * - 실행 상태 표시
  */
 
-import { memo, useState, useRef } from 'react'
+import { memo, useRef } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { Play, Square, Zap, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { Play, Zap } from 'lucide-react'
 import { useWorkflowStore } from '@/stores/workflowStore'
-import { executeWorkflow, cancelWorkflowSession } from '@/lib/api'
+import { executeWorkflow } from '@/lib/api'
 
 interface InputNodeData {
   initial_input: string
@@ -25,8 +25,7 @@ interface InputNodeData {
 }
 
 export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>) => {
-  const { initial_input, isExecuting, isCompleted, hasError } = data
-  const [localIsRunning, setLocalIsRunning] = useState(false)
+  const { initial_input } = data
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const {
@@ -37,35 +36,21 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
     addNodeOutput,
     setNodeInput,
     addLog,
-    updateNode,
     setNodeStartTime,
     setNodeCompleted,
     setNodeError,
     setPendingUserInput,
+    execution,
   } = useWorkflowStore()
 
-  // 상태별 스타일 (WorkerNode 패턴과 동일)
-  let statusClass = 'border-emerald-400 bg-emerald-50'
-  let statusText = ''
-
-  if (isExecuting || localIsRunning) {
-    statusClass = 'border-yellow-500 bg-yellow-50'
-    statusText = '실행 중...'
-  } else if (hasError) {
-    statusClass = 'border-red-500 bg-red-50'
-    statusText = '에러 발생'
-  } else if (isCompleted) {
-    statusClass = 'border-green-500 bg-green-50'
-    statusText = '완료'
-  }
+  // 워크플로우 진행 중 여부 확인 (전역 실행 상태)
+  const isWorkflowRunning = execution.isExecuting
 
   // 워크플로우 실행 (이 Input 노드에서 시작)
   const handleExecute = async () => {
-    if (localIsRunning || !initial_input?.trim()) return
+    if (isWorkflowRunning || !initial_input?.trim()) return
 
     try {
-      setLocalIsRunning(true)
-      updateNode(id, { isExecuting: true, isCompleted: false, hasError: false })
       startExecution()
 
       const workflow = getWorkflow()
@@ -172,26 +157,20 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
                 setNodeError(node_id, eventData.error)
               }
               addLog(node_id, 'error', `❌ ${eventData.error}`)
-              updateNode(id, { hasError: true })
               break
 
             case 'workflow_complete':
               addLog('', 'complete', '🎉 워크플로우 실행 완료')
               setCurrentNode(null)
-              updateNode(id, { isCompleted: true, isExecuting: false })
               break
           }
         },
         // onComplete
         () => {
-          setLocalIsRunning(false)
-          updateNode(id, { isExecuting: false })
           stopExecution()
         },
         // onError
         (error) => {
-          setLocalIsRunning(false)
-          updateNode(id, { isExecuting: false, hasError: true })
           stopExecution()
           addLog('', 'error', `실행 실패: ${error}`)
         },
@@ -212,42 +191,9 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
-      setLocalIsRunning(false)
-      updateNode(id, { isExecuting: false, hasError: true })
       stopExecution()
       addLog('', 'error', `실행 실패: ${errorMsg}`)
     }
-  }
-
-  // 실행 중단
-  const handleStop = async () => {
-    // 1. AbortController로 SSE 연결 중단
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-      abortControllerRef.current = null
-    }
-
-    // 2. 백엔드 워크플로우 취소 API 호출
-    const STORAGE_KEY_SESSION_ID = 'claude-flow-workflow-session-id'
-    const sessionId = localStorage.getItem(STORAGE_KEY_SESSION_ID)
-
-    if (sessionId) {
-      try {
-        await cancelWorkflowSession(sessionId)
-        console.log('[InputNode] 워크플로우 취소 API 호출 성공:', sessionId)
-        // 취소 성공 시 localStorage 정리
-        localStorage.removeItem(STORAGE_KEY_SESSION_ID)
-      } catch (err) {
-        console.error('[InputNode] 워크플로우 취소 API 호출 실패:', err)
-        // 실패해도 계속 진행 (UI는 일단 중단 상태로)
-      }
-    }
-
-    // 3. 상태 업데이트
-    setLocalIsRunning(false)
-    updateNode(id, { isExecuting: false })
-    stopExecution()
-    addLog('', 'error', '⏹️ 사용자가 실행을 중단했습니다')
   }
 
   return (
@@ -255,34 +201,18 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
       <Card
         style={{ width: '260px', boxSizing: 'border-box' }}
         className={cn(
-          'border-2 transition-all duration-node cursor-pointer',
+          'border-2 border-emerald-400 bg-emerald-50 cursor-pointer',
           'shadow-node hover:shadow-node-hover hover:-translate-y-0.5',
-          statusClass,
-          selected && 'ring-2 ring-emerald-500 shadow-node-selected',
-          isExecuting && 'animate-pulse-border shadow-node-executing',
-          hasError && 'animate-shake shadow-node-error',
-          !isExecuting && !isCompleted && !hasError && 'animate-node-appear'
+          'transition-shadow duration-200',
+          selected && 'ring-2 ring-emerald-500 shadow-node-selected'
         )}
       >
         <CardHeader className="py-2 px-3">
           <CardTitle className="text-sm flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              {isExecuting && <Loader2 className="h-3.5 w-3.5 animate-spin text-yellow-600" />}
-              {isCompleted && !hasError && <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />}
-              {hasError && <XCircle className="h-3.5 w-3.5 text-red-600" />}
-              {!isExecuting && !isCompleted && !hasError && <Zap className="h-3.5 w-3.5 text-emerald-600" />}
+              <Zap className="h-3.5 w-3.5 text-emerald-600" />
               START
             </span>
-            {statusText && (
-              <span className={cn(
-                'text-[10px] font-normal',
-                isExecuting && 'text-yellow-700',
-                hasError && 'text-red-700',
-                isCompleted && 'text-green-700'
-              )}>
-                {statusText}
-              </span>
-            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="py-1.5 px-3 space-y-1">
@@ -293,27 +223,15 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
           </div>
 
           {/* 실행 버튼 */}
-          {!localIsRunning ? (
-            <Button
-              onClick={handleExecute}
-              disabled={!initial_input?.trim()}
-              size="sm"
-              className="w-full h-6 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px]"
-            >
-              <Play className="mr-1 h-3 w-3" />
-              시작
-            </Button>
-          ) : (
-            <Button
-              onClick={handleStop}
-              size="sm"
-              variant="destructive"
-              className="w-full h-6 text-[10px]"
-            >
-              <Square className="mr-1 h-3 w-3" />
-              중단
-            </Button>
-          )}
+          <Button
+            onClick={handleExecute}
+            disabled={!initial_input?.trim() || isWorkflowRunning}
+            size="sm"
+            className="w-full h-6 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] disabled:opacity-50"
+          >
+            <Play className="mr-1 h-3 w-3" />
+            시작
+          </Button>
         </CardContent>
       </Card>
 

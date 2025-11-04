@@ -133,13 +133,13 @@ export const WorkerNode = memo(({ id, data, selected }: NodeProps<WorkerNodeData
       <Card
         style={{ width: '260px', boxSizing: 'border-box' }}
         className={cn(
-          'border-2 transition-all duration-node cursor-pointer',
+          'border-2 cursor-pointer',
           'shadow-node hover:shadow-node-hover hover:-translate-y-0.5',
+          'transition-shadow duration-200',
           statusClass,
           selected && 'ring-2 ring-blue-500 shadow-node-selected',
-          isExecuting && 'animate-pulse-border shadow-node-executing',
-          hasError && 'animate-shake shadow-node-error',
-          !isExecuting && !isCompleted && !hasError && 'animate-node-appear'
+          // 애니메이션 제거 (번쩍거림 방지)
+          hasError && 'animate-shake'
         )}
       >
         <CardHeader className="py-2 px-3">

@@ -147,8 +147,12 @@ function App() {
           restoreFromSession(session)
           console.log('✅ 세션 복원 완료:', session.session_id)
 
-          // 3️⃣ 실행 중인 세션만 스트림 재접속
-          if (session.status === 'running') {
+          // 3️⃣ 실행 중인 세션만 스트림 재접속 (완료 확인)
+          const hasWorkflowComplete = session.logs.some((log: any) => log.event_type === 'workflow_complete')
+          const hasWorkflowError = session.logs.some((log: any) => log.event_type === 'workflow_error')
+          const isActuallyRunning = !hasWorkflowComplete && !hasWorkflowError && session.status === 'running'
+
+          if (isActuallyRunning) {
             console.log('🔌 실행 중인 세션 감지 - 스트림 자동 재접속 시작')
 
               // 현재 로그 개수 확인 (중복 방지용)
@@ -245,6 +249,14 @@ function App() {
                   addToast('error', `스트림 재접속 실패: ${err.message}`)
                 })
               })
+          } else if (hasWorkflowComplete) {
+            // 세션이 이미 완료된 경우
+            console.log('✅ 세션이 이미 완료되었습니다 - 스트림 재접속 스킵')
+            addToast('info', '이전 워크플로우 실행 결과가 복원되었습니다')
+          } else if (hasWorkflowError) {
+            // 세션이 에러로 종료된 경우
+            console.log('❌ 세션이 에러로 종료되었습니다 - 스트림 재접속 스킵')
+            addToast('warning', '이전 워크플로우 실행 중 에러가 발생했습니다')
           }
 
           // 세션 복원 성공 시 워크플로우 로드 스킵

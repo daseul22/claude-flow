@@ -52,8 +52,8 @@ export const ValidationErrorsPanel: React.FC = () => {
   }
 
   return (
-    <Card className="border-2">
-      <CardHeader className="pb-3">
+    <Card className="border-2 h-full flex flex-col overflow-hidden">
+      <CardHeader className="pb-3 flex-shrink-0">
         <CardTitle className="text-base flex items-center gap-2">
           <AlertCircle className="h-5 w-5 text-red-600" />
           검증 결과
@@ -62,7 +62,8 @@ export const ValidationErrorsPanel: React.FC = () => {
           </span>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3 max-h-[300px] overflow-y-auto">
+      <CardContent className="flex-1 p-0 overflow-hidden min-h-0">
+        <div className="h-full overflow-y-auto overflow-x-hidden p-6 space-y-3">
         {/* 에러 목록 */}
         {groupedErrors.errors.length > 0 && (
           <div>
@@ -176,6 +177,7 @@ export const ValidationErrorsPanel: React.FC = () => {
             </div>
           </div>
         )}
+        </div>
       </CardContent>
     </Card>
   )
