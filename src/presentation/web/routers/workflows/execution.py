@@ -1,110 +1,36 @@
 """
-워크플로우 API 라우터
+워크플로우 실행 및 세션 관리 API
 
-워크플로우 저장, 조회, 실행을 위한 엔드포인트를 제공합니다.
+워크플로우 실행, 세션 조회, 취소, 스트리밍 등을 위한 엔드포인트를 제공합니다.
 """
 
 import asyncio
 import json
 import uuid
-from datetime import datetime
+from collections import deque
 from pathlib import Path
 from typing import Dict, Any
-from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException, Depends, Body
 from sse_starlette.sse import EventSourceResponse
 
-from src.infrastructure.config import JsonConfigLoader, get_project_root
 from src.infrastructure.logging import get_logger
 from src.presentation.web.schemas.workflow import (
-    Workflow,
     WorkflowExecuteRequest,
-    WorkflowSaveRequest,
-    WorkflowSaveResponse,
-    WorkflowListResponse,
-    WorkflowValidateResponse,
-    WorkflowValidationError,
+    Workflow,
 )
-from src.presentation.web.schemas.request import WorkflowDesignRequest
-from src.infrastructure.claude.worker_client import WorkerAgent
-from src.domain.models import AgentConfig
-from typing import AsyncIterator
-from src.presentation.web.services.workflow_executor import WorkflowExecutor
-from src.presentation.web.services.workflow_validator import WorkflowValidator
-from src.presentation.web.services.workflow_session_store import get_session_store
+from src.presentation.web.services.workflow_session_store import (
+    get_session_store,
+    WorkflowSession,
+)
 from src.presentation.web.services.background_workflow_manager import (
-    get_background_workflow_manager,
     BackgroundWorkflowManager,
+    BackgroundWorkflowTask,
 )
-from src.presentation.web.config import ProjectConfig, WorkflowConfig
+from .dependencies import get_background_manager
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/api/workflows", tags=["workflows"])
-
-
-# 워크플로우 저장 디렉토리
-WORKFLOWS_DIR = ProjectConfig.WORKFLOWS_DIR
-WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
-
-
-@lru_cache()
-def get_config_loader() -> JsonConfigLoader:
-    """
-    JsonConfigLoader 싱글톤 인스턴스 반환 (FastAPI Depends + lru_cache)
-
-    Returns:
-        JsonConfigLoader: 스레드 안전한 싱글톤 인스턴스
-    """
-    project_root = get_project_root()
-    return JsonConfigLoader(project_root)
-
-
-# 프로젝트별 WorkflowExecutor 캐시
-_executors: Dict[str, WorkflowExecutor] = {}
-
-
-def get_workflow_executor(
-    config_loader: JsonConfigLoader = Depends(get_config_loader)
-) -> WorkflowExecutor:
-    """
-    WorkflowExecutor 인스턴스 반환 (프로젝트별 캐싱)
-
-    Args:
-        config_loader: ConfigLoader 의존성 주입
-
-    Returns:
-        WorkflowExecutor: 워크플로우 실행 엔진
-    """
-    # projects 라우터에서 현재 프로젝트 경로 가져오기
-    from src.presentation.web.routers.projects import _current_project_path
-
-    # 캐시 키 생성
-    cache_key = _current_project_path or "~default"
-
-    # 캐시에서 인스턴스 확인
-    if cache_key not in _executors:
-        logger.info(f"새 WorkflowExecutor 생성 (프로젝트: {cache_key})")
-        _executors[cache_key] = WorkflowExecutor(config_loader, _current_project_path)
-
-    return _executors[cache_key]
-
-
-def get_background_manager(
-    executor: WorkflowExecutor = Depends(get_workflow_executor)
-) -> BackgroundWorkflowManager:
-    """
-    BackgroundWorkflowManager 인스턴스 반환 (프로젝트별 캐싱)
-
-    Args:
-        executor: WorkflowExecutor 의존성 주입
-
-    Returns:
-        BackgroundWorkflowManager: 백그라운드 워크플로우 관리자
-    """
-    # projects 라우터에서 현재 프로젝트 경로 가져오기
-    from src.presentation.web.routers.projects import _current_project_path
-    return get_background_workflow_manager(executor, project_path=_current_project_path)
+router = APIRouter()
 
 
 @router.post("/execute")
@@ -155,10 +81,7 @@ async def execute_workflow(
 
     # 워크플로우 검증
     if not request.workflow.nodes:
-        raise HTTPException(
-            status_code=400,
-            detail="워크플로우에 노드가 없습니다"
-        )
+        raise HTTPException(status_code=400, detail="워크플로우에 노드가 없습니다")
 
     # 현재 프로젝트 경로 가져오기
     from src.presentation.web.routers.projects import _current_project_path
@@ -198,10 +121,7 @@ async def execute_workflow(
             logger.info(f"[{session_id}] 기존 워크플로우에 재접속: {e}")
     elif existing_session.status in ["completed", "error", "cancelled"]:
         # 완료된 세션은 삭제하고 새 세션 생성
-        logger.info(
-            f"[{session_id}] 완료된 세션 삭제 후 재생성 "
-            f"(이전 상태: {existing_session.status})"
-        )
+        logger.info(f"[{session_id}] 완료된 세션 삭제 후 재생성 " f"(이전 상태: {existing_session.status})")
         await session_store.delete_session(session_id)
 
         # 새 세션 생성
@@ -223,10 +143,7 @@ async def execute_workflow(
         logger.info(f"[{session_id}] 새 워크플로우 시작 완료")
     else:
         # 실행 중인 세션에 재접속
-        logger.info(
-            f"[{session_id}] 실행 중인 세션에 재접속 "
-            f"(상태: {existing_session.status})"
-        )
+        logger.info(f"[{session_id}] 실행 중인 세션에 재접속 " f"(상태: {existing_session.status})")
 
     # SSE 스트리밍 함수
     async def event_generator():
@@ -236,17 +153,13 @@ async def execute_workflow(
             if request.last_event_index is not None:
                 start_from_index = request.last_event_index + 1  # 다음 이벤트부터
 
-            logger.info(
-                f"[{session_id}] SSE 스트리밍 시작 "
-                f"(start_from_index={start_from_index})"
-            )
+            logger.info(f"[{session_id}] SSE 스트리밍 시작 " f"(start_from_index={start_from_index})")
 
             event_count = 0
 
             # 백그라운드 Task에서 이벤트 스트리밍 (start_from_index 전달)
             async for event in bg_manager.stream_events(
-                session_id,
-                start_from_index=start_from_index
+                session_id, start_from_index=start_from_index
             ):
                 event_count += 1
 
@@ -279,10 +192,7 @@ async def execute_workflow(
         except asyncio.CancelledError:
             # 클라이언트가 연결을 끊은 경우 (정상적인 중단)
             # 백그라운드 Task는 계속 실행됨!
-            logger.info(
-                f"[{session_id}] ⏹️ 클라이언트가 연결을 끊었습니다 "
-                f"(워크플로우는 백그라운드에서 계속 실행 중)"
-            )
+            logger.info(f"[{session_id}] ⏹️ 클라이언트가 연결을 끊었습니다 " f"(워크플로우는 백그라운드에서 계속 실행 중)")
 
             # [DONE] 시그널을 보내지 않음 (이미 연결이 끊어짐)
             raise  # CancelledError는 재발생시켜 정리 작업이 이루어지도록 함
@@ -302,291 +212,8 @@ async def execute_workflow(
             "X-Accel-Buffering": "no",
             "Cache-Control": "no-cache",
             "X-Session-ID": session_id,  # 세션 ID를 헤더로 전달
-        }
+        },
     )
-
-
-@router.post("", response_model=WorkflowSaveResponse)
-async def save_workflow(request: WorkflowSaveRequest) -> WorkflowSaveResponse:
-    """
-    워크플로우 저장
-
-    Args:
-        request: 워크플로우 저장 요청
-
-    Returns:
-        WorkflowSaveResponse: 저장된 워크플로우 ID
-
-    Example:
-        POST /api/workflows
-        Body: {
-            "workflow": {
-                "name": "코드 리뷰 워크플로우",
-                "description": "코드 작성 → 리뷰 → 커밋",
-                "nodes": [...],
-                "edges": [...]
-            }
-        }
-
-        Response: {
-            "workflow_id": "uuid-v4",
-            "message": "워크플로우가 저장되었습니다"
-        }
-    """
-    try:
-        workflow = request.workflow
-
-        # 워크플로우 ID 생성 (미제공 시)
-        workflow_id = workflow.id or str(uuid.uuid4())
-        workflow.id = workflow_id
-
-        # 파일로 저장
-        workflow_path = WORKFLOWS_DIR / f"{workflow_id}.json"
-        with open(workflow_path, "w", encoding="utf-8") as f:
-            json.dump(
-                workflow.model_dump(),
-                f,
-                ensure_ascii=False,
-                indent=2
-            )
-
-        logger.info(f"워크플로우 저장: {workflow.name} (ID: {workflow_id})")
-
-        return WorkflowSaveResponse(
-            workflow_id=workflow_id,
-            message="워크플로우가 저장되었습니다"
-        )
-
-    except Exception as e:
-        logger.error(f"워크플로우 저장 실패: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"워크플로우 저장 실패: {str(e)}"
-        )
-
-
-@router.get("", response_model=WorkflowListResponse)
-async def list_workflows() -> WorkflowListResponse:
-    """
-    워크플로우 목록 조회
-
-    Returns:
-        WorkflowListResponse: 워크플로우 목록 (메타데이터만)
-
-    Example:
-        GET /api/workflows
-        Response: {
-            "workflows": [
-                {
-                    "id": "uuid-v4",
-                    "name": "코드 리뷰 워크플로우",
-                    "description": "코드 작성 → 리뷰 → 커밋",
-                    "node_count": 3,
-                    "edge_count": 2
-                },
-                ...
-            ]
-        }
-    """
-    try:
-        workflows = []
-
-        for workflow_path in WORKFLOWS_DIR.glob("*.json"):
-            try:
-                with open(workflow_path, "r", encoding="utf-8") as f:
-                    workflow_data = json.load(f)
-
-                # 메타데이터만 추출
-                workflows.append({
-                    "id": workflow_data.get("id"),
-                    "name": workflow_data.get("name"),
-                    "description": workflow_data.get("description"),
-                    "node_count": len(workflow_data.get("nodes", [])),
-                    "edge_count": len(workflow_data.get("edges", [])),
-                })
-
-            except Exception as e:
-                logger.warning(f"워크플로우 로드 실패: {workflow_path} - {e}")
-                continue
-
-        logger.info(f"워크플로우 목록 조회: {len(workflows)}개")
-
-        return WorkflowListResponse(workflows=workflows)
-
-    except Exception as e:
-        logger.error(f"워크플로우 목록 조회 실패: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"워크플로우 목록 조회 실패: {str(e)}"
-        )
-
-
-@router.get("/{workflow_id}", response_model=Workflow)
-async def get_workflow(workflow_id: str) -> Workflow:
-    """
-    워크플로우 조회 (단일)
-
-    Args:
-        workflow_id: 워크플로우 ID
-
-    Returns:
-        Workflow: 워크플로우 전체 데이터
-
-    Example:
-        GET /api/workflows/{workflow_id}
-        Response: {
-            "id": "uuid-v4",
-            "name": "코드 리뷰 워크플로우",
-            "description": "...",
-            "nodes": [...],
-            "edges": [...]
-        }
-    """
-    try:
-        workflow_path = WORKFLOWS_DIR / f"{workflow_id}.json"
-
-        if not workflow_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"워크플로우를 찾을 수 없습니다: {workflow_id}"
-            )
-
-        with open(workflow_path, "r", encoding="utf-8") as f:
-            workflow_data = json.load(f)
-
-        logger.info(f"워크플로우 조회: {workflow_data.get('name')} (ID: {workflow_id})")
-
-        return Workflow(**workflow_data)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"워크플로우 조회 실패: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"워크플로우 조회 실패: {str(e)}"
-        )
-
-
-@router.delete("/{workflow_id}")
-async def delete_workflow(workflow_id: str) -> Dict[str, str]:
-    """
-    워크플로우 삭제
-
-    Args:
-        workflow_id: 워크플로우 ID
-
-    Returns:
-        Dict[str, str]: 응답 메시지
-
-    Example:
-        DELETE /api/workflows/{workflow_id}
-        Response: {
-            "message": "워크플로우가 삭제되었습니다"
-        }
-    """
-    try:
-        workflow_path = WORKFLOWS_DIR / f"{workflow_id}.json"
-
-        if not workflow_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"워크플로우를 찾을 수 없습니다: {workflow_id}"
-            )
-
-        workflow_path.unlink()
-
-        logger.info(f"워크플로우 삭제: {workflow_id}")
-
-        return {"message": "워크플로우가 삭제되었습니다"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"워크플로우 삭제 실패: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"워크플로우 삭제 실패: {str(e)}"
-        )
-
-
-@router.post("/validate", response_model=WorkflowValidateResponse)
-async def validate_workflow(
-    workflow: Workflow,
-    config_loader: JsonConfigLoader = Depends(get_config_loader),
-):
-    """
-    워크플로우 검증
-
-    실행 전 워크플로우의 유효성을 검사합니다:
-    - 순환 참조 검사
-    - 고아 노드 검사
-    - 템플릿 변수 유효성 검사
-    - Worker별 도구 권한 검사
-    - Input 노드 존재 여부 검사
-    - Manager 노드 검증
-
-    Args:
-        workflow: 검증할 워크플로우
-        config_loader: ConfigLoader 의존성 주입
-
-    Returns:
-        WorkflowValidateResponse: 검증 결과
-            - valid: 검증 통과 여부 (error가 없으면 True)
-            - errors: 검증 에러 목록 (severity, node_id, message, suggestion)
-
-    Example:
-        POST /api/workflows/validate
-        {
-            "name": "test",
-            "nodes": [...],
-            "edges": [...]
-        }
-
-        Response:
-        {
-            "valid": false,
-            "errors": [
-                {
-                    "severity": "error",
-                    "node_id": "node1",
-                    "message": "순환 참조가 감지되었습니다",
-                    "suggestion": "노드 간 연결을 확인하여 순환 참조를 제거하세요"
-                }
-            ]
-        }
-    """
-    try:
-        # WorkflowValidator 생성 (config_loader 전달하여 Worker 도구 목록 동적 로드)
-        validator = WorkflowValidator(config_loader=config_loader)
-
-        # 워크플로우 검증
-        validation_errors = validator.validate(workflow)
-
-        # ValidationError → WorkflowValidationError 변환
-        errors = [
-            WorkflowValidationError(
-                severity=error.severity,
-                node_id=error.node_id,
-                message=error.message,
-                suggestion=error.suggestion,
-            )
-            for error in validation_errors
-        ]
-
-        # error severity가 있으면 invalid
-        has_errors = any(e.severity == "error" for e in errors)
-
-        return WorkflowValidateResponse(
-            valid=not has_errors,
-            errors=errors,
-        )
-
-    except Exception as e:
-        logger.error(f"워크플로우 검증 실패: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail=f"워크플로우 검증 실패: {str(e)}"
-        )
 
 
 @router.get("/sessions/{session_id}")
@@ -653,10 +280,7 @@ async def get_session(session_id: str) -> Dict[str, Any]:
                 logger.info(f"Fallback 경로에서 세션 발견. project_path: {session.project_path}")
 
         if not session:
-            raise HTTPException(
-                status_code=404,
-                detail=f"세션을 찾을 수 없습니다: {session_id}"
-            )
+            raise HTTPException(status_code=404, detail=f"세션을 찾을 수 없습니다: {session_id}")
 
         logger.info(f"세션 조회: {session_id} (상태: {session.status}, 프로젝트: {session.project_path})")
 
@@ -666,10 +290,7 @@ async def get_session(session_id: str) -> Dict[str, Any]:
         raise
     except Exception as e:
         logger.error(f"세션 조회 실패: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"세션 조회 실패: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"세션 조회 실패: {str(e)}")
 
 
 @router.post("/sessions/{session_id}/cancel")
@@ -770,18 +391,12 @@ async def get_node_sessions(
 
         # 세션 이력에 is_current 플래그 추가
         session_history_with_flag = [
-            {
-                **session,
-                "is_current": session["session_id"] == current_session_id
-            }
+            {**session, "is_current": session["session_id"] == current_session_id}
             for session in session_history
         ]
 
         # 최신 사용 순으로 정렬
-        session_history_with_flag.sort(
-            key=lambda s: s["last_used_at"],
-            reverse=True
-        )
+        session_history_with_flag.sort(key=lambda s: s["last_used_at"], reverse=True)
 
         # 에이전트 이름
         agent_name = executor._node_agent_names.get(node_id, "Unknown")
@@ -838,7 +453,6 @@ async def continue_node_conversation(
         logger.info(f"노드 추가 대화 요청: {node_id}, 프롬프트: {prompt[:50]}...")
 
         # 새 세션 ID 생성
-        import uuid
         new_session_id = str(uuid.uuid4())
 
         # Executor를 통해 노드 재실행
@@ -883,10 +497,6 @@ async def continue_node_conversation(
         logger.info(f"노드 {node_id} 재실행 (이전 세션: {previous_session_id[:8]}...)")
 
         # 백그라운드 태스크 생성 및 이벤트 저장
-        from src.presentation.web.services.background_workflow_manager import BackgroundWorkflowTask
-        from collections import deque
-
-        # BackgroundWorkflowTask 생성
         event_queue = deque()
 
         async def run_node_continue():
@@ -920,10 +530,11 @@ async def continue_node_conversation(
                 if new_session_id in bg_manager.tasks:
                     bg_manager.tasks[new_session_id].error = str(e)
                     bg_manager.tasks[new_session_id].completed = True
-                await bg_manager.session_store.update_session(new_session_id, status="error", error=str(e))
+                await bg_manager.session_store.update_session(
+                    new_session_id, status="error", error=str(e)
+                )
 
         # 백그라운드 태스크 시작
-        import asyncio
         task = asyncio.create_task(run_node_continue())
 
         # BackgroundWorkflowTask 저장 (SSE로 이벤트 스트리밍 가능하도록)
@@ -934,9 +545,6 @@ async def continue_node_conversation(
         )
 
         # 세션 저장소에도 저장 (SSE 스트리밍을 위해 필요)
-        from src.presentation.web.services.workflow_session_store import WorkflowSession
-        from src.presentation.web.schemas.workflow import Workflow
-        
         workflow_session = WorkflowSession(
             session_id=new_session_id,
             workflow=Workflow(
@@ -1145,10 +753,7 @@ async def delete_session(session_id: str) -> Dict[str, str]:
                 await fallback_store.delete_session(session_id)
                 logger.info(f"Fallback 경로에서 세션 삭제: {session_id}")
             else:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"세션을 찾을 수 없습니다: {session_id}"
-                )
+                raise HTTPException(status_code=404, detail=f"세션을 찾을 수 없습니다: {session_id}")
         else:
             await session_store.delete_session(session_id)
             logger.info(f"세션 삭제: {session_id}")
@@ -1161,7 +766,7 @@ async def delete_session(session_id: str) -> Dict[str, str]:
         logger.error(f"세션 삭제 실패: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"세션 삭제 실패: {str(e)}"
+            detail=f"세션 삭제 실패: {str(e)}",
         )
 
 
@@ -1190,15 +795,12 @@ async def clear_node_sessions() -> Dict[str, Any]:
         from src.presentation.web.routers.projects import _current_project_path
 
         if not _current_project_path:
-            raise HTTPException(
-                status_code=400,
-                detail="프로젝트가 선택되지 않았습니다"
-            )
+            raise HTTPException(status_code=400, detail="프로젝트가 선택되지 않았습니다")
 
         # Claude 세션 디렉토리 경로 생성
         # ~/.claude/projects/<project-dir>/
-        project_dir_name = str(Path(_current_project_path).resolve()).replace('/', '-')
-        if project_dir_name.startswith('-'):
+        project_dir_name = str(Path(_current_project_path).resolve()).replace("/", "-")
+        if project_dir_name.startswith("-"):
             project_dir_name = project_dir_name[1:]
 
         claude_sessions_dir = Path.home() / ".claude" / "projects" / f"-{project_dir_name}"
@@ -1208,7 +810,7 @@ async def clear_node_sessions() -> Dict[str, Any]:
         if not claude_sessions_dir.exists():
             return {
                 "message": "세션 디렉토리가 존재하지 않습니다 (초기화할 세션 없음)",
-                "deleted_sessions": 0
+                "deleted_sessions": 0,
             }
 
         # .jsonl 파일 찾기
@@ -1227,7 +829,7 @@ async def clear_node_sessions() -> Dict[str, Any]:
 
         return {
             "message": "모든 노드 세션이 초기화되었습니다",
-            "deleted_sessions": deleted_count
+            "deleted_sessions": deleted_count,
         }
 
     except HTTPException:
@@ -1236,273 +838,5 @@ async def clear_node_sessions() -> Dict[str, Any]:
         logger.error(f"노드 세션 초기화 실패: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"노드 세션 초기화 실패: {str(e)}"
+            detail=f"노드 세션 초기화 실패: {str(e)}",
         )
-
-
-# ==================== 워크플로우 설계 (workflow_designer) ====================
-
-# 활성 설계 세션 관리 (메모리)
-_active_design_sessions: Dict[str, dict] = {}
-
-
-def get_design_session_dir(session_id: str) -> Path:
-    """설계 세션 디렉토리 경로 반환"""
-    from src.infrastructure.config import get_data_dir
-    data_dir = get_data_dir()
-    session_dir = data_dir / "workflow_design_sessions" / session_id
-    session_dir.mkdir(parents=True, exist_ok=True)
-    return session_dir
-
-
-def save_design_session_state(session_id: str, state: dict):
-    """설계 세션 상태를 파일에 저장"""
-    session_dir = get_design_session_dir(session_id)
-    state_file = session_dir / "state.json"
-    with open(state_file, 'w', encoding='utf-8') as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
-
-
-def load_design_session_state(session_id: str) -> dict | None:
-    """설계 세션 상태를 파일에서 로드"""
-    session_dir = get_design_session_dir(session_id)
-    state_file = session_dir / "state.json"
-    if state_file.exists():
-        with open(state_file, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return None
-
-
-def append_design_session_output(session_id: str, chunk: str):
-    """설계 세션 출력을 파일에 추가"""
-    session_dir = get_design_session_dir(session_id)
-    output_file = session_dir / "output.txt"
-    with open(output_file, 'a', encoding='utf-8') as f:
-        f.write(chunk)
-
-
-def read_design_session_output(session_id: str) -> str:
-    """설계 세션 출력을 파일에서 읽기"""
-    session_dir = get_design_session_dir(session_id)
-    output_file = session_dir / "output.txt"
-    if output_file.exists():
-        with open(output_file, 'r', encoding='utf-8') as f:
-            return f.read()
-    return ""
-
-
-def get_workflow_designer_config() -> AgentConfig:
-    """
-    workflow_designer 설정 로드
-
-    Returns:
-        AgentConfig: workflow_designer 설정
-
-    Raises:
-        HTTPException: 설정 로드 실패 시
-    """
-    try:
-        config_loader = JsonConfigLoader(get_project_root())
-        agent_configs = config_loader.load_agent_configs()
-
-        config = next(
-            (cfg for cfg in agent_configs if cfg.name == "workflow_designer"),
-            None,
-        )
-
-        if not config:
-            raise HTTPException(
-                status_code=500,
-                detail="workflow_designer 설정을 찾을 수 없습니다",
-            )
-
-        return config
-
-    except Exception as e:
-        logger.error(f"workflow_designer 설정 로드 실패: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"워크플로우 디자이너 설정 로드 실패: {str(e)}",
-        )
-
-
-async def _execute_workflow_designer(
-    requirements: str, session_id: str
-) -> AsyncIterator[str]:
-    """
-    workflow_designer 실행 (스트리밍)
-
-    Args:
-        requirements: 워크플로우 요구사항
-        session_id: 세션 ID
-
-    Yields:
-        str: Worker 출력 청크
-    """
-    try:
-        config = get_workflow_designer_config()
-
-        # claude-flow 프로젝트를 working directory로 설정
-        # 기존 워커 정보 및 프롬프트를 참고하기 위함
-        claude_flow_project_dir = str(get_project_root())
-
-        worker = WorkerAgent(
-            config=config,
-            project_dir=claude_flow_project_dir
-        )
-
-        logger.info(
-            f"[{session_id}] workflow_designer 실행 시작 "
-            f"(working_dir: {claude_flow_project_dir})"
-        )
-
-        async for chunk in worker.execute_task(requirements):
-            yield chunk
-
-        logger.info(f"[{session_id}] workflow_designer 실행 완료")
-
-    except Exception as e:
-        error_msg = f"워크플로우 디자이너 실행 실패: {str(e)}"
-        logger.error(f"[{session_id}] {error_msg}", exc_info=True)
-        raise
-
-
-@router.post("/design")
-async def design_workflow(request: WorkflowDesignRequest):
-    """
-    워크플로우 설계 (SSE 스트리밍)
-
-    workflow_designer를 실행하여 요구사항으로부터 워크플로우를 자동 설계합니다.
-    세션 ID로 재접속하면 이전 출력부터 이어서 볼 수 있습니다.
-
-    Args:
-        request: 워크플로우 설계 요청 (requirements, session_id)
-
-    Returns:
-        EventSourceResponse: SSE 스트리밍 응답
-
-    Example:
-        POST /api/workflows/design
-        Body: {
-            "requirements": "코드 리뷰 후 테스트 실행하는 워크플로우",
-            "session_id": "optional-session-id"
-        }
-
-    SSE Response:
-        data: 생성된 워크플로우 JSON 청크 1
-        data: 생성된 워크플로우 JSON 청크 2
-        ...
-        data: [DONE]
-    """
-    session_id = request.session_id or str(uuid.uuid4())
-
-    # 기존 세션 확인
-    existing_state = load_design_session_state(session_id)
-    is_reconnect = existing_state is not None and existing_state.get("status") in ["generating", "completed"]
-
-    if is_reconnect:
-        logger.info(f"[{session_id}] 설계 세션 재접속 (상태: {existing_state.get('status')})")
-    else:
-        logger.info(
-            f"[{session_id}] 워크플로우 설계 요청 "
-            f"(요구사항 길이: {len(request.requirements)})"
-        )
-        # 새 세션 상태 저장
-        save_design_session_state(session_id, {
-            "session_id": session_id,
-            "status": "generating",
-            "requirements": request.requirements,
-            "created_at": datetime.now().isoformat(),
-        })
-
-    async def event_generator():
-        try:
-            # 재접속: 이전 출력 먼저 스트리밍
-            if is_reconnect:
-                previous_output = read_design_session_output(session_id)
-                if previous_output:
-                    logger.info(f"[{session_id}] 이전 출력 복원 (길이: {len(previous_output)})")
-                    yield {"data": previous_output}
-
-                # 이미 완료된 세션이면 [DONE] 전송
-                if existing_state.get("status") == "completed":
-                    logger.info(f"[{session_id}] 세션 이미 완료됨")
-                    yield {"data": "[DONE]"}
-                    return
-
-            # 이미 실행 중인 세션이면 대기만 (중복 실행 방지)
-            if session_id in _active_design_sessions:
-                logger.info(f"[{session_id}] 이미 실행 중인 세션 - 출력 대기")
-                # 실행 중인 세션의 새 출력을 기다림 (최대 5분)
-                timeout = 300  # 5분
-                start_time = asyncio.get_event_loop().time()
-                while session_id in _active_design_sessions:
-                    # 타임아웃 체크 (무한 대기 방지)
-                    if asyncio.get_event_loop().time() - start_time > timeout:
-                        error_msg = f"세션 대기 타임아웃 ({timeout}초)"
-                        logger.error(f"[{session_id}] {error_msg}")
-                        yield {"data": json.dumps({"error": error_msg})}
-                        yield {"data": "[DONE]"}
-                        return
-                    await asyncio.sleep(0.5)
-                # 완료 후 남은 출력 전송
-                yield {"data": "[DONE]"}
-                return
-
-            # 새로운 실행: 워커 실행
-            _active_design_sessions[session_id] = {"started_at": datetime.now().isoformat()}
-
-            chunk_count = 0
-            accumulated_output = ""
-
-            async for chunk in _execute_workflow_designer(
-                request.requirements, session_id
-            ):
-                chunk_count += 1
-                accumulated_output += chunk
-                append_design_session_output(session_id, chunk)  # 파일에 저장
-                logger.debug(f"[{session_id}] SSE Chunk #{chunk_count}: len={len(chunk)}")
-                yield {"data": chunk}
-
-            logger.info(f"[{session_id}] SSE 스트림 완료 (총 {chunk_count}개 청크)")
-            logger.info(f"[{session_id}] 📊 전체 출력 길이: {len(accumulated_output)} characters")
-
-            # 세션 완료 상태 저장
-            save_design_session_state(session_id, {
-                "session_id": session_id,
-                "status": "completed",
-                "requirements": request.requirements,
-                "created_at": existing_state.get("created_at") if existing_state else datetime.now().isoformat(),
-                "completed_at": datetime.now().isoformat(),
-            })
-
-            yield {"data": "[DONE]"}
-
-        except Exception as e:
-            error_msg = f"ERROR: {str(e)}"
-            logger.error(f"[{session_id}] {error_msg}", exc_info=True)
-
-            # 에러 상태 저장
-            save_design_session_state(session_id, {
-                "session_id": session_id,
-                "status": "error",
-                "error": str(e),
-                "created_at": existing_state.get("created_at") if existing_state else datetime.now().isoformat(),
-            })
-
-            yield {"data": error_msg}
-            yield {"data": "[DONE]"}
-
-        finally:
-            # 활성 세션에서 제거
-            if session_id in _active_design_sessions:
-                del _active_design_sessions[session_id]
-
-    return EventSourceResponse(
-        event_generator(),
-        headers={
-            "X-Accel-Buffering": "no",
-            "Cache-Control": "no-cache",
-            "X-Session-Id": session_id,  # 세션 ID 헤더로 반환
-        }
-    )

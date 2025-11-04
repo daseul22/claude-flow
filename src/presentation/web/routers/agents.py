@@ -53,7 +53,7 @@ def _load_agent_system_prompt(config: AgentConfig) -> str:
     logger.info(f"[{config.name}] 시스템 프롬프트 로드 시작: {prompt_text}")
 
     # .txt 확장자가 있거나 경로처럼 보이면 파일에서 로드 시도
-    if prompt_text.endswith('.txt') or '/' in prompt_text:
+    if prompt_text.endswith(".txt") or "/" in prompt_text:
         try:
             prompt_path = Path(prompt_text)
             logger.info(f"[{config.name}] 프롬프트 파일 경로 (상대): {prompt_path}")
@@ -66,7 +66,7 @@ def _load_agent_system_prompt(config: AgentConfig) -> str:
                 logger.info(f"[{config.name}] 프롬프트 파일 경로 (절대): {prompt_path}")
 
             if prompt_path.exists():
-                with open(prompt_path, 'r', encoding='utf-8') as f:
+                with open(prompt_path, "r", encoding="utf-8") as f:
                     loaded_prompt = f.read().strip()
                     logger.info(f"[{config.name}] ✅ 시스템 프롬프트 로드 성공: {len(loaded_prompt)} 문자")
                     return loaded_prompt
@@ -83,7 +83,7 @@ def _load_agent_system_prompt(config: AgentConfig) -> str:
 
 @router.get("/agents", response_model=AgentListResponse)
 async def list_agents(
-    config_loader: JsonConfigLoader = Depends(get_config_loader)
+    config_loader: JsonConfigLoader = Depends(get_config_loader),
 ) -> AgentListResponse:
     """
     사용 가능한 Worker Agent 목록 조회 (기본 워커 + 커스텀 워커)
@@ -112,7 +112,6 @@ async def list_agents(
     try:
         # 1. 기본 워커 로드
         agent_configs = config_loader.load_agent_configs()
-        base_worker_names = {config.name for config in agent_configs}
 
         # 2. 커스텀 워커 로드 (프로젝트가 선택된 경우만)
         from src.presentation.web.routers.projects import _current_project_path
@@ -138,26 +137,28 @@ async def list_agents(
 
             # allowed_tools 안전하게 처리
             allowed_tools = []
-            if hasattr(config, 'allowed_tools') and config.allowed_tools:
+            if hasattr(config, "allowed_tools") and config.allowed_tools:
                 allowed_tools = list(config.allowed_tools)
 
             # model 정보 안전하게 처리
             model = None
-            if hasattr(config, 'model') and config.model:
+            if hasattr(config, "model") and config.model:
                 model = config.model
 
             # 커스텀 워커 여부 판단
             is_custom = config.name in custom_worker_names
 
-            agents.append(AgentInfo(
-                name=config.name,
-                role=config.role,
-                description=f"{config.role} 전문가",
-                system_prompt=system_prompt,
-                allowed_tools=allowed_tools,
-                model=model,
-                is_custom=is_custom,
-            ))
+            agents.append(
+                AgentInfo(
+                    name=config.name,
+                    role=config.role,
+                    description=f"{config.role} 전문가",
+                    system_prompt=system_prompt,
+                    allowed_tools=allowed_tools,
+                    model=model,
+                    is_custom=is_custom,
+                )
+            )
 
         logger.info(f"✅ Agent 목록 조회: {len(agents)}개 (기본 + 커스텀, 시스템 프롬프트 포함)")
         return AgentListResponse(agents=agents)
@@ -192,42 +193,12 @@ async def get_available_tools():
         }
     """
     tools = [
-        {
-            "name": "read",
-            "description": "파일 읽기",
-            "category": "파일",
-            "readonly": True
-        },
-        {
-            "name": "write",
-            "description": "파일 쓰기",
-            "category": "파일",
-            "readonly": False
-        },
-        {
-            "name": "edit",
-            "description": "파일 편집",
-            "category": "파일",
-            "readonly": False
-        },
-        {
-            "name": "glob",
-            "description": "파일 검색 (패턴)",
-            "category": "검색",
-            "readonly": True
-        },
-        {
-            "name": "grep",
-            "description": "코드 검색 (내용)",
-            "category": "검색",
-            "readonly": True
-        },
-        {
-            "name": "bash",
-            "description": "쉘 명령 실행",
-            "category": "실행",
-            "readonly": False
-        }
+        {"name": "read", "description": "파일 읽기", "category": "파일", "readonly": True},
+        {"name": "write", "description": "파일 쓰기", "category": "파일", "readonly": False},
+        {"name": "edit", "description": "파일 편집", "category": "파일", "readonly": False},
+        {"name": "glob", "description": "파일 검색 (패턴)", "category": "검색", "readonly": True},
+        {"name": "grep", "description": "코드 검색 (내용)", "category": "검색", "readonly": True},
+        {"name": "bash", "description": "쉘 명령 실행", "category": "실행", "readonly": False},
     ]
 
     logger.debug(f"사용 가능한 도구 목록 반환: {len(tools)}개")
@@ -278,8 +249,7 @@ async def _execute_worker_stream(
 
 @router.post("/execute")
 async def execute_agent(
-    request: AgentExecuteRequest,
-    config_loader: JsonConfigLoader = Depends(get_config_loader)
+    request: AgentExecuteRequest, config_loader: JsonConfigLoader = Depends(get_config_loader)
 ):
     """
     Worker Agent 실행 (Server-Sent Events)
@@ -365,7 +335,7 @@ async def execute_agent(
             headers={
                 "X-Accel-Buffering": "no",  # nginx 버퍼링 비활성화
                 "Cache-Control": "no-cache",
-            }
+            },
         )
 
     except HTTPException:

@@ -32,6 +32,7 @@ router = APIRouter(prefix="/api/custom-workers", tags=["custom-workers"])
 # 활성 세션 관리 (메모리)
 _active_sessions: Dict[str, dict] = {}
 
+
 def get_session_dir(session_id: str) -> Path:
     """세션 디렉토리 경로 반환"""
     data_dir = get_data_dir()
@@ -39,35 +40,39 @@ def get_session_dir(session_id: str) -> Path:
     session_dir.mkdir(parents=True, exist_ok=True)
     return session_dir
 
+
 def save_session_state(session_id: str, state: dict):
     """세션 상태를 파일에 저장"""
     session_dir = get_session_dir(session_id)
     state_file = session_dir / "state.json"
-    with open(state_file, 'w', encoding='utf-8') as f:
+    with open(state_file, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
+
 
 def load_session_state(session_id: str) -> Optional[dict]:
     """세션 상태를 파일에서 로드"""
     session_dir = get_session_dir(session_id)
     state_file = session_dir / "state.json"
     if state_file.exists():
-        with open(state_file, 'r', encoding='utf-8') as f:
+        with open(state_file, "r", encoding="utf-8") as f:
             return json.load(f)
     return None
+
 
 def append_session_output(session_id: str, chunk: str):
     """세션 출력을 파일에 추가"""
     session_dir = get_session_dir(session_id)
     output_file = session_dir / "output.txt"
-    with open(output_file, 'a', encoding='utf-8') as f:
+    with open(output_file, "a", encoding="utf-8") as f:
         f.write(chunk)
+
 
 def read_session_output(session_id: str) -> str:
     """세션 출력을 파일에서 읽기"""
     session_dir = get_session_dir(session_id)
     output_file = session_dir / "output.txt"
     if output_file.exists():
-        with open(output_file, 'r', encoding='utf-8') as f:
+        with open(output_file, "r", encoding="utf-8") as f:
             return f.read()
     return ""
 
@@ -107,9 +112,7 @@ def get_worker_prompt_engineer_config() -> AgentConfig:
         )
 
 
-async def _execute_worker_prompt_engineer(
-    requirements: str, session_id: str
-) -> AsyncIterator[str]:
+async def _execute_worker_prompt_engineer(requirements: str, session_id: str) -> AsyncIterator[str]:
     """
     worker_prompt_engineer 실행 (스트리밍)
 
@@ -127,10 +130,7 @@ async def _execute_worker_prompt_engineer(
         # 다른 워커 프롬프트들을 참고하기 위함
         claude_flow_project_dir = str(get_project_root())
 
-        worker = WorkerAgent(
-            config=config,
-            project_dir=claude_flow_project_dir
-        )
+        worker = WorkerAgent(config=config, project_dir=claude_flow_project_dir)
 
         logger.info(
             f"[{session_id}] worker_prompt_engineer 실행 시작 "
@@ -180,22 +180,27 @@ async def generate_custom_worker(request: CustomWorkerGenerateRequest):
 
     # 기존 세션 확인
     existing_state = load_session_state(session_id)
-    is_reconnect = existing_state is not None and existing_state.get("status") in ["generating", "completed"]
+    is_reconnect = existing_state is not None and existing_state.get("status") in [
+        "generating",
+        "completed",
+    ]
 
     if is_reconnect:
         logger.info(f"[{session_id}] 세션 재접속 (상태: {existing_state.get('status')})")
     else:
         logger.info(
-            f"[{session_id}] 커스텀 워커 생성 요청 "
-            f"(요구사항 길이: {len(request.worker_requirements)})"
+            f"[{session_id}] 커스텀 워커 생성 요청 " f"(요구사항 길이: {len(request.worker_requirements)})"
         )
         # 새 세션 상태 저장
-        save_session_state(session_id, {
-            "session_id": session_id,
-            "status": "generating",
-            "worker_requirements": request.worker_requirements,
-            "created_at": datetime.now().isoformat(),
-        })
+        save_session_state(
+            session_id,
+            {
+                "session_id": session_id,
+                "status": "generating",
+                "worker_requirements": request.worker_requirements,
+                "created_at": datetime.now().isoformat(),
+            },
+        )
 
     async def event_generator():
         try:
@@ -251,13 +256,18 @@ async def generate_custom_worker(request: CustomWorkerGenerateRequest):
             logger.info(f"[{session_id}] 📄 전체 출력 내용:\n{'-'*80}\n{accumulated_output}\n{'-'*80}")
 
             # 세션 완료 상태 저장
-            save_session_state(session_id, {
-                "session_id": session_id,
-                "status": "completed",
-                "worker_requirements": request.worker_requirements,
-                "created_at": existing_state.get("created_at") if existing_state else datetime.now().isoformat(),
-                "completed_at": datetime.now().isoformat(),
-            })
+            save_session_state(
+                session_id,
+                {
+                    "session_id": session_id,
+                    "status": "completed",
+                    "worker_requirements": request.worker_requirements,
+                    "created_at": existing_state.get("created_at")
+                    if existing_state
+                    else datetime.now().isoformat(),
+                    "completed_at": datetime.now().isoformat(),
+                },
+            )
 
             yield {"data": "[DONE]"}
 
@@ -266,12 +276,17 @@ async def generate_custom_worker(request: CustomWorkerGenerateRequest):
             logger.error(f"[{session_id}] {error_msg}", exc_info=True)
 
             # 에러 상태 저장
-            save_session_state(session_id, {
-                "session_id": session_id,
-                "status": "error",
-                "error": str(e),
-                "created_at": existing_state.get("created_at") if existing_state else datetime.now().isoformat(),
-            })
+            save_session_state(
+                session_id,
+                {
+                    "session_id": session_id,
+                    "status": "error",
+                    "error": str(e),
+                    "created_at": existing_state.get("created_at")
+                    if existing_state
+                    else datetime.now().isoformat(),
+                },
+            )
 
             yield {"data": error_msg}
             yield {"data": "[DONE]"}
@@ -287,7 +302,7 @@ async def generate_custom_worker(request: CustomWorkerGenerateRequest):
             "X-Accel-Buffering": "no",
             "Cache-Control": "no-cache",
             "X-Session-Id": session_id,  # 세션 ID 헤더로 반환
-        }
+        },
     )
 
 
@@ -364,9 +379,7 @@ async def save_custom_worker(request: CustomWorkerSaveRequest):
 
 
 @router.get("", response_model=CustomWorkerListResponse)
-async def list_custom_workers(
-    project_path: str = Query(..., description="프로젝트 경로")
-):
+async def list_custom_workers(project_path: str = Query(..., description="프로젝트 경로")):
     """
     커스텀 워커 목록 조회
 
@@ -417,20 +430,22 @@ async def list_custom_workers(
             try:
                 prompt_path = Path(config.system_prompt)
                 if prompt_path.exists():
-                    with open(prompt_path, 'r', encoding='utf-8') as f:
+                    with open(prompt_path, "r", encoding="utf-8") as f:
                         prompt_content = f.read()
                         prompt_preview = prompt_content[:100]
             except Exception as e:
                 logger.warning(f"프롬프트 미리보기 로드 실패: {config.name}, {e}")
 
-            workers.append(CustomWorkerInfo(
-                name=config.name,
-                role=config.role,
-                allowed_tools=list(config.allowed_tools) if config.allowed_tools else [],
-                model=config.model or "claude-sonnet-4-5-20250929",
-                thinking=config.thinking if hasattr(config, 'thinking') else False,
-                prompt_preview=prompt_preview,
-            ))
+            workers.append(
+                CustomWorkerInfo(
+                    name=config.name,
+                    role=config.role,
+                    allowed_tools=list(config.allowed_tools) if config.allowed_tools else [],
+                    model=config.model or "claude-sonnet-4-5-20250929",
+                    thinking=config.thinking if hasattr(config, "thinking") else False,
+                    prompt_preview=prompt_preview,
+                )
+            )
 
         logger.info(f"커스텀 워커 목록 조회: {len(workers)}개 at {project_path}")
 
@@ -448,8 +463,7 @@ async def list_custom_workers(
 
 @router.delete("/{worker_name}")
 async def delete_custom_worker(
-    worker_name: str,
-    project_path: str = Query(..., description="프로젝트 경로")
+    worker_name: str, project_path: str = Query(..., description="프로젝트 경로")
 ):
     """
     커스텀 워커 삭제

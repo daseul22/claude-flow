@@ -35,9 +35,7 @@ class AgentExecuteRequest(BaseModel):
     def validate_agent_name(cls, v: str) -> str:
         """Agent 이름 검증 (알파벳, 숫자, 언더스코어만 허용)"""
         if not v.replace("_", "").isalnum():
-            raise ValueError(
-                "Agent 이름은 알파벳, 숫자, 언더스코어만 포함해야 합니다"
-            )
+            raise ValueError("Agent 이름은 알파벳, 숫자, 언더스코어만 포함해야 합니다")
         return v.lower()
 
     @field_validator("task_description")

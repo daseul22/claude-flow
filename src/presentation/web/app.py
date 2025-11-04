@@ -48,7 +48,7 @@ if not env_loaded:
 configure_structlog(
     log_dir=None,  # 기본 디렉토리 사용
     log_level=os.getenv("LOG_LEVEL", "INFO"),
-    enable_json=False  # 콘솔 로그는 읽기 쉬운 형식 사용
+    enable_json=False,  # 콘솔 로그는 읽기 쉬운 형식 사용
 )
 
 logger = get_logger(__name__)
@@ -82,7 +82,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Claude Flow", version="4.0.0", lifespan=lifespan)
 
 origins = os.getenv("WEB_ALLOWED_ORIGINS", "*").split(",")
-app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(health_router)
 app.include_router(agents_router)
@@ -96,13 +102,19 @@ REACT_BUILD_DIR = Path(__file__).parent / "static-react"
 
 if REACT_BUILD_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(REACT_BUILD_DIR / "assets")), name="assets")
+
     @app.get("/")
     async def root():
         return FileResponse(str(REACT_BUILD_DIR / "index.html"))
+
 else:
+
     @app.get("/")
     async def root():
-        return {"error": "React 빌드 필요", "solution": "cd src/presentation/web/frontend && npm run build"}
+        return {
+            "error": "React 빌드 필요",
+            "solution": "cd src/presentation/web/frontend && npm run build",
+        }
 
 
 def main():
@@ -146,6 +158,7 @@ def main():
     print()
 
     uvicorn.run("src.presentation.web.app:app", host=host, port=port, log_level="info")
+
 
 if __name__ == "__main__":
     main()

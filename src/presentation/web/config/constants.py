@@ -52,7 +52,7 @@ class ProjectConfig:
     }
 
     # 파일명 유효성 검사
-    INVALID_FILENAME_CHARS: Set[str] = frozenset(['/', '\\', ':', '*', '?', '"', '<', '>', '|'])
+    INVALID_FILENAME_CHARS: Set[str] = frozenset(["/", "\\", ":", "*", "?", '"', "<", ">", "|"])
 
     # 제한
     MAX_LOG_LINES = 10000

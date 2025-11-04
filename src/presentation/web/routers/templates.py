@@ -34,9 +34,7 @@ def get_template_manager() -> TemplateManager:
 
 
 @router.get("", response_model=TemplateListResponse)
-async def list_templates(
-    manager: TemplateManager = Depends(get_template_manager)
-):
+async def list_templates(manager: TemplateManager = Depends(get_template_manager)):
     """
     템플릿 목록 조회 (메타데이터만)
 
@@ -80,10 +78,7 @@ async def list_templates(
 
 
 @router.get("/{template_id}", response_model=Template)
-async def get_template(
-    template_id: str,
-    manager: TemplateManager = Depends(get_template_manager)
-):
+async def get_template(template_id: str, manager: TemplateManager = Depends(get_template_manager)):
     """
     템플릿 상세 조회 (전체 데이터)
 
@@ -135,8 +130,7 @@ async def get_template(
 
 @router.post("", response_model=TemplateSaveResponse)
 async def save_template(
-    request: TemplateSaveRequest,
-    manager: TemplateManager = Depends(get_template_manager)
+    request: TemplateSaveRequest, manager: TemplateManager = Depends(get_template_manager)
 ):
     """
     사용자 정의 템플릿 저장
@@ -185,14 +179,11 @@ async def save_template(
             description=request.description,
             category=request.category,
             workflow=workflow_dict,
-            tags=request.tags
+            tags=request.tags,
         )
 
         logger.info(f"템플릿 저장 성공: {template_id} ({request.name})")
-        return TemplateSaveResponse(
-            template_id=template_id,
-            message="템플릿 저장 완료"
-        )
+        return TemplateSaveResponse(template_id=template_id, message="템플릿 저장 완료")
     except HTTPException:
         raise
     except Exception as e:
@@ -202,8 +193,7 @@ async def save_template(
 
 @router.delete("/{template_id}")
 async def delete_template(
-    template_id: str,
-    manager: TemplateManager = Depends(get_template_manager)
+    template_id: str, manager: TemplateManager = Depends(get_template_manager)
 ):
     """
     템플릿 삭제 (내장 템플릿은 삭제 불가)
@@ -234,10 +224,7 @@ async def delete_template(
             raise HTTPException(status_code=404, detail=f"템플릿을 찾을 수 없습니다: {template_id}")
 
         logger.info(f"템플릿 삭제 성공: {template_id}")
-        return {
-            "message": "템플릿 삭제 완료",
-            "template_id": template_id
-        }
+        return {"message": "템플릿 삭제 완료", "template_id": template_id}
     except HTTPException:
         raise
     except ValueError as e:
@@ -251,8 +238,7 @@ async def delete_template(
 
 @router.post("/validate")
 async def validate_template(
-    workflow: Dict[str, Any],
-    manager: TemplateManager = Depends(get_template_manager)
+    workflow: Dict[str, Any], manager: TemplateManager = Depends(get_template_manager)
 ):
     """
     템플릿 검증 (워크플로우 유효성 검사)
@@ -289,10 +275,7 @@ async def validate_template(
     try:
         errors = manager.validate_template(workflow)
         logger.info(f"템플릿 검증 완료: valid={len(errors) == 0}")
-        return {
-            "valid": len(errors) == 0,
-            "errors": errors
-        }
+        return {"valid": len(errors) == 0, "errors": errors}
     except Exception as e:
         logger.error(f"템플릿 검증 실패: {e}")
         raise HTTPException(status_code=500, detail=f"템플릿 검증 실패: {str(e)}")

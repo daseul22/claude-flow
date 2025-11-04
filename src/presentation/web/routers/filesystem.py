@@ -26,6 +26,7 @@ class DirectoryEntry(BaseModel):
         is_directory: 디렉토리 여부
         is_readable: 읽기 권한 여부
     """
+
     name: str = Field(..., description="파일/디렉토리 이름")
     path: str = Field(..., description="절대 경로")
     is_directory: bool = Field(..., description="디렉토리 여부")
@@ -41,6 +42,7 @@ class DirectoryBrowseResponse(BaseModel):
         parent_path: 부모 경로 (없으면 None)
         entries: 디렉토리 엔트리 목록 (디렉토리 먼저, 이름순 정렬)
     """
+
     current_path: str = Field(..., description="현재 경로")
     parent_path: Optional[str] = Field(default=None, description="부모 경로")
     entries: List[DirectoryEntry] = Field(..., description="디렉토리 엔트리 목록")
@@ -48,10 +50,18 @@ class DirectoryBrowseResponse(BaseModel):
 
 # 무시할 디렉토리/파일 패턴
 IGNORE_PATTERNS = {
-    '.git', '.svn', '.hg',  # 버전 관리
-    'node_modules', 'venv', '.venv', '__pycache__',  # 의존성
-    '.DS_Store', 'Thumbs.db',  # 시스템 파일
-    '.Trash', '.Spotlight-V100', '.fseventsd',  # macOS 시스템
+    ".git",
+    ".svn",
+    ".hg",  # 버전 관리
+    "node_modules",
+    "venv",
+    ".venv",
+    "__pycache__",  # 의존성
+    ".DS_Store",
+    "Thumbs.db",  # 시스템 파일
+    ".Trash",
+    ".Spotlight-V100",
+    ".fseventsd",  # macOS 시스템
 }
 
 
@@ -66,9 +76,9 @@ def is_hidden_or_ignored(name: str) -> bool:
         bool: 숨김/무시 여부
     """
     # 숨김 파일 (점으로 시작)
-    if name.startswith('.') and name not in {'.', '..'}:
+    if name.startswith(".") and name not in {".", ".."}:
         # .claude-flow은 허용
-        if name == '.claude-flow':
+        if name == ".claude-flow":
             return False
         return True
 
@@ -137,24 +147,15 @@ async def browse_directory(
 
     # 경로 존재 확인
     if not target_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"디렉토리를 찾을 수 없습니다: {target_path}"
-        )
+        raise HTTPException(status_code=404, detail=f"디렉토리를 찾을 수 없습니다: {target_path}")
 
     # 디렉토리 확인
     if not target_path.is_dir():
-        raise HTTPException(
-            status_code=400,
-            detail=f"디렉토리가 아닙니다: {target_path}"
-        )
+        raise HTTPException(status_code=400, detail=f"디렉토리가 아닙니다: {target_path}")
 
     # 읽기 권한 확인
     if not os.access(target_path, os.R_OK):
-        raise HTTPException(
-            status_code=403,
-            detail=f"읽기 권한이 없습니다: {target_path}"
-        )
+        raise HTTPException(status_code=403, detail=f"읽기 권한이 없습니다: {target_path}")
 
     # 부모 경로 계산
     parent_path = str(target_path.parent) if target_path.parent != target_path else None
@@ -171,33 +172,26 @@ async def browse_directory(
             # 권한 확인
             is_readable = os.access(entry, os.R_OK)
 
-            entries.append(DirectoryEntry(
-                name=entry.name,
-                path=str(entry.resolve()),
-                is_directory=entry.is_dir(),
-                is_readable=is_readable,
-            ))
+            entries.append(
+                DirectoryEntry(
+                    name=entry.name,
+                    path=str(entry.resolve()),
+                    is_directory=entry.is_dir(),
+                    is_readable=is_readable,
+                )
+            )
 
     except PermissionError as e:
         logger.warning(f"디렉토리 읽기 실패: {target_path} - {e}")
-        raise HTTPException(
-            status_code=403,
-            detail=f"디렉토리 읽기 권한이 없습니다: {target_path}"
-        )
+        raise HTTPException(status_code=403, detail=f"디렉토리 읽기 권한이 없습니다: {target_path}")
     except Exception as e:
         logger.error(f"디렉토리 탐색 실패: {target_path} - {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"디렉토리 탐색 실패: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"디렉토리 탐색 실패: {str(e)}")
 
     # 정렬: 디렉토리 먼저, 이름순
     entries.sort(key=lambda e: (not e.is_directory, e.name.lower()))
 
-    logger.info(
-        f"디렉토리 브라우징: {target_path} "
-        f"(엔트리: {len(entries)}개)"
-    )
+    logger.info(f"디렉토리 브라우징: {target_path} " f"(엔트리: {len(entries)}개)")
 
     return DirectoryBrowseResponse(
         current_path=str(target_path),

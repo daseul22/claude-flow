@@ -31,7 +31,7 @@ class TemplateManager:
     def __init__(
         self,
         builtin_templates_dir: Optional[Path] = None,
-        user_templates_dir: Optional[Path] = None
+        user_templates_dir: Optional[Path] = None,
     ):
         """
         템플릿 매니저 초기화
@@ -56,7 +56,9 @@ class TemplateManager:
         # 사용자 템플릿 디렉토리 생성 (존재하지 않으면)
         self.user_templates_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"TemplateManager 초기화 완료: builtin={self.builtin_templates_dir}, user={self.user_templates_dir}")
+        logger.info(
+            f"TemplateManager 초기화 완료: builtin={self.builtin_templates_dir}, user={self.user_templates_dir}"
+        )
 
     def list_templates(self) -> List[TemplateMetadata]:
         """
@@ -127,7 +129,7 @@ class TemplateManager:
         category: str,
         workflow: Dict[str, Any],
         tags: Optional[List[str]] = None,
-        template_id: Optional[str] = None
+        template_id: Optional[str] = None,
     ) -> str:
         """
         사용자 정의 템플릿 저장
@@ -166,7 +168,7 @@ class TemplateManager:
             "is_builtin": False,
             "metadata": {},
             "created_at": now,
-            "updated_at": now
+            "updated_at": now,
         }
 
         # 파일로 저장
@@ -254,11 +256,7 @@ class TemplateManager:
 
         return errors
 
-    def _load_template_from_file(
-        self,
-        template_file: Path,
-        is_builtin: bool
-    ) -> Optional[Template]:
+    def _load_template_from_file(self, template_file: Path, is_builtin: bool) -> Optional[Template]:
         """
         JSON 파일에서 템플릿 로드
 

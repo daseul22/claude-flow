@@ -37,6 +37,7 @@ class BackgroundWorkflowTask:
         completed: 완료 여부
         error: 에러 메시지 (에러 발생 시)
     """
+
     session_id: str
     task: asyncio.Task
     event_queue: deque = field(default_factory=deque)
@@ -101,13 +102,9 @@ class BackgroundWorkflowManager:
         if session_id in self.tasks:
             existing_task = self.tasks[session_id]
             if not existing_task.completed:
-                raise ValueError(
-                    f"세션 {session_id}는 이미 실행 중입니다"
-                )
+                raise ValueError(f"세션 {session_id}는 이미 실행 중입니다")
 
-        logger.info(
-            f"[{session_id}] 백그라운드 워크플로우 시작: {workflow.name}"
-        )
+        logger.info(f"[{session_id}] 백그라운드 워크플로우 시작: {workflow.name}")
 
         # 백그라운드 Task 생성 (project_path, start_node_id 전달)
         task = asyncio.create_task(
@@ -141,9 +138,7 @@ class BackgroundWorkflowManager:
         bg_task = self.tasks[session_id]
 
         try:
-            logger.info(
-                f"[{session_id}] 워크플로우 실행 시작 (백그라운드)"
-            )
+            logger.info(f"[{session_id}] 워크플로우 실행 시작 (백그라운드)")
 
             # WorkflowExecutor 실행 (project_path, start_node_id 전달)
             async for event in self.executor.execute_workflow(
@@ -166,9 +161,7 @@ class BackgroundWorkflowManager:
 
             # 완료 처리
             bg_task.completed = True
-            logger.info(
-                f"[{session_id}] 워크플로우 실행 완료 (백그라운드)"
-            )
+            logger.info(f"[{session_id}] 워크플로우 실행 완료 (백그라운드)")
 
         except Exception as e:
             error_msg = str(e)
@@ -243,10 +236,7 @@ class BackgroundWorkflowManager:
             yield event
 
         sent_count = start_from_index + len(existing_logs)
-        logger.info(
-            f"[{session_id}] 기존 이벤트 전송 완료: {len(existing_logs)}개 "
-            f"(총 누적: {sent_count}개)"
-        )
+        logger.info(f"[{session_id}] 기존 이벤트 전송 완료: {len(existing_logs)}개 " f"(총 누적: {sent_count}개)")
 
         # 2. 실시간 이벤트 스트리밍 (백그라운드 Task가 실행 중인 경우)
         if is_task_running:
@@ -280,15 +270,9 @@ class BackgroundWorkflowManager:
                     event = WorkflowNodeExecutionEvent(**log_entry)
                     yield event
 
-                logger.info(
-                    f"[{session_id}] 실시간 폴링 완료 "
-                    f"(총 {len(session.logs)}개 이벤트)"
-                )
+                logger.info(f"[{session_id}] 실시간 폴링 완료 " f"(총 {len(session.logs)}개 이벤트)")
         else:
-            logger.info(
-                f"[{session_id}] 백그라운드 Task 없음. 저장된 이벤트만 전송 완료 "
-                f"(상태: {session.status})"
-            )
+            logger.info(f"[{session_id}] 백그라운드 Task 없음. 저장된 이벤트만 전송 완료 " f"(상태: {session.status})")
 
     def get_task_status(self, session_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -420,9 +404,7 @@ def get_background_workflow_manager(
     # 캐시에서 인스턴스 확인
     if cache_key not in _managers:
         if executor is None:
-            raise ValueError(
-                "첫 호출 시 executor를 제공해야 합니다"
-            )
+            raise ValueError("첫 호출 시 executor를 제공해야 합니다")
         logger.info(f"새 BackgroundWorkflowManager 생성 (프로젝트: {cache_key})")
         _managers[cache_key] = BackgroundWorkflowManager(executor)
     else:
@@ -430,9 +412,7 @@ def get_background_workflow_manager(
         if executor is not None:
             existing_manager = _managers[cache_key]
             if existing_manager.executor != executor:
-                logger.info(
-                    f"BackgroundWorkflowManager executor 업데이트 (프로젝트: {cache_key})"
-                )
+                logger.info(f"BackgroundWorkflowManager executor 업데이트 (프로젝트: {cache_key})")
                 existing_manager.executor = executor
 
     return _managers[cache_key]

@@ -15,8 +15,6 @@ import re
 
 from ..schemas.workflow import (
     Workflow,
-    WorkflowNode,
-    WorkflowEdge,
     WorkerNodeData,
 )
 
@@ -32,6 +30,7 @@ class ValidationError:
         message: 에러 메시지
         suggestion: 해결 방법 제안
     """
+
     severity: str  # 'error', 'warning', 'info'
     node_id: str
     message: str
@@ -66,7 +65,7 @@ class WorkflowValidator:
     }
 
     # 템플릿 변수 패턴 ({{input}}, {{node_123}} 등)
-    TEMPLATE_VAR_PATTERN = re.compile(r'\{\{(\w+)\}\}')
+    TEMPLATE_VAR_PATTERN = re.compile(r"\{\{(\w+)\}\}")
 
     def __init__(self, config_loader=None):
         """
@@ -197,12 +196,14 @@ class WorkflowValidator:
             if node_id not in visited:
                 cycle_path = dfs(node_id, [])
                 if cycle_path:
-                    errors.append(ValidationError(
-                        severity="error",
-                        node_id=cycle_path[0],
-                        message=f"무한 순환이 감지되었습니다: {' → '.join(cycle_path)}",
-                        suggestion="Condition 노드에 max_iterations를 설정하여 반복 횟수를 제한하거나, 노드 간 연결을 변경하여 순환을 제거하세요."
-                    ))
+                    errors.append(
+                        ValidationError(
+                            severity="error",
+                            node_id=cycle_path[0],
+                            message=f"무한 순환이 감지되었습니다: {' → '.join(cycle_path)}",
+                            suggestion="Condition 노드에 max_iterations를 설정하여 반복 횟수를 제한하거나, 노드 간 연결을 변경하여 순환을 제거하세요.",
+                        )
+                    )
                     break  # 하나만 보고 (여러 개일 수 있지만 가독성 위해)
 
         return errors
@@ -228,12 +229,14 @@ class WorkflowValidator:
         # 고아 노드 찾기 (Input 노드는 제외)
         for node in workflow.nodes:
             if node.id not in connected_nodes and node.type != "input":
-                errors.append(ValidationError(
-                    severity="warning",
-                    node_id=node.id,
-                    message=f"노드 '{node.id}'가 다른 노드와 연결되지 않았습니다.",
-                    suggestion="이 노드를 다른 노드와 연결하거나 삭제하세요."
-                ))
+                errors.append(
+                    ValidationError(
+                        severity="warning",
+                        node_id=node.id,
+                        message=f"노드 '{node.id}'가 다른 노드와 연결되지 않았습니다.",
+                        suggestion="이 노드를 다른 노드와 연결하거나 삭제하세요.",
+                    )
+                )
 
         return errors
 
@@ -284,23 +287,27 @@ class WorkflowValidator:
                     referenced_node_id = var
                 else:
                     # 유효하지 않은 변수
-                    example_node = list(node_ids)[0] if node_ids else 'node_1'
-                    errors.append(ValidationError(
-                        severity="error",
-                        node_id=node.id,
-                        message=f"유효하지 않은 템플릿 변수입니다: {{{{{var}}}}}",
-                        suggestion=f"변수 이름을 확인하세요. 사용 가능한 변수: {{{{parent}}}} (부모 노드 출력), {{{{input}}}} (초기 입력), 또는 노드 ID (예: {{{{{example_node}}}}})"
-                    ))
+                    example_node = list(node_ids)[0] if node_ids else "node_1"
+                    errors.append(
+                        ValidationError(
+                            severity="error",
+                            node_id=node.id,
+                            message=f"유효하지 않은 템플릿 변수입니다: {{{{{var}}}}}",
+                            suggestion=f"변수 이름을 확인하세요. 사용 가능한 변수: {{{{parent}}}} (부모 노드 출력), {{{{input}}}} (초기 입력), 또는 노드 ID (예: {{{{{example_node}}}}})",
+                        )
+                    )
                     continue
 
                 # 참조하는 노드가 존재하는지 확인
                 if referenced_node_id not in node_ids:
-                    errors.append(ValidationError(
-                        severity="error",
-                        node_id=node.id,
-                        message=f"존재하지 않는 노드를 참조합니다: {{{{{var}}}}}",
-                        suggestion=f"노드 ID '{referenced_node_id}'가 존재하지 않습니다. 올바른 노드 ID를 사용하세요."
-                    ))
+                    errors.append(
+                        ValidationError(
+                            severity="error",
+                            node_id=node.id,
+                            message=f"존재하지 않는 노드를 참조합니다: {{{{{var}}}}}",
+                            suggestion=f"노드 ID '{referenced_node_id}'가 존재하지 않습니다. 올바른 노드 ID를 사용하세요.",
+                        )
+                    )
 
         return errors
 
@@ -347,12 +354,14 @@ class WorkflowValidator:
             if allowed_tools:
                 invalid_tools = [tool for tool in allowed_tools if tool not in default_tools]
                 if invalid_tools:
-                    errors.append(ValidationError(
-                        severity="error",
-                        node_id=node.id,
-                        message=f"Worker '{agent_name}'이(가) 사용할 수 없는 도구가 지정되었습니다: {', '.join(invalid_tools)}",
-                        suggestion=f"'{agent_name}'의 허용 도구: {', '.join(default_tools)}"
-                    ))
+                    errors.append(
+                        ValidationError(
+                            severity="error",
+                            node_id=node.id,
+                            message=f"Worker '{agent_name}'이(가) 사용할 수 없는 도구가 지정되었습니다: {', '.join(invalid_tools)}",
+                            suggestion=f"'{agent_name}'의 허용 도구: {', '.join(default_tools)}",
+                        )
+                    )
 
         return errors
 
@@ -373,12 +382,14 @@ class WorkflowValidator:
         input_nodes = [node for node in workflow.nodes if node.type == "input"]
 
         if len(input_nodes) == 0:
-            errors.append(ValidationError(
-                severity="error",
-                node_id="",
-                message="워크플로우에 Input 노드가 없습니다.",
-                suggestion="워크플로우 시작점으로 Input 노드를 추가하세요."
-            ))
+            errors.append(
+                ValidationError(
+                    severity="error",
+                    node_id="",
+                    message="워크플로우에 Input 노드가 없습니다.",
+                    suggestion="워크플로우 시작점으로 Input 노드를 추가하세요.",
+                )
+            )
         # 여러 개의 Input 노드 허용 (병렬 작업 실행 가능)
 
         return errors
@@ -440,11 +451,13 @@ class WorkflowValidator:
 
             # max_iterations가 없으면 경고
             if max_iterations is None:
-                errors.append(ValidationError(
-                    severity="warning",
-                    node_id=node.id,
-                    message="순환 경로의 Condition 노드에 max_iterations가 설정되지 않았습니다.",
-                    suggestion="무한 루프 방지를 위해 max_iterations를 설정하세요 (권장: 3-10). 설정하지 않으면 기본값 10이 적용됩니다."
-                ))
+                errors.append(
+                    ValidationError(
+                        severity="warning",
+                        node_id=node.id,
+                        message="순환 경로의 Condition 노드에 max_iterations가 설정되지 않았습니다.",
+                        suggestion="무한 루프 방지를 위해 max_iterations를 설정하세요 (권장: 3-10). 설정하지 않으면 기본값 10이 적용됩니다.",
+                    )
+                )
 
         return errors

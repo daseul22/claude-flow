@@ -40,6 +40,7 @@ class WorkflowSession:
         end_time: 종료 시각
         error: 에러 메시지 (에러 발생 시)
     """
+
     session_id: str
     workflow: Workflow
     initial_input: str
@@ -57,7 +58,9 @@ class WorkflowSession:
         """딕셔너리로 변환 (JSON 직렬화용)"""
         return {
             "session_id": self.session_id,
-            "workflow": self.workflow.model_dump() if hasattr(self.workflow, "model_dump") else self.workflow,
+            "workflow": self.workflow.model_dump()
+            if hasattr(self.workflow, "model_dump")
+            else self.workflow,
             "initial_input": self.initial_input,
             "project_path": self.project_path,
             "status": self.status,
@@ -373,10 +376,7 @@ class WorkflowSessionStore:
                 logger.debug(f"세션 저장 완료: {session.session_id}")
 
             except Exception as e:
-                logger.error(
-                    f"세션 저장 실패: {session.session_id} - {e}",
-                    exc_info=True
-                )
+                logger.error(f"세션 저장 실패: {session.session_id} - {e}", exc_info=True)
 
 
 # 싱글톤 인스턴스 캐시 (프로젝트 경로별로 별도 인스턴스)
@@ -402,6 +402,7 @@ def get_session_store(project_path: Optional[str] = None) -> WorkflowSessionStor
         # 순환 import 방지를 위해 함수 내부에서 import
         try:
             from src.presentation.web.routers.projects import _current_project_path
+
             project_path = _current_project_path
         except ImportError:
             logger.warning("projects 모듈을 불러올 수 없습니다. Fallback 경로 사용")

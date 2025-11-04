@@ -306,6 +306,19 @@ cd src/presentation/web/frontend && npm run dev
 
 ## 최근 주요 변경사항
 
+- **2025-11-04**: 🎉🎉🎉 리팩토링 Phase 1+2+3 완료 - 전체 코드베이스 대규모 리팩토링
+  - **Phase 1 (WorkflowExecutor)**: 1655줄 → 569줄 (65.6% 감소)
+    - WorkflowGraphManager: 그래프 관리 로직 분리
+    - WorkflowNodeExecutor: 노드 실행 로직 통합
+    - WorkflowConditionEvaluator: Condition/Merge 노드 로직 분리
+    - WorkflowTemplateRenderer: 템플릿 변수 치환 로직 분리
+  - **Phase 2 (Router 분할)**: 대형 라우터 파일 → 패키지 구조
+    - workflows.py (1508줄) → workflows/ 패키지 (dependencies, core, execution, design, __init__)
+    - projects.py (1432줄) → projects/ 패키지 (dependencies, core, logs, sessions, __init__)
+  - **Phase 3 (메서드 최적화)**: 대형 메서드 → 헬퍼 메서드 분리
+    - WorkflowNodeExecutor._execute_worker_node: 256줄 → 194줄 (24% 감소)
+    - 4개 헬퍼 메서드 추가: _parse_worker_node_data, _prepare_worker_agent_config, _render_worker_task, _save_worker_node_session
+  - **결과**: 코드 가독성, 유지보수성, 테스트 용이성 대폭 향상, Clean Architecture 원칙 준수
 - **2025-10-31**: 프로젝트 정리 및 미사용 코드 대량 제거
 - **2025-10-30**: 로그 표시 레이아웃 개선 및 세션 로그 자동 복원
 - **2025-10-29**: 추가 프롬프트 기능 버그 수정 (세션 저장 및 SDK session_id 추출)
