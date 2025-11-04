@@ -28,6 +28,7 @@ from src.presentation.web.schemas.workflow import (
     MergeNodeData,
     TokenUsage,
 )
+from src.presentation.web.config import WorkflowConfig, NodeConfig, EventConfig, ErrorMessages
 
 logger = get_logger(__name__)
 
@@ -736,7 +737,7 @@ class WorkflowExecutor:
 
         # Haiku 모델로 빠른 판단
         options = ClaudeAgentOptions(
-            model="claude-haiku-4-5-20251001",  # Claude Haiku 4.5 (2024-10-01 출시)
+            model=WorkflowConfig.HAIKU_MODEL,
             allowed_tools=[],  # 도구 사용 안함
             permission_mode="bypassPermissions",  # 자동 실행을 위해 승인 우회
         )
@@ -749,7 +750,7 @@ class WorkflowExecutor:
 </조건>
 
 <평가 대상 출력>
-{input_text[:5000]}  # 처음 5000자만
+{input_text[:WorkflowConfig.LLM_INPUT_LIMIT]}
 </평가 대상 출력>
 
 위 출력이 조건을 만족하는지 판단하여, 다음 형식으로 응답해주세요:
@@ -771,7 +772,7 @@ class WorkflowExecutor:
                         if hasattr(block, 'type') and block.type == 'text':
                             response_text += block.text
 
-            logger.debug(f"[{session_id}] LLM 응답: {response_text[:200]}")
+            logger.debug(f"[{session_id}] LLM 응답: {response_text[:WorkflowConfig.CONDITION_OUTPUT_LIMIT]}")
 
             # 응답 파싱
             lines = response_text.strip().split('\n')
@@ -786,7 +787,7 @@ class WorkflowExecutor:
                     reason = line.replace('이유:', '').strip()
 
             if not reason:
-                reason = response_text[:200]  # 파싱 실패 시 전체 응답 사용
+                reason = response_text[:WorkflowConfig.CONDITION_OUTPUT_LIMIT]  # 파싱 실패 시 전체 응답 사용
 
             logger.info(
                 f"[{session_id}] LLM 조건 평가 완료: {result} (이유: {reason[:100]})"

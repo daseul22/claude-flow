@@ -37,13 +37,14 @@ from src.presentation.web.services.background_workflow_manager import (
     get_background_workflow_manager,
     BackgroundWorkflowManager,
 )
+from src.presentation.web.config import ProjectConfig, WorkflowConfig
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
 
 # 워크플로우 저장 디렉토리
-WORKFLOWS_DIR = Path.home() / ".claude-flow" / "workflows"
+WORKFLOWS_DIR = ProjectConfig.WORKFLOWS_DIR
 WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
 
 

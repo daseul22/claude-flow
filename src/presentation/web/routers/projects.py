@@ -29,6 +29,7 @@ from src.presentation.web.schemas.workflow import (
     LogContentResponse,
     SessionContentResponse,
 )
+from src.presentation.web.config import ProjectConfig as Config, ErrorMessages
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -798,15 +799,7 @@ async def list_logs() -> LogListResponse:
             relative_path = log_file.relative_to(logs_dir)
 
             # 파일 타입 결정
-            file_type = "unknown"
-            if log_file.name == "system.log":
-                file_type = "system"
-            elif log_file.name == "debug.log":
-                file_type = "debug"
-            elif log_file.name == "info.log":
-                file_type = "info"
-            elif log_file.name == "error.log":
-                file_type = "error"
+            file_type = Config.LOG_TYPES.get(log_file.name, "unknown")
 
             logs.append(LogFileInfo(
                 path=str(relative_path),
@@ -857,7 +850,7 @@ async def get_log_content(file_path: str, max_lines: int = 1000) -> LogContentRe
         )
 
     # max_lines 제한
-    max_lines = min(max_lines, 10000)
+    max_lines = min(max_lines, Config.MAX_LOG_LINES)
 
     try:
         project_dir = Path(_current_project_path)
@@ -1278,11 +1271,10 @@ async def save_workflow_by_name(
         )
 
     # 파일명으로 사용할 수 없는 문자 검증
-    invalid_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
-    if any(char in workflow_name for char in invalid_chars):
+    if any(char in workflow_name for char in Config.INVALID_FILENAME_CHARS):
         raise HTTPException(
             status_code=400,
-            detail=f"워크플로우 이름에 사용할 수 없는 문자가 포함되어 있습니다: {', '.join(invalid_chars)}"
+            detail=ErrorMessages.INVALID_FILENAME.format(chars=', '.join(Config.INVALID_FILENAME_CHARS))
         )
 
     # workflows 디렉토리 생성
@@ -1401,11 +1393,10 @@ async def rename_workflow(old_name: str, new_name: str) -> Dict[str, str]:
         )
 
     # 파일명으로 사용할 수 없는 문자 검증
-    invalid_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
-    if any(char in new_name for char in invalid_chars):
+    if any(char in new_name for char in Config.INVALID_FILENAME_CHARS):
         raise HTTPException(
             status_code=400,
-            detail=f"워크플로우 이름에 사용할 수 없는 문자가 포함되어 있습니다: {', '.join(invalid_chars)}"
+            detail=ErrorMessages.INVALID_FILENAME.format(chars=', '.join(Config.INVALID_FILENAME_CHARS))
         )
 
     old_path = get_workflow_path(_current_project_path, old_name)
