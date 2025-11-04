@@ -270,12 +270,18 @@ export const ExecutionLogsPanel: React.FC = () => {
     // 특정 노드 또는 전체 로그
     const targetNodeIds = detailModalNodeId ? [detailModalNodeId] : uniqueNodeIds
 
-    return targetNodeIds.map(nodeId => ({
-      nodeId,
-      nodeName: getNodeName(nodeId),
-      logs: execution.logs.filter(log => log.nodeId === nodeId)
-    }))
-  }, [isDetailModalOpen, detailModalNodeId, execution.logs, uniqueNodeIds])
+    // 인풋 노드 제외 (단순 출력만 하는 노드)
+    return targetNodeIds
+      .filter(nodeId => {
+        const node = nodes.find((n) => n.id === nodeId)
+        return node?.type !== 'input'
+      })
+      .map(nodeId => ({
+        nodeId,
+        nodeName: getNodeName(nodeId),
+        logs: execution.logs.filter(log => log.nodeId === nodeId)
+      }))
+  }, [isDetailModalOpen, detailModalNodeId, execution.logs, uniqueNodeIds, nodes])
 
   return (
     <Card className="h-full flex flex-col overflow-hidden">

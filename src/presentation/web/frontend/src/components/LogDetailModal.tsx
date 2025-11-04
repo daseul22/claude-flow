@@ -1,8 +1,17 @@
-import { X, Maximize2, Send, Loader2, RefreshCw, History } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { X, Maximize2, Send, Loader2, RefreshCw, History, FileText, Clock, Zap, CheckCircle2, AlertCircle, Info, Filter, Eye, EyeOff, ChevronDown, ChevronUp } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { LogItem, useWorkflowStore } from '@/stores/workflowStore'
 import { ParsedContent } from './ParsedContent'
 import { Button } from './ui/button'
+import { Badge } from './ui/badge'
+import { Separator } from './ui/separator'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select'
 import { continueNodeConversation, API_BASE, getNodeSessions, type NodeSession } from '@/lib/api'
 
 interface NodeLogSection {
@@ -54,7 +63,7 @@ export function LogDetailModal({ isOpen, onClose, sections, title = "실행 로�
             </div>
           ) : singleSection ? (
             // 단일 노드: 전체 화면
-            <div className="h-full p-4 bg-gray-50">
+            <div className="h-full bg-gray-50">
               <LogSection section={sections[0]} />
             </div>
           ) : (
@@ -83,51 +92,192 @@ export function LogDetailModal({ isOpen, onClose, sections, title = "실행 로�
   )
 }
 
-type TabType = 'input' | 'execution' | 'output' | 'error' | 'other'
+// 로그 카테고리 분류
+type LogCategory = 'system' | 'agent' | 'user' | 'default'
 
-function LogSection({ section }: { section: NodeLogSection }) {
-  // 로그 타입별 분류
-  const inputLogs = section.logs.filter(log => log.type === 'input')
-  const executionLogs = section.logs.filter(log => log.type === 'execution')
-  const outputLogs = section.logs.filter(log => log.type === 'output')
-  const errorLogs = section.logs.filter(log => log.type === 'error')
-  const otherLogs = section.logs.filter(log => !['input', 'execution', 'output', 'error'].includes(log.type))
-
-  // 탭 정의 (로그가 있는 탭만 표시)
-  const tabs = [
-    { id: 'input' as TabType, label: '📥 입력', logs: inputLogs, color: 'blue' },
-    { id: 'execution' as TabType, label: '🔧 실행 과정', logs: executionLogs, color: 'purple' },
-    { id: 'output' as TabType, label: '📤 출력', logs: outputLogs, color: 'green' },
-    { id: 'error' as TabType, label: '❌ 에러', logs: errorLogs, color: 'red' },
-    { id: 'other' as TabType, label: '📝 기타', logs: otherLogs, color: 'gray' },
-  ].filter(tab => tab.logs.length > 0)
-
-  // 초기 탭 선택: 로그가 있는 첫 번째 탭 (에러 우선, 그 다음 출력)
-  const getInitialTab = (): TabType => {
-    if (errorLogs.length > 0) return 'error'
-    if (outputLogs.length > 0) return 'output'
-    if (executionLogs.length > 0) return 'execution'
-    if (inputLogs.length > 0) return 'input'
-    if (otherLogs.length > 0) return 'other'
-    return 'output' // 폴백
+const getLogCategory = (logType: string): LogCategory => {
+  // 시스템 로그: start, complete, error
+  if (['start', 'complete', 'error'].includes(logType)) {
+    return 'system'
   }
 
-  // 탭 상태
-  const [activeTab, setActiveTab] = useState<TabType>(getInitialTab())
+  // 사용자 입력
+  if (logType === 'input') {
+    return 'user'
+  }
 
-  // 로그가 변경되면 활성 탭이 유효한지 확인
-  useEffect(() => {
-    const currentTabHasLogs = tabs.some(tab => tab.id === activeTab && tab.logs.length > 0)
-    if (!currentTabHasLogs && tabs.length > 0) {
-      setActiveTab(tabs[0].id)
+  // 에이전트 응답: execution, output
+  if (logType === 'execution' || logType === 'output') {
+    return 'agent'
+  }
+
+  return 'default'
+}
+
+// 카테고리별 라벨
+const getCategoryLabel = (category: LogCategory): string => {
+  switch (category) {
+    case 'system':
+      return 'SYSTEM'
+    case 'agent':
+      return 'AGENT'
+    case 'user':
+      return 'USER'
+    default:
+      return ''
+  }
+}
+
+// 카테고리별 라벨 색상
+const getCategoryLabelClass = (category: LogCategory): string => {
+  switch (category) {
+    case 'system':
+      return 'bg-gray-100 text-gray-600'
+    case 'agent':
+      return 'bg-gray-100 text-gray-700'
+    case 'user':
+      return 'bg-gray-100 text-gray-700'
+    default:
+      return 'bg-gray-100 text-gray-600'
+  }
+}
+
+// 로그 타입에 따른 아이콘 및 색상
+const getLogIcon = (type: string, category: LogCategory) => {
+  if (category === 'system') {
+    switch (type) {
+      case 'start':
+        return <Zap className="h-4 w-4 text-blue-500" />
+      case 'complete':
+        return <CheckCircle2 className="h-4 w-4 text-green-500" />
+      case 'error':
+        return <AlertCircle className="h-4 w-4 text-red-500" />
+      default:
+        return <Info className="h-4 w-4 text-gray-500" />
     }
-  }, [section.logs.length, activeTab, tabs])
+  }
+
+  if (category === 'user') {
+    return <Info className="h-4 w-4 text-gray-500" />
+  }
+
+  // agent
+  return <FileText className="h-4 w-4 text-gray-500" />
+}
+
+const getLogColor = (category: LogCategory) => {
+  switch (category) {
+    case 'system':
+      return 'text-gray-800 bg-white border-l-2 border-gray-200'
+    case 'agent':
+      return 'text-gray-800 bg-white border-l-2 border-gray-300'
+    case 'user':
+      return 'text-gray-800 bg-white border-l-2 border-gray-300'
+    default:
+      return 'text-gray-800 bg-white'
+  }
+}
+
+function LogSection({ section }: { section: NodeLogSection }) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // 필터 상태
+  const [selectedLogType, setSelectedLogType] = useState<string>('all')
+  const [showSystemLogs, setShowSystemLogs] = useState<boolean>(false) // 시스템 로그 기본 숨김
+  const [showToolLogs, setShowToolLogs] = useState<boolean>(true) // 툴 로그 기본 표시
+  const [showThinkingLogs, setShowThinkingLogs] = useState<boolean>(true) // 사고과정 로그 기본 표시
+  const [isFilterExpanded, setIsFilterExpanded] = useState<boolean>(false) // 필터 접힘/펼침 상태
+
+  // 새 로그가 추가될 때마다 자동 스크롤
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [section.logs])
+
+  // 필터링된 로그
+  const filteredLogs = useMemo(() => {
+    return section.logs.filter(log => {
+      // 로그 타입 필터
+      if (selectedLogType !== 'all' && log.type !== selectedLogType) {
+        return false
+      }
+      // 시스템 로그 필터
+      if (!showSystemLogs) {
+        const category = getLogCategory(log.type)
+        if (category === 'system') {
+          return false
+        }
+      }
+      return true
+    })
+  }, [section.logs, selectedLogType, showSystemLogs])
+
+  // 전역 tool_use_id → tool_name 매핑 생성
+  const toolUseIdToName = useMemo(() => {
+    const mapping: Record<string, string> = {}
+
+    section.logs.forEach((log) => {
+      try {
+        // JSON 메시지 파싱 시도
+        const trimmed = log.message.trim()
+        if (trimmed.startsWith('{') && trimmed.includes('"role"')) {
+          const data = JSON.parse(trimmed)
+          if (data.role === 'assistant' && Array.isArray(data.content)) {
+            for (const block of data.content) {
+              if (block.type === 'tool_use' && block.id && block.name) {
+                mapping[block.id] = block.name
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // JSON 파싱 실패 시 무시
+      }
+    })
+
+    return mapping
+  }, [section.logs])
+
+  // 로그 그룹화 (1분 단위, 같은 카테고리)
+  interface LogGroup {
+    timestamp: number
+    category: LogCategory
+    logs: typeof section.logs
+  }
+
+  const groupedLogs = useMemo(() => {
+    const groups: LogGroup[] = []
+
+    filteredLogs.forEach((log) => {
+      const category = getLogCategory(log.type)
+      const logTime = new Date(log.timestamp).getTime()
+
+      // 마지막 그룹과 비교 (1분 이내 + 같은 카테고리)
+      const lastGroup = groups[groups.length - 1]
+      const timeDiff = lastGroup ? logTime - lastGroup.timestamp : Infinity
+      const isSameCategory = lastGroup?.category === category
+
+      if (lastGroup && timeDiff < 60000 && isSameCategory) {
+        // 기존 그룹에 추가
+        lastGroup.logs.push(log)
+      } else {
+        // 새 그룹 생성
+        groups.push({
+          timestamp: logTime,
+          category,
+          logs: [log]
+        })
+      }
+    })
+
+    return groups
+  }, [filteredLogs])
 
   // 세션 관리 상태
   const [sessions, setSessions] = useState<NodeSession[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [isLoadingSessions, setIsLoadingSessions] = useState(false)
-  const [showSessionSelect, setShowSessionSelect] = useState(false)
 
   // 추가 프롬프트 입력 상태
   const [userInput, setUserInput] = useState('')
@@ -281,173 +431,203 @@ function LogSection({ section }: { section: NodeLogSection }) {
     }
   }
 
-  // 활성 탭의 로그
-  const activeTabLogs = tabs.find(tab => tab.id === activeTab)?.logs || []
-
   return (
     <div className="flex flex-col h-full">
-      {/* 노드 제목 */}
-      <div className="p-3 bg-gray-100 border-b border-gray-200">
-        <h3 className="font-semibold text-gray-900">{section.nodeName}</h3>
-        <p className="text-xs text-gray-600 mt-1">Node ID: {section.nodeId}</p>
-      </div>
-
-      {/* 탭 버튼 */}
-      {section.logs.length > 0 && tabs.length > 0 && (
-        <div className="flex border-b border-gray-200 bg-gray-50">
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab.id
-            const colorClasses = {
-              blue: isActive ? 'bg-blue-500 text-white' : 'text-blue-700 hover:bg-blue-50',
-              purple: isActive ? 'bg-purple-500 text-white' : 'text-purple-700 hover:bg-purple-50',
-              green: isActive ? 'bg-green-500 text-white' : 'text-green-700 hover:bg-green-50',
-              red: isActive ? 'bg-red-500 text-white' : 'text-red-700 hover:bg-red-50',
-              gray: isActive ? 'bg-gray-500 text-white' : 'text-gray-700 hover:bg-gray-100',
-            }
-
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`
-                  flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors
-                  ${colorClasses[tab.color as keyof typeof colorClasses]}
-                  ${isActive ? 'border-b-2 border-current' : ''}
-                `}
-              >
-                <span>{tab.label}</span>
-                <span className={`
-                  px-2 py-0.5 rounded-full text-xs font-semibold
-                  ${isActive ? 'bg-white/20' : 'bg-gray-200 text-gray-700'}
-                `}>
-                  {tab.logs.length}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      {/* 로그 내용 - 고정 높이 영역 */}
-      <div className="flex-1 overflow-y-auto bg-white min-h-0">
-        {section.logs.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-gray-500">
-            로그가 없습니다
+      {/* 노드 제목 - 컴팩트하게 */}
+      <div className="p-2 bg-gray-100 border-b border-gray-200 flex-shrink-0">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-gray-900 text-sm">{section.nodeName}</h3>
+            <p className="text-xs text-gray-500">ID: {section.nodeId.substring(0, 12)}...</p>
           </div>
-        ) : (
-          <div className="p-4 space-y-2">
-            {activeTabLogs.map((log, idx) => (
-              <LogItemComponent key={idx} log={log} />
-            ))}
+          {/* 필터 토글 버튼 */}
+          <button
+            onClick={() => setIsFilterExpanded(!isFilterExpanded)}
+            className="flex items-center gap-1 px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+          >
+            <Filter className="h-3 w-3" />
+            <span>필터</span>
+            {(selectedLogType !== 'all' || !showSystemLogs) && (
+              <Badge variant="secondary" className="text-xs ml-1">
+                {filteredLogs.length}/{section.logs.length}
+              </Badge>
+            )}
+            {isFilterExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
+        </div>
+
+        {/* 필터 UI - 아코디언 */}
+        {isFilterExpanded && (
+          <div className="mt-2 pt-2 border-t border-gray-200 space-y-2">
+            {/* 타입 선택 */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-600 w-12">타입:</span>
+              <Select value={selectedLogType} onValueChange={setSelectedLogType}>
+                <SelectTrigger className="h-7 text-xs flex-1">
+                  <SelectValue placeholder="타입 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">모든 타입</SelectItem>
+                  <SelectItem value="input">입력</SelectItem>
+                  <SelectItem value="execution">실행</SelectItem>
+                  <SelectItem value="output">출력</SelectItem>
+                  <SelectItem value="start">시작</SelectItem>
+                  <SelectItem value="complete">완료</SelectItem>
+                  <SelectItem value="error">에러</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* 로그 표시 옵션 - 한 줄로 */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-600 w-12">표시:</span>
+              <div className="flex items-center gap-1 flex-wrap flex-1">
+                <Badge
+                  variant={showSystemLogs ? "default" : "outline"}
+                  className="cursor-pointer select-none text-xs transition-colors h-6"
+                  onClick={() => setShowSystemLogs(!showSystemLogs)}
+                >
+                  {showSystemLogs ? <Eye className="h-3 w-3 mr-1" /> : <EyeOff className="h-3 w-3 mr-1" />}
+                  시스템
+                </Badge>
+                <Badge
+                  variant={showToolLogs ? "default" : "outline"}
+                  className="cursor-pointer select-none text-xs transition-colors h-6"
+                  onClick={() => setShowToolLogs(!showToolLogs)}
+                >
+                  {showToolLogs ? <Eye className="h-3 w-3 mr-1" /> : <EyeOff className="h-3 w-3 mr-1" />}
+                  툴
+                </Badge>
+                <Badge
+                  variant={showThinkingLogs ? "default" : "outline"}
+                  className="cursor-pointer select-none text-xs transition-colors h-6"
+                  onClick={() => setShowThinkingLogs(!showThinkingLogs)}
+                >
+                  {showThinkingLogs ? <Eye className="h-3 w-3 mr-1" /> : <EyeOff className="h-3 w-3 mr-1" />}
+                  사고
+                </Badge>
+              </div>
+            </div>
           </div>
         )}
       </div>
 
-      {/* 추가 프롬프트 입력 UI - 고정 하단 */}
-      <div className="flex-shrink-0 p-3 border-t border-gray-200 bg-blue-50 relative">
-        <div className="space-y-2">
-          {/* 세션 선택 버튼 */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowSessionSelect(!showSessionSelect)}
-              className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-sm"
-            >
-              <History className="w-4 h-4" />
-              <span>세션 선택 ({sessions.length})</span>
-            </button>
-            <button
-              onClick={loadSessions}
-              disabled={isLoadingSessions}
-              className="p-2 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
-              title="새로고침"
-            >
-              <RefreshCw className={`w-4 h-4 ${isLoadingSessions ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-
-          {/* 세션 목록 드롭다운 - absolute positioning으로 위로 표시 */}
-          {showSessionSelect && (
-            <div className="absolute bottom-full left-3 right-3 mb-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto z-10">
-              {sessions.length === 0 ? (
-                <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                  세션이 없습니다
-                </div>
+      {/* 로그 내용 - 채팅 스타일 */}
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto bg-white min-h-0 p-4 space-y-2"
+      >
+        {groupedLogs.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-gray-500">
+            <div className="text-center">
+              <FileText className="h-12 w-12 mx-auto mb-2 opacity-50" />
+              {section.logs.length === 0 ? (
+                <>
+                  <p>로그가 없습니다</p>
+                  <p className="text-xs">노드 실행 시 로그가 표시됩니다</p>
+                </>
               ) : (
                 <>
-                  {/* 새 세션 시작 옵션 */}
-                  <button
-                    onClick={() => {
-                      setSelectedSessionId(null)
-                      setShowSessionSelect(false)
-                    }}
-                    className={`w-full px-4 py-2 text-left hover:bg-blue-50 border-b border-gray-200 ${
-                      selectedSessionId === null ? 'bg-blue-100' : ''
-                    }`}
-                  >
-                    <div className="font-medium text-sm text-blue-600">
-                      🆕 새 세션 시작
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      새로운 컨텍스트로 시작합니다
-                    </div>
-                  </button>
-
-                  {/* 기존 세션 목록 */}
-                  {sessions.map((session) => (
-                    <button
-                      key={session.session_id}
-                      onClick={() => {
-                        setSelectedSessionId(session.session_id)
-                        setShowSessionSelect(false)
-                      }}
-                      className={`w-full px-4 py-2 text-left hover:bg-gray-50 ${
-                        selectedSessionId === session.session_id ? 'bg-gray-100' : ''
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium text-sm">
-                          {session.session_id.substring(0, 8)}...
-                          {session.is_current && (
-                            <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
-                              현재
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {new Date(session.last_used_at).toLocaleString('ko-KR', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </div>
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        생성: {new Date(session.created_at).toLocaleString('ko-KR', {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </div>
-                    </button>
-                  ))}
+                  <p>필터 조건에 맞는 로그가 없습니다</p>
+                  <p className="text-xs">필터를 변경해보세요</p>
                 </>
               )}
             </div>
-          )}
+          </div>
+        ) : (
+          groupedLogs.map((group, groupIndex) => {
+            const categoryLabel = getCategoryLabel(group.category)
+            const firstLog = group.logs[0]
+            const isUser = group.category === 'user'
 
-          {/* 선택된 세션 표시 */}
-          {selectedSessionId === null ? (
-            <div className="text-xs text-gray-600 px-2">
-              🆕 새 세션으로 시작합니다
-            </div>
-          ) : (
-            <div className="text-xs text-gray-600 px-2">
-              📝 세션: {selectedSessionId.substring(0, 8)}... 사용 중
-            </div>
-          )}
+            return (
+              <div
+                key={groupIndex}
+                className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`flex items-start gap-3 p-3 rounded-lg transition-colors max-w-[85%] ${
+                    isUser
+                      ? 'bg-blue-50 border-l-2 border-blue-400'
+                      : getLogColor(group.category)
+                  }`}
+                >
+                  {!isUser && (
+                    <div className="flex-shrink-0 mt-0.5">{getLogIcon(firstLog.type, group.category)}</div>
+                  )}
+                  <div className="flex-1 min-w-0 space-y-2">
+                    {/* 헤더: 카테고리, 시간 (그룹당 한번만) */}
+                    <div className={`flex items-center gap-2 flex-wrap ${isUser ? 'justify-end' : ''}`}>
+                      {categoryLabel && (
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                          isUser ? 'bg-blue-200 text-blue-800' : getCategoryLabelClass(group.category)
+                        }`}>
+                          {categoryLabel}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {new Date(group.timestamp).toLocaleTimeString()}
+                      </span>
+                    </div>
+
+                    {/* 로그 내용들 (채팅처럼 연속으로) */}
+                    <div className="space-y-1">
+                      {group.logs.map((log, logIndex) => (
+                        <ParsedContent
+                          key={logIndex}
+                          content={log.message}
+                          toolUseIdToName={toolUseIdToName}
+                          showToolLogs={showToolLogs}
+                          showThinkingLogs={showThinkingLogs}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  {isUser && (
+                    <div className="flex-shrink-0 mt-0.5">{getLogIcon(firstLog.type, group.category)}</div>
+                  )}
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* 추가 프롬프트 입력 UI - 컴팩트하게 */}
+      <div className="flex-shrink-0 p-2 border-t border-gray-200 bg-blue-50">
+        <div className="space-y-2">
+          {/* 세션 선택 - 인라인 셀렉트 */}
+          <div className="flex items-center gap-2">
+            <Select
+              value={selectedSessionId || 'new'}
+              onValueChange={(value) => setSelectedSessionId(value === 'new' ? null : value)}
+            >
+              <SelectTrigger className="h-7 text-xs flex-1">
+                <div className="flex items-center gap-1">
+                  <History className="w-3 h-3" />
+                  <SelectValue placeholder="세션 선택" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="new">🆕 새 세션</SelectItem>
+                {sessions.map((session) => (
+                  <SelectItem key={session.session_id} value={session.session_id}>
+                    {session.session_id.substring(0, 8)}...
+                    {session.is_current && ' (현재)'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <button
+              onClick={loadSessions}
+              disabled={isLoadingSessions}
+              className="p-1 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+              title="새로고침"
+            >
+              <RefreshCw className={`w-3 h-3 ${isLoadingSessions ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
 
           {/* 입력 필드 */}
           <div className="flex items-center gap-2">
@@ -461,49 +641,36 @@ function LogSection({ section }: { section: NodeLogSection }) {
                   handleSendPrompt()
                 }
               }}
-              placeholder="이 노드에 추가 프롬프트 입력..."
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="추가 프롬프트 입력..."
+              className="flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
               disabled={isSending}
             />
             <Button
               onClick={handleSendPrompt}
               disabled={!userInput.trim() || isSending}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+              size="sm"
+              className="px-3 py-1.5 h-auto bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
             >
               {isSending ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>전송 중...</span>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span className="text-xs">전송중</span>
                 </>
               ) : (
                 <>
-                  <Send className="w-4 h-4" />
-                  <span>전송</span>
+                  <Send className="w-3 h-3" />
+                  <span className="text-xs">전송</span>
                 </>
               )}
             </Button>
           </div>
           {sendError && (
-            <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md border border-red-200">
+            <div className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200">
               ❌ {sendError}
             </div>
           )}
-          <p className="text-xs text-gray-600">
-            💡 이 노드의 이전 대화 컨텍스트를 유지하며 추가 작업을 요청할 수 있습니다
-          </p>
         </div>
       </div>
-    </div>
-  )
-}
-
-function LogItemComponent({ log }: { log: LogItem }) {
-  return (
-    <div className="bg-white rounded p-2 border border-gray-200 shadow-sm">
-      <div className="text-xs text-gray-500 mb-1">
-        {new Date(log.timestamp).toLocaleString()}
-      </div>
-      <ParsedContent content={log.message} />
     </div>
   )
 }
