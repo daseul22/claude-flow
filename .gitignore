@@ -62,6 +62,7 @@ htmlcov/
 # Temporary
 *.tmp
 *.bak
+*.backup
 
 workspace/*coverage.xml
 
