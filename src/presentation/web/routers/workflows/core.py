@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-@router.post("", response_model=WorkflowSaveResponse)
+@router.post("/", response_model=WorkflowSaveResponse)
 async def save_workflow(request: WorkflowSaveRequest) -> WorkflowSaveResponse:
     """
     워크플로우 저장
@@ -75,7 +75,7 @@ async def save_workflow(request: WorkflowSaveRequest) -> WorkflowSaveResponse:
         raise HTTPException(status_code=500, detail=f"워크플로우 저장 실패: {str(e)}")
 
 
-@router.get("", response_model=WorkflowListResponse)
+@router.get("/", response_model=WorkflowListResponse)
 async def list_workflows() -> WorkflowListResponse:
     """
     워크플로우 목록 조회

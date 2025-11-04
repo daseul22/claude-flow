@@ -21,8 +21,10 @@ from src.presentation.web.schemas.workflow import (
     InputNodeData,
     TokenUsage,
 )
-
-from .workflow_executor import extract_text_from_worker_output, classify_chunk_type
+from src.presentation.web.services.workflow_utils import (
+    extract_text_from_worker_output,
+    classify_chunk_type,
+)
 
 logger = get_logger(__name__)
 

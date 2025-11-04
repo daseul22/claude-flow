@@ -7,6 +7,7 @@ Projects 라우터 패키지
 from fastapi import APIRouter
 
 from . import core, logs, sessions
+from .dependencies import _current_project_path
 
 # 메인 라우터 생성
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -17,4 +18,4 @@ router.include_router(logs.router)
 router.include_router(sessions.router)
 
 # 외부에서 import 가능하도록 export
-__all__ = ["router"]
+__all__ = ["router", "_current_project_path"]

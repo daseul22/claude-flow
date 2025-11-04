@@ -306,6 +306,14 @@ cd src/presentation/web/frontend && npm run dev
 
 ## 최근 주요 변경사항
 
+- **2025-11-04**: 🔧 순환 import 및 FastAPI 라우터 오류 해결
+  - **순환 import 해결**: `workflow_executor.py` ↔ `workflow_node_executor.py` 간 순환 참조 제거
+    - 새 모듈 생성: `workflow_utils.py` (공통 유틸리티 함수 분리)
+    - 이동된 함수: `extract_text_from_worker_output`, `classify_chunk_type`
+  - **FastAPI 라우터 오류 해결**: workflows/core.py의 빈 문자열 path → "/" 수정
+    - `@router.post("")` → `@router.post("/")`
+    - `@router.get("")` → `@router.get("/")`
+  - **결과**: 서버 정상 시작, 모듈 의존성 정리 완료
 - **2025-11-04**: 🎉🎉🎉 리팩토링 Phase 1+2+3 완료 - 전체 코드베이스 대규모 리팩토링
   - **Phase 1 (WorkflowExecutor)**: 1655줄 → 569줄 (65.6% 감소)
     - WorkflowGraphManager: 그래프 관리 로직 분리
