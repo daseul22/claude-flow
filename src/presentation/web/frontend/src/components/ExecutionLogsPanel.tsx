@@ -67,13 +67,9 @@ export const ExecutionLogsPanel: React.FC = () => {
       return 'system'
     }
 
-    // 사용자 입력
-    if (logType === 'input') {
-      return 'user'
-    }
-
-    // 에이전트 응답: execution, output
-    if (logType === 'execution' || logType === 'output') {
+    // 에이전트 관련: input(워커에 대한 작업 설명), execution(실행 과정), output(결과)
+    // 모두 왼쪽에 표시
+    if (logType === 'input' || logType === 'execution' || logType === 'output') {
       return 'agent'
     }
 

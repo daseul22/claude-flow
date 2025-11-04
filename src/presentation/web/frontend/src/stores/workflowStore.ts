@@ -626,19 +626,20 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       logs: session.logs.map((log: any) => {
         // 이벤트 타입별로 메시지 재구성 (InputNode.tsx의 로직과 동일)
         let message = ''
+        let logType: 'input' | 'execution' | 'output' | 'start' | 'complete' | 'error' = 'output'
         const eventType = log.event_type
         const eventData = log.data
 
         switch (eventType) {
           case 'node_start':
             message = `▶️  ${eventData.agent_name || eventData.node_type || 'Unknown'} 실행 시작`
+            logType = 'start'
             break
 
           case 'node_output':
             message = eventData.chunk || ''
             // chunk_type에 따라 로그 타입을 결정 (InputNode.tsx와 동일한 로직)
             const chunkType = eventData.chunk_type || 'text'
-            let logType: 'input' | 'execution' | 'output' = 'output'
 
             if (chunkType === 'input') {
               logType = 'input'
@@ -647,14 +648,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             } else {
               logType = 'output'
             }
-
-            // 타입을 eventType 대신 logType으로 설정
-            return {
-              nodeId: log.node_id,
-              type: logType,
-              message,
-              timestamp: new Date(log.timestamp || Date.now()).getTime(),
-            }
+            break
 
           case 'node_complete':
             message = `✅ ${eventData.agent_name || eventData.node_type || 'Unknown'} 완료`
@@ -664,24 +658,28 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             if (log.token_usage && log.token_usage.total_tokens > 0) {
               message += ` [${log.token_usage.total_tokens.toLocaleString()} tokens]`
             }
+            logType = 'complete'
             break
 
           case 'node_error':
             message = `❌ ${eventData.error || 'Unknown error'}`
+            logType = 'error'
             break
 
           case 'workflow_complete':
             message = eventData.message || '🎉 워크플로우 실행 완료'
+            logType = 'complete'
             break
 
           default:
             // 기본값: chunk 또는 message 필드 사용
             message = eventData.chunk || eventData.message || ''
+            logType = 'output'
         }
 
         return {
           nodeId: log.node_id,
-          type: eventType.replace('node_', '').replace('workflow_', ''),
+          type: logType,
           message,
           timestamp: new Date(log.timestamp || Date.now()).getTime(),
         }
