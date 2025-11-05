@@ -671,6 +671,107 @@ async def browse_directory(path: Optional[str] = None):
 
 ---
 
+### [2025-11-05] workflow_designer 프롬프트 출력 형식 정리
+
+**배경**:
+- workflow_designer는 사용자 UI로 직접 JSON을 반환하는 특수 노드
+- 다른 Worker들과 달리 다음 노드로 전달되지 않음
+- 그러나 일반 Worker용 "작업 완료 시 필수 조치" 섹션이 포함되어 있어 혼란 발생
+
+**문제점**:
+1. JSON 출력과 마커 출력 지침이 충돌
+2. 역할(UI로 반환)과 출력 형식(마커 사용) 불일치
+3. 불필요한 69줄의 마커 출력 지침 포함
+
+**개선 사항**:
+- "작업 완료 시 필수 조치" 섹션 삭제 (69줄)
+- "출력 규칙" 섹션으로 대체 (11줄):
+  - UI로 직접 반환됨을 명시
+  - 마커 출력 불필요함을 명확히 설명
+  - JSON 형식만 출력하도록 간결화
+
+**영향**:
+- ✅ 역할과 출력 형식 일치
+- ✅ 프롬프트 명확성 향상
+- ✅ 불필요한 지침 제거로 58줄 단축
+- ✅ workflow_designer 사용 시 혼란 방지
+
+**수정 파일**:
+- `prompts/workflow_designer.txt` (962-1030줄 → 962-972줄)
+
+---
+
+### [2025-11-05] 커스텀 워커 캐시 무효화 개선
+
+**배경**:
+- 커스텀 워커는 이미 완벽히 구현되어 있었음
+- `WorkflowExecutor`가 프로젝트별로 캐싱되어 메모리에 유지됨
+- 커스텀 워커 저장 후에도 기존 캐시가 유지되어 **새 워커가 즉시 반영되지 않음**
+
+**문제 시나리오**:
+1. 사용자가 커스텀 워커 생성 및 저장
+2. `/api/agents` API는 최신 커스텀 워커 목록 반환 ✅
+3. Worker 노드 설정 패널에서 새 커스텀 워커 선택 가능 ✅
+4. 워크플로우 실행 시 "Agent를 찾을 수 없습니다" 에러 ❌
+   - **이유**: `WorkflowExecutor`가 캐시되어 있어 이전 상태 유지
+
+**해결 방법**:
+
+1. **캐시 무효화 함수 추가** (`dependencies.py`):
+   ```python
+   def clear_executor_cache(project_path: str | None = None) -> None:
+       """
+       WorkflowExecutor 캐시 무효화
+
+       커스텀 워커 저장/삭제 후 호출하여 최신 상태를 반영합니다.
+       """
+       if project_path is None:
+           _executors.clear()  # 전체 무효화
+       else:
+           cache_key = project_path or "~default"
+           if cache_key in _executors:
+               del _executors[cache_key]  # 특정 프로젝트만 무효화
+   ```
+
+2. **커스텀 워커 저장 시 캐시 무효화** (`custom_workers.py:save_custom_worker()`):
+   ```python
+   # 커스텀 워커 저장
+   prompt_path = repository.save_custom_worker(...)
+
+   # WorkflowExecutor 캐시 무효화
+   from src.presentation.web.routers.workflows.dependencies import clear_executor_cache
+   clear_executor_cache(str(project_path))
+   ```
+
+3. **커스텀 워커 삭제 시 캐시 무효화** (`custom_workers.py:delete_custom_worker()`):
+   ```python
+   # 커스텀 워커 삭제
+   success = repository.delete_custom_worker(worker_name)
+
+   # WorkflowExecutor 캐시 무효화
+   from src.presentation.web.routers.workflows.dependencies import clear_executor_cache
+   clear_executor_cache(project_path)
+   ```
+
+**영향**:
+- ✅ 커스텀 워커 저장/삭제 후 즉시 반영
+- ✅ 워크플로우 실행 시 최신 커스텀 워커 인식
+- ✅ 기존 노드와 완벽히 소통 가능
+- ✅ 프로젝트별 캐시 관리로 성능 유지
+
+**테스트 시나리오**:
+1. 커스텀 워커 생성 및 저장
+2. Worker 노드 설정 패널에서 새 커스텀 워커 선택
+3. 워크플로우 실행 → 정상 작동 확인
+4. 커스텀 워커 삭제
+5. Worker 노드 설정 패널에서 삭제된 워커 미표시 확인
+
+**수정 파일**:
+- `src/presentation/web/routers/workflows/dependencies.py` (캐시 무효화 함수 추가)
+- `src/presentation/web/routers/custom_workers.py` (저장/삭제 시 캐시 무효화 호출)
+
+---
+
 ## 향후 개선 사항
 
 - **Application Layer**: 비즈니스 로직을 Presentation에서 분리하여 Application Layer로 이동

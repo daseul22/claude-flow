@@ -6,6 +6,7 @@
       "system_prompt_file": "prompts/feature_planner.txt",
       "allowed_tools": [
         "read",
+        "write",
         "glob",
         "grep"
       ],
@@ -18,6 +19,7 @@
       "system_prompt_file": "prompts/refactoring_planner.txt",
       "allowed_tools": [
         "read",
+        "write",
         "glob",
         "grep"
       ],
@@ -30,6 +32,7 @@
       "system_prompt_file": "prompts/bug_fix_planner.txt",
       "allowed_tools": [
         "read",
+        "write",
         "glob",
         "grep"
       ],
@@ -42,6 +45,7 @@
       "system_prompt_file": "prompts/api_planner.txt",
       "allowed_tools": [
         "read",
+        "write",
         "glob",
         "grep"
       ],
@@ -54,6 +58,7 @@
       "system_prompt_file": "prompts/database_planner.txt",
       "allowed_tools": [
         "read",
+        "write",
         "glob",
         "grep"
       ],
@@ -136,6 +141,7 @@
       "system_prompt_file": "prompts/unit_tester.txt",
       "allowed_tools": [
         "read",
+        "write",
         "bash",
         "glob",
         "grep"
@@ -149,6 +155,7 @@
       "system_prompt_file": "prompts/integration_tester.txt",
       "allowed_tools": [
         "read",
+        "write",
         "bash",
         "glob",
         "grep"
@@ -162,6 +169,7 @@
       "system_prompt_file": "prompts/e2e_tester.txt",
       "allowed_tools": [
         "read",
+        "write",
         "bash",
         "glob",
         "grep"
@@ -175,6 +183,7 @@
       "system_prompt_file": "prompts/performance_tester.txt",
       "allowed_tools": [
         "read",
+        "write",
         "bash",
         "glob",
         "grep"
@@ -189,6 +198,7 @@
       "allowed_tools": [
         "bash",
         "read",
+        "write",
         "glob",
         "grep"
       ],
@@ -201,7 +211,9 @@
       "system_prompt_file": "prompts/ideator.txt",
       "allowed_tools": [
         "read",
-        "glob"
+        "write",
+        "glob",
+        "grep"
       ],
       "model": "claude-sonnet-4-5-20250929",
       "thinking": true
@@ -212,6 +224,7 @@
       "system_prompt_file": "prompts/product_manager.txt",
       "allowed_tools": [
         "read",
+        "write",
         "glob",
         "grep"
       ],
@@ -238,6 +251,7 @@
       "system_prompt_file": "prompts/style_reviewer.txt",
       "allowed_tools": [
         "read",
+        "write",
         "glob",
         "grep"
       ],
@@ -250,6 +264,7 @@
       "system_prompt_file": "prompts/security_reviewer.txt",
       "allowed_tools": [
         "read",
+        "write",
         "glob",
         "grep"
       ],
@@ -262,7 +277,9 @@
       "system_prompt_file": "prompts/summarizer.txt",
       "allowed_tools": [
         "read",
-        "glob"
+        "write",
+        "glob",
+        "grep"
       ],
       "model": "claude-haiku-4-5-20251001",
       "thinking": false
@@ -273,6 +290,7 @@
       "system_prompt_file": "prompts/architecture_reviewer.txt",
       "allowed_tools": [
         "read",
+        "write",
         "glob",
         "grep"
       ],
@@ -300,6 +318,7 @@
       "system_prompt_file": "prompts/log_analyzer.txt",
       "allowed_tools": [
         "read",
+        "write",
         "bash",
         "glob",
         "grep"
@@ -313,6 +332,7 @@
       "system_prompt_file": "prompts/worker_prompt_engineer.txt",
       "allowed_tools": [
         "read",
+        "write",
         "glob"
       ],
       "model": "claude-sonnet-4-5-20250929",
@@ -324,6 +344,7 @@
       "system_prompt_file": "prompts/workflow_designer.txt",
       "allowed_tools": [
         "read",
+        "write",
         "glob",
         "grep"
       ],
@@ -504,6 +525,7 @@
       "system_prompt_file": "prompts/code_reviewer.txt",
       "allowed_tools": [
         "read",
+        "write",
         "glob",
         "grep"
       ],
@@ -516,6 +538,7 @@
       "system_prompt_file": "prompts/api_tester.txt",
       "allowed_tools": [
         "read",
+        "write",
         "bash",
         "glob",
         "grep"
@@ -530,6 +553,7 @@
       "allowed_tools": [
         "bash",
         "read",
+        "write",
         "glob",
         "grep"
       ],
@@ -543,6 +567,7 @@
       "allowed_tools": [
         "bash",
         "read",
+        "write",
         "glob",
         "grep"
       ],

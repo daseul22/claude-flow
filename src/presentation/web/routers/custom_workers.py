@@ -361,6 +361,11 @@ async def save_custom_worker(request: CustomWorkerSaveRequest):
 
         logger.info(f"커스텀 워커 저장 완료: {request.worker_name} at {project_path}")
 
+        # WorkflowExecutor 캐시 무효화 (커스텀 워커 즉시 반영)
+        from src.presentation.web.routers.workflows.dependencies import clear_executor_cache
+        clear_executor_cache(str(project_path))
+        logger.info(f"WorkflowExecutor 캐시 무효화 완료: {project_path}")
+
         return {
             "success": True,
             "message": f"커스텀 워커 '{request.worker_name}' 저장 완료",
@@ -507,6 +512,11 @@ async def delete_custom_worker(
             )
 
         logger.info(f"커스텀 워커 삭제 완료: {worker_name} at {project_path}")
+
+        # WorkflowExecutor 캐시 무효화 (커스텀 워커 즉시 반영)
+        from src.presentation.web.routers.workflows.dependencies import clear_executor_cache
+        clear_executor_cache(project_path)
+        logger.info(f"WorkflowExecutor 캐시 무효화 완료: {project_path}")
 
         return {
             "success": True,

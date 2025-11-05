@@ -40,6 +40,27 @@ WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
 _executors: dict[str, WorkflowExecutor] = {}
 
 
+def clear_executor_cache(project_path: str | None = None) -> None:
+    """
+    WorkflowExecutor 캐시 무효화
+
+    커스텀 워커 저장/삭제 후 호출하여 최신 상태를 반영합니다.
+
+    Args:
+        project_path: 특정 프로젝트의 캐시만 무효화 (None이면 전체 무효화)
+    """
+    if project_path is None:
+        # 전체 캐시 무효화
+        _executors.clear()
+        logger.info("전체 WorkflowExecutor 캐시 무효화")
+    else:
+        # 특정 프로젝트 캐시만 무효화
+        cache_key = project_path or "~default"
+        if cache_key in _executors:
+            del _executors[cache_key]
+            logger.info(f"WorkflowExecutor 캐시 무효화: {cache_key}")
+
+
 @lru_cache()
 def get_config_loader() -> JsonConfigLoader:
     """
