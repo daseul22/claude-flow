@@ -1,0 +1,139 @@
+{
+  "id": "frontend_refactoring",
+  "name": "프론트엔드 고도화 워크플로우",
+  "description": "계획 분해 → 병렬 작업 → 코드 리뷰로 프론트엔드를 체계적으로 개선하는 워크플로우입니다.",
+  "category": "refactoring",
+  "workflow": {
+    "id": "frontend_refactoring_workflow",
+    "name": "프론트엔드 고도화",
+    "description": "Task Planner → 병렬 Coder → Reviewer",
+    "nodes": [
+      {
+        "id": "input-1",
+        "type": "input",
+        "position": {"x": 100, "y": 300},
+        "data": {
+          "initial_input": "## 프론트엔드 고도화 계획\n\n### 목표\n- App.tsx 리팩토링 (350줄 → 200줄)\n- API 레이어 재구조화 (중복 272줄 제거)\n- 보안 강화 (XSS 방어)\n\n### 제약사항\n- React 18 + TypeScript\n- Vite 빌드 도구\n- Zustand 상태 관리\n\n### 우선순위\nCritical → Major → Nice to Have"
+        }
+      },
+      {
+        "id": "planner-1",
+        "type": "worker",
+        "position": {"x": 400, "y": 300},
+        "data": {
+          "agent_name": "task_planner_simple",
+          "task_template": "{{input}}\n\n위 계획을 구체적이고 실행 가능한 개별 작업으로 분해해주세요.\n\n요구사항:\n1. 각 작업은 1-8시간 단위로 분해\n2. 파일명, 함수명, 컴포넌트명 구체적으로 명시\n3. 적합한 Worker 매칭 (frontend_coder_simple, api_client_coder_simple 등)\n4. 병렬 가능 vs 순차 필수 작업 구분\n5. 각 작업의 입력 데이터 상세히 작성 (코더가 재질문하지 않도록)"
+        }
+      },
+      {
+        "id": "frontend-coder-1",
+        "type": "worker",
+        "position": {"x": 700, "y": 150},
+        "data": {
+          "agent_name": "frontend_coder_simple",
+          "task_template": "작업: Task 1.1 - useSessionRestore 훅 생성\n\n목표: App.tsx에서 세션 복원 로직을 추출하여 커스텀 훅으로 분리\n\n구현 내용:\n1. src/hooks/useSessionRestore.ts 파일 생성\n2. useEffect로 localStorage에서 세션 복원\n3. App.tsx에서 훅 사용 (기존 로직 제거)\n\n기대 효과: App.tsx 50줄 감소\n\n---\n참고: Planner 출력\n{{planner-1}}"
+        }
+      },
+      {
+        "id": "frontend-coder-2",
+        "type": "worker",
+        "position": {"x": 700, "y": 300},
+        "data": {
+          "agent_name": "frontend_coder_simple",
+          "task_template": "작업: Task 1.2 - useAutoSave 훅 생성\n\n목표: App.tsx에서 자동 저장 로직을 추출하여 커스텀 훅으로 분리\n\n구현 내용:\n1. src/hooks/useAutoSave.ts 파일 생성\n2. useEffect로 5초마다 워크플로우 자동 저장\n3. App.tsx에서 훅 사용 (기존 로직 제거)\n\n기대 효과: App.tsx 40줄 감소\n\n---\n참고: Planner 출력\n{{planner-1}}"
+        }
+      },
+      {
+        "id": "api-coder-1",
+        "type": "worker",
+        "position": {"x": 700, "y": 450},
+        "data": {
+          "agent_name": "api_client_coder_simple",
+          "task_template": "작업: Task 1.3 - SSE 스트리밍 추상화\n\n목표: src/api/api.ts에서 중복된 SSE 스트리밍 코드를 공통 함수로 추출\n\n구현 내용:\n1. src/api/sse.ts 파일 생성\n2. createSSEStream<T> 제네릭 함수 구현\n   - 파라미터: url, onMessage, onError, onEnd\n   - 반환값: { cancel: () => void }\n3. src/api/workflows.ts의 executeWorkflow, cancelWorkflow에서 사용\n\n기대 효과: 코드 중복 272줄 제거\n\n---\n참고: Planner 출력\n{{planner-1}}"
+        }
+      },
+      {
+        "id": "merge-1",
+        "type": "merge",
+        "position": {"x": 1000, "y": 300},
+        "data": {
+          "merge_strategy": "concatenate"
+        }
+      },
+      {
+        "id": "code-reviewer-1",
+        "type": "worker",
+        "position": {"x": 1250, "y": 300},
+        "data": {
+          "agent_name": "code_reviewer_simple",
+          "task_template": "다음 코드를 검토해주세요:\n\n{{merge-1}}\n\n검토 기준:\n- 복잡도 (순환 복잡도 < 10, 함수 길이 < 50줄)\n- 중복 제거 (DRY 원칙)\n- 네이밍 (명확하고 일관된 이름)\n- SOLID 원칙 준수\n\nCritical/Major/Minor로 분류하여 보고해주세요."
+        }
+      },
+      {
+        "id": "security-reviewer-1",
+        "type": "worker",
+        "position": {"x": 1500, "y": 300},
+        "data": {
+          "agent_name": "security_reviewer_simple",
+          "task_template": "다음 코드의 보안을 검토해주세요:\n\n{{code-reviewer-1}}\n\n검토 기준 (OWASP Top 10):\n- XSS (Cross-Site Scripting)\n- 시크릿 하드코딩\n- 입력 검증 누락\n- 인증/인가 검증\n\nCritical/Major/Minor로 분류하여 보고해주세요."
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-input-planner",
+        "source": "input-1",
+        "target": "planner-1"
+      },
+      {
+        "id": "e-planner-frontend1",
+        "source": "planner-1",
+        "target": "frontend-coder-1"
+      },
+      {
+        "id": "e-planner-frontend2",
+        "source": "planner-1",
+        "target": "frontend-coder-2"
+      },
+      {
+        "id": "e-planner-api",
+        "source": "planner-1",
+        "target": "api-coder-1"
+      },
+      {
+        "id": "e-frontend1-merge",
+        "source": "frontend-coder-1",
+        "target": "merge-1"
+      },
+      {
+        "id": "e-frontend2-merge",
+        "source": "frontend-coder-2",
+        "target": "merge-1"
+      },
+      {
+        "id": "e-api-merge",
+        "source": "api-coder-1",
+        "target": "merge-1"
+      },
+      {
+        "id": "e-merge-code-review",
+        "source": "merge-1",
+        "target": "code-reviewer-1"
+      },
+      {
+        "id": "e-code-review-security",
+        "source": "code-reviewer-1",
+        "target": "security-reviewer-1"
+      }
+    ]
+  },
+  "tags": ["refactoring", "frontend", "parallel", "code-review"],
+  "is_builtin": true,
+  "metadata": {
+    "parallel_workers": 3,
+    "estimated_time": "24시간",
+    "difficulty": "intermediate"
+  },
+  "created_at": "2025-01-05T00:00:00Z",
+  "updated_at": "2025-01-05T00:00:00Z"
+}
