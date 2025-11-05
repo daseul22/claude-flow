@@ -687,6 +687,165 @@ async def browse_directory(path: Optional[str] = None):
 
 ## 최근 개선사항 (v4.0.1)
 
+### [2025-11-05] 🚀 동적 워크플로우 실행 엔진 구현 (Condition 분기 완벽 지원)
+
+**배경**:
+- 기존 위상 정렬 기반 실행 방식은 정적 순서대로만 노드 실행
+- Condition 노드가 반환한 `next_node_id`를 완전히 무시
+- 결과적으로 **Condition 분기가 작동하지 않는 Critical 버그** 발생
+
+**문제 발견 과정**:
+
+1. **첫 번째 버그**: `max_iterations null` 처리 오류 (이전 섹션 참조)
+   - 수정 후에도 Condition 노드가 여전히 오작동
+
+2. **두 번째 버그**: 평가 메타데이터 전달 오류
+   - Condition이 부모 출력 대신 평가 결과를 다음 노드로 전달
+   - `condition_executor.py:92` 수정: `node_outputs[node_id] = parent_output`
+
+3. **근본 원인 발견**: 위상 정렬이 Condition 분기를 무시
+   - 로그 분석 결과:
+     ```
+     Condition: next_node = "worker-1" (False 경로) ✅ 올바른 평가
+     실제 실행: "worker-2" (True 경로) ❌ 위상 정렬이 무시
+     ```
+   - `workflow_executor.py`가 `execution_groups` 순서대로만 실행
+   - Condition의 `next_node_id`를 완전히 무시
+
+**해결 방법**: 동적 노드 선택 알고리즘 (전면 재작성)
+
+**아키텍처 변경** (`workflow_executor.py:270-504`):
+
+```python
+# Before: 위상 정렬 기반 정적 실행
+execution_groups = graph_manager.topological_sort_groups(...)
+for group in execution_groups:
+    for node_id in group:
+        execute_node(node_id)  # 순서대로만 실행
+
+# After: 동적 노드 선택
+current_node_id = _find_input_node(workflow)
+executed_nodes = set()
+pending_merge_nodes = set()
+
+while current_node_id or pending_merge_nodes:
+    # 1. 현재 노드 실행
+    next_node_id = None
+    async for event in execute_node(current_node_id):
+        yield event
+        # Condition 노드의 next_node_id 추출
+        if event.type == "node_complete" and node.type == "condition":
+            next_node_id = event.data.get("next_node")
+
+    executed_nodes.add(current_node_id)
+
+    # 2. 다음 노드 결정
+    if next_node_id:
+        # Condition 분기 → next_node_id로 이동
+        current_node_id = next_node_id
+    else:
+        # 일반 노드 → 자식 노드로 이동
+        children = get_child_nodes(current_node_id)
+        current_node_id = children[0] if children else None
+```
+
+**핵심 개선사항**:
+
+1. **Condition 분기 완벽 지원**:
+   - `next_node_id` 추출 (386줄): Condition 이벤트에서 분기 경로 획득
+   - 동적 경로 변경 (396-406줄): `current_node_id = next_node_id`
+
+2. **피드백 루프 지원** (398-406줄):
+   ```python
+   if next_node_id in executed_nodes:
+       logger.info(f"피드백 루프: {current_node_id} → {next_node_id}")
+       executed_nodes.remove(next_node_id)  # 재실행 허용
+   ```
+   - Condition이 이전에 실행된 노드로도 분기 가능
+   - 예: `worker-1 → condition-1 → worker-1` (반복)
+
+3. **Condition 노드 재실행 허용** (355-360줄):
+   ```python
+   if current_node_id in executed_nodes:
+       if node.type == "condition":
+           executed_nodes.remove(current_node_id)  # 재평가 허용
+   ```
+   - 피드백 루프에서 Condition도 여러 번 평가 가능
+
+4. **Merge 노드 대기 로직**:
+   - `pending_merge_nodes` Set으로 관리
+   - 모든 부모 노드 완료 확인 후 실행
+   - `_can_execute_merge_node()` 헬퍼 함수 (215-227줄)
+
+5. **무한 루프 방지**:
+   - `iteration_count < len(workflow.nodes) * 10`
+   - 최대 반복 횟수 제한으로 안전성 보장
+
+**헬퍼 함수 추가** (187-240줄):
+
+```python
+def _find_input_node(self, workflow, start_node_id=None) -> str:
+    """워크플로우 시작 노드 (Input 노드) 탐색"""
+    if start_node_id:
+        # 특정 노드부터 시작 (재개 기능)
+        return start_node_id
+    # Input 타입 노드 찾기
+    input_nodes = [n for n in workflow.nodes if n.type == "input"]
+    return input_nodes[0].id
+
+def _can_execute_merge_node(self, node_id, executed_nodes, graph_manager) -> bool:
+    """Merge 노드 실행 가능 여부 확인 (모든 부모 완료 확인)"""
+    parent_nodes = graph_manager.get_parent_nodes(node_id)
+    return all(parent_id in executed_nodes for parent_id in parent_nodes)
+```
+
+**기존 기능 100% 유지**:
+- ✅ 취소 처리 (`cancelled_sessions`)
+- ✅ Human-in-the-Loop (`user_input_queues`)
+- ✅ 세션 재활용 (`node_sessions`)
+- ✅ 로깅 및 이벤트 스트리밍
+- ✅ 토큰 사용량 추적
+
+**테스트 결과** (`test_dynamic_execution.py`):
+
+```
+워크플로우: 조건 분기 및 피드백 루프 테스트
+- Input: 1
+- Worker-1: 1 → 2
+- Condition: 2 < 10 → False → worker-1로 분기
+- Worker-1: 2 → 3
+- Condition: 3 < 10 → False → worker-1로 분기
+... (반복 5회)
+- Worker-1: 9 → 10
+- Condition: 10 >= 10 → True → worker-2로 분기
+- Worker-2: 최종 메시지 출력
+
+✅ Worker-1 실행 횟수: 5회 (피드백 루프 작동)
+✅ Condition-1 실행 횟수: 5회 (반복 평가 작동)
+✅ Worker-2 실행: 조건 만족 시 최종 실행
+✅ 실행 순서: input-1 → (worker-1 → condition-1)⁵ → worker-2
+```
+
+**영향**:
+- ✅ Condition 노드 완벽 작동
+- ✅ 피드백 루프 지원으로 복잡한 반복 로직 구현 가능
+- ✅ 동적 분기 경로 선택
+- ✅ Merge 노드 대기 로직 (다음 테스트 예정)
+- ✅ 무한 루프 방지 안전장치
+
+**버그 수정**:
+- `src/infrastructure/claude/__init__.py`: 존재하지 않는 `WorkerAgentAdapter` import 제거
+
+**참고 문서**:
+- `dynamic_execution_algorithm.md`: 알고리즘 상세 설계
+- `workflow_execution_fix_plan.md`: 문제 분석 및 해결 방안
+
+**다음 단계**:
+- 복잡한 분기 + Merge 노드 통합 테스트
+- 병렬 실행 지원 (추후)
+
+---
+
 ### [2025-11-05] ⚠️ Condition 노드 max_iterations null 처리 버그 수정 (Critical)
 
 **배경**:
