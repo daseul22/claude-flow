@@ -77,8 +77,25 @@ class BackgroundWorkflowManager:
         self.project_path = project_path
         self.session_store = session_store or get_session_store(project_path)
         self.tasks: Dict[str, BackgroundWorkflowTask] = {}
+        # 세션별 project_path 매핑 (올바른 session_store 사용을 위해)
+        self.session_project_paths: Dict[str, Optional[str]] = {}
 
         logger.info(f"백그라운드 워크플로우 관리자 초기화 (프로젝트: {project_path or '기본'})")
+
+    def _get_session_store(self, session_id: str) -> WorkflowSessionStore:
+        """
+        세션별 올바른 session_store 반환
+
+        Args:
+            session_id: 세션 ID
+
+        Returns:
+            WorkflowSessionStore: 세션에 맞는 session_store 인스턴스
+        """
+        project_path = self.session_project_paths.get(session_id)
+        if project_path is not None:
+            return get_session_store(project_path)
+        return self.session_store
 
     async def start_workflow(
         self,
@@ -106,6 +123,9 @@ class BackgroundWorkflowManager:
             existing_task = self.tasks[session_id]
             if not existing_task.completed:
                 raise ValueError(f"세션 {session_id}는 이미 실행 중입니다")
+
+        # 세션의 project_path 저장 (올바른 session_store 사용을 위해)
+        self.session_project_paths[session_id] = project_path
 
         logger.info(f"[{session_id}] 백그라운드 워크플로우 시작: {workflow.name}")
 
@@ -140,8 +160,11 @@ class BackgroundWorkflowManager:
         """
         bg_task = self.tasks[session_id]
 
+        # 세션에 맞는 session_store 사용
+        session_store = self._get_session_store(session_id)
+
         try:
-            logger.info(f"[{session_id}] 워크플로우 실행 시작 (백그라운드)")
+            logger.info(f"[{session_id}] 워크플로우 실행 시작 (백그라운드, 세션 경로: {project_path or '기본'})")
 
             # WorkflowExecutor 실행 (project_path, start_node_id 전달)
             async for event in self.executor.execute_workflow(
@@ -154,8 +177,8 @@ class BackgroundWorkflowManager:
                 # 이벤트를 큐에 저장
                 bg_task.event_queue.append(event)
 
-                # 세션 저장소에도 기록
-                await self.session_store.append_log(session_id, event)
+                # 세션 저장소에도 기록 (올바른 session_store 사용)
+                await session_store.append_log(session_id, event)
 
                 logger.debug(
                     f"[{session_id}] 이벤트 큐에 추가: {event.event_type} "
@@ -187,8 +210,8 @@ class BackgroundWorkflowManager:
             # 완료 처리
             bg_task.completed = True
 
-            # 세션 상태 업데이트
-            await self.session_store.update_session(
+            # 세션 상태 업데이트 (올바른 session_store 사용)
+            await session_store.update_session(
                 session_id,
                 status="error",
                 error=error_msg,
@@ -215,8 +238,11 @@ class BackgroundWorkflowManager:
         Raises:
             ValueError: 세션을 찾을 수 없는 경우
         """
+        # 세션에 맞는 session_store 사용
+        session_store = self._get_session_store(session_id)
+
         # 세션 저장소에서 세션 가져오기
-        session = await self.session_store.get_session(session_id)
+        session = await session_store.get_session(session_id)
         if not session:
             raise ValueError(f"세션을 찾을 수 없습니다: {session_id}")
 
@@ -247,7 +273,7 @@ class BackgroundWorkflowManager:
 
             while not bg_task.completed:
                 # 세션 저장소 다시 로드 (새 이벤트 확인)
-                session = await self.session_store.get_session(session_id)
+                session = await session_store.get_session(session_id)
                 if not session:
                     logger.warning(f"[{session_id}] 세션이 삭제되었습니다. 스트리밍 중단")
                     break
@@ -266,7 +292,7 @@ class BackgroundWorkflowManager:
                 await asyncio.sleep(0.1)
 
             # 3. 완료 후 남은 이벤트 전송 (race condition 방지)
-            session = await self.session_store.get_session(session_id)
+            session = await session_store.get_session(session_id)
             if session:
                 final_logs = session.logs[sent_count:]
                 for log_entry in final_logs:
@@ -334,8 +360,9 @@ class BackgroundWorkflowManager:
         # 완료 처리
         bg_task.completed = True
 
-        # 세션 상태 업데이트
-        await self.session_store.update_session(
+        # 세션 상태 업데이트 (올바른 session_store 사용)
+        session_store = self._get_session_store(session_id)
+        await session_store.update_session(
             session_id,
             status="cancelled",
             end_time=datetime.now().isoformat(),
@@ -394,8 +421,9 @@ class BackgroundWorkflowManager:
         Raises:
             ValueError: 원본 세션을 찾을 수 없는 경우
         """
-        # 원본 세션 조회
-        original_session = await self.session_store.get_session(original_session_id)
+        # 원본 세션 조회 (올바른 session_store 사용)
+        session_store = self._get_session_store(original_session_id)
+        original_session = await session_store.get_session(original_session_id)
         if not original_session:
             raise ValueError(f"원본 세션을 찾을 수 없습니다: {original_session_id}")
 
@@ -476,6 +504,9 @@ class BackgroundWorkflowManager:
         """
         bg_task = self.tasks[session_id]
 
+        # 세션에 맞는 session_store 사용
+        session_store = self._get_session_store(session_id)
+
         try:
             logger.info(f"[{session_id}] 워크플로우 재시작 실행 시작 (백그라운드)")
 
@@ -493,8 +524,8 @@ class BackgroundWorkflowManager:
                 # 이벤트를 큐에 저장
                 bg_task.event_queue.append(event)
 
-                # 세션 저장소에도 기록
-                await self.session_store.append_log(session_id, event)
+                # 세션 저장소에도 기록 (올바른 session_store 사용)
+                await session_store.append_log(session_id, event)
 
                 logger.debug(
                     f"[{session_id}] 이벤트 큐에 추가: {event.event_type} "
@@ -526,8 +557,8 @@ class BackgroundWorkflowManager:
             # 완료 처리
             bg_task.completed = True
 
-            # 세션 상태 업데이트
-            await self.session_store.update_session(
+            # 세션 상태 업데이트 (올바른 session_store 사용)
+            await session_store.update_session(
                 session_id,
                 status="error",
                 error=error_msg,
