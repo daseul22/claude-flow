@@ -114,6 +114,7 @@ class BaseNodeExecutor(ABC):
         self,
         node: WorkflowNode,
         node_outputs: dict[str, str],
+        node_inputs: dict[str, str],
         initial_input: str,
         session_id: str,
         edges: list[WorkflowEdge],
@@ -127,6 +128,7 @@ class BaseNodeExecutor(ABC):
         Args:
             node: 실행할 노드
             node_outputs: 이전 노드 출력들
+            node_inputs: 각 노드가 실제로 받을 입력 (피드백 루프 지원)
             initial_input: 초기 입력
             session_id: 세션 ID
             edges: 엣지 목록

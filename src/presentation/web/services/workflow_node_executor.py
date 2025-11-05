@@ -108,6 +108,7 @@ class WorkflowNodeExecutor:
         self,
         node: WorkflowNode,
         node_outputs: Dict[str, str],
+        node_inputs: Dict[str, str],
         initial_input: str,
         session_id: str,
         edges: List[WorkflowEdge],
@@ -124,6 +125,7 @@ class WorkflowNodeExecutor:
         Args:
             node: 실행할 노드
             node_outputs: 이전 노드 출력들
+            node_inputs: 각 노드가 실제로 받을 입력 (피드백 루프 지원)
             initial_input: 초기 입력
             session_id: 세션 ID
             edges: 엣지 목록
@@ -154,6 +156,7 @@ class WorkflowNodeExecutor:
         async for event in executor.execute(
             node=node,
             node_outputs=node_outputs,
+            node_inputs=node_inputs,
             initial_input=initial_input,
             session_id=session_id,
             edges=edges,

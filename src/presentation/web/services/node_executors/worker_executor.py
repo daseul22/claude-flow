@@ -37,6 +37,7 @@ class WorkerNodeExecutor(BaseNodeExecutor):
         self,
         node: WorkflowNode,
         node_outputs: Dict[str, str],
+        node_inputs: Dict[str, str],
         initial_input: str,
         session_id: str,
         edges: List[WorkflowEdge],
@@ -50,6 +51,7 @@ class WorkerNodeExecutor(BaseNodeExecutor):
         Args:
             node: 실행할 노드
             node_outputs: 이전 노드 출력들
+            node_inputs: 각 노드가 실제로 받을 입력 (피드백 루프 지원)
             initial_input: 초기 입력
             session_id: 세션 ID
             edges: 엣지 목록
@@ -77,9 +79,9 @@ class WorkerNodeExecutor(BaseNodeExecutor):
             agent_name, allowed_tools_override, thinking_override, node_id, session_id
         )
 
-        # 3. 작업 템플릿 렌더링
+        # 3. 작업 템플릿 렌더링 (node_inputs 전달)
         task_description = self._render_worker_task(
-            task_template, node_id, node_outputs, initial_input, edges, template_renderer
+            task_template, node_id, node_outputs, node_inputs, initial_input, edges, template_renderer
         )
 
         # node_start 이벤트
@@ -550,6 +552,7 @@ class WorkerNodeExecutor(BaseNodeExecutor):
         task_template: str,
         node_id: str,
         node_outputs: Dict[str, str],
+        node_inputs: Dict[str, str],
         initial_input: str,
         edges: List[WorkflowEdge],
         template_renderer: Any,
@@ -561,6 +564,7 @@ class WorkerNodeExecutor(BaseNodeExecutor):
             task_template: 작업 템플릿
             node_id: 노드 ID
             node_outputs: 노드 출력 매핑
+            node_inputs: 각 노드가 실제로 받을 입력 (피드백 루프 지원)
             initial_input: 초기 입력
             edges: 엣지 목록
             template_renderer: 템플릿 렌더러
@@ -575,6 +579,7 @@ class WorkerNodeExecutor(BaseNodeExecutor):
             template=task_template,
             node_id=node_id,
             node_outputs=parent_outputs,
+            node_inputs=node_inputs,
             initial_input=initial_input,
         )
 

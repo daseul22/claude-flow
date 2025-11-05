@@ -328,6 +328,7 @@ class WorkflowExecutor:
             executed_nodes: Set[str] = set()
             pending_merge_nodes: Set[str] = set()
             node_outputs: Dict[str, str] = {}
+            node_inputs: Dict[str, str] = {}  # 각 노드가 실제로 받을 입력 (피드백 루프 지원)
             max_iterations = len(workflow.nodes) * 10  # 무한 루프 방지
             iteration_count = 0
 
@@ -375,6 +376,7 @@ class WorkflowExecutor:
                     async for event in self.node_executor.execute_single_node(
                         node=node,
                         node_outputs=node_outputs,
+                        node_inputs=node_inputs,
                         initial_input=initial_input,
                         session_id=session_id,
                         edges=workflow.edges,
@@ -402,6 +404,15 @@ class WorkflowExecutor:
                     if next_node_id:
                         # Case 1: Condition 노드가 지정한 경로 (피드백 루프 허용)
                         # Condition 분기는 이전에 실행된 노드로도 돌아갈 수 있음
+
+                        # Condition의 출력(= 부모 출력)을 다음 노드의 입력으로 설정
+                        condition_output = node_outputs.get(current_node_id, "")
+                        node_inputs[next_node_id] = condition_output
+                        logger.info(
+                            f"[{session_id}] Condition 출력을 다음 노드 입력으로 설정: "
+                            f"{next_node_id} ← {len(condition_output)}자"
+                        )
+
                         if next_node_id in executed_nodes:
                             logger.info(
                                 f"[{session_id}] 피드백 루프: {current_node_id} → {next_node_id} "
@@ -432,6 +443,7 @@ class WorkflowExecutor:
                                     child_id, executed_nodes, graph_manager
                                 ):
                                     # 모든 부모 완료: 즉시 실행
+                                    # Merge 노드는 여러 부모의 출력을 병합하므로 node_inputs 설정 안 함
                                     current_node_id = child_id
                                     logger.info(
                                         f"[{session_id}] Merge 노드 준비 완료: {child_id}"
@@ -445,15 +457,21 @@ class WorkflowExecutor:
                                     )
                             else:
                                 # 일반 노드: 즉시 실행
+                                # 현재 노드의 출력을 자식 노드의 입력으로 설정
+                                parent_output = node_outputs.get(current_node_id, "")
+                                node_inputs[child_id] = parent_output
                                 current_node_id = child_id
                                 logger.info(f"[{session_id}] 다음 노드 (단일): {child_id}")
 
                         else:
                             # 여러 자식: 첫 번째만 실행 (병렬 실행은 나중에 구현)
-                            current_node_id = children[0]
+                            first_child = children[0]
+                            parent_output = node_outputs.get(current_node_id, "")
+                            node_inputs[first_child] = parent_output
+                            current_node_id = first_child
                             logger.warning(
                                 f"[{session_id}] 여러 자식 노드 발견, 첫 번째만 실행: "
-                                f"{children[0]} (전체: {children})"
+                                f"{first_child} (전체: {children})"
                             )
 
                 # === Pending Merge 노드 확인 ===
