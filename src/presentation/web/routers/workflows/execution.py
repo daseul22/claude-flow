@@ -86,6 +86,13 @@ async def execute_workflow(
     # 현재 프로젝트 경로 가져오기
     from src.presentation.web.routers.projects import _current_project_path
 
+    # 프로젝트가 선택되지 않았으면 에러
+    if _current_project_path is None:
+        raise HTTPException(
+            status_code=400,
+            detail="프로젝트를 먼저 선택해주세요. 헤더의 '프로젝트 선택' 버튼을 클릭하세요."
+        )
+
     # 세션 저장소 가져오기 (현재 프로젝트 경로 기반)
     session_store = get_session_store(project_path=_current_project_path)
 
