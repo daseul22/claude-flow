@@ -687,6 +687,202 @@ async def browse_directory(path: Optional[str] = None):
 
 ## 최근 개선사항 (v4.0.1)
 
+### [2025-11-05] 🚀 Condition 노드 SDK 실행 로그 스트리밍 구현 (Critical)
+
+**배경**:
+- Condition 노드의 LLM 조건 평가 시 SDK 실행 과정이 **UI에 전혀 표시되지 않는** 치명적인 버그 발견
+- Worker 노드는 실시간 스트리밍으로 사고 과정, 입출력을 모두 UI에 표시
+- Condition 노드는 SDK 응답을 내부에서만 처리하고 최종 결과만 반환 → **중간 과정이 완전히 블랙박스**
+
+**문제점**:
+
+**Worker 노드** (정상 작동):
+```python
+async for response in sdk.query(...):
+    # ✅ 실시간 스트리밍
+    yield WorkflowNodeExecutionEvent(
+        event_type="node_output",
+        data={"chunk": response.text, "chunk_type": "text"}
+    )
+```
+
+**Condition 노드** (버그):
+```python
+response_text = ""
+async for response in query(...):
+    response_text += text  # ❌ 내부에서만 누적
+# 최종 결과만 반환, 중간 과정 없음
+return result, reason
+```
+
+**해결 방안**:
+
+#### 1. `evaluate_llm_condition_stream()` 제너레이터 구현
+
+**파일**: `src/presentation/web/services/workflow_condition_evaluator.py`
+
+```python
+async def evaluate_llm_condition_stream(
+    self,
+    condition_prompt: str,
+    input_text: str,
+    session_id: str,
+    node_id: str,
+):
+    """
+    LLM 조건 평가 (스트리밍 지원)
+
+    Yields:
+        tuple[str, Optional[tuple]]: (chunk, final_result)
+        - chunk가 있으면 중간 출력 (UI 표시용)
+        - final_result가 있으면 최종 평가 결과 (bool, str)
+    """
+    # SDK 호출
+    response_text = ""
+    async for response in query(prompt=full_prompt, options=options):
+        if isinstance(response, AssistantMessage):
+            for content_block in response.content:
+                if isinstance(content_block, TextBlock):
+                    chunk = content_block.text
+                    response_text += chunk
+
+                    # ✅ 중간 출력 스트리밍 (UI 표시용)
+                    yield (chunk, None)
+
+    # 응답 파싱
+    result, reason = self._parse_llm_response(response_text, session_id, node_id)
+
+    # ✅ 최종 결과 반환
+    yield ("", (result, reason))
+```
+
+**변경 효과**:
+- SDK 응답을 받을 때마다 즉시 UI로 전송
+- 사용자가 LLM 사고 과정을 실시간으로 확인 가능
+- 응답 파싱 로직을 `_parse_llm_response()` 헬퍼 함수로 분리
+
+#### 2. `execute_condition_node_stream()` 제너레이터 구현
+
+**파일**: `src/presentation/web/services/workflow_condition_evaluator.py`
+
+```python
+async def execute_condition_node_stream(
+    self,
+    node: WorkflowNode,
+    node_outputs: Dict[str, str],
+    edges: List[WorkflowEdge],
+    session_id: str,
+):
+    """조건 분기 노드 실행 (스트리밍 지원)"""
+
+    if node_data.condition_type == "llm":
+        # ✅ LLM 스트리밍 평가
+        async for chunk, final_result in self.evaluate_llm_condition_stream(...):
+            if final_result:
+                condition_result, llm_reason = final_result
+            else:
+                # 중간 출력 스트리밍
+                yield (chunk, None)
+    else:
+        # 일반 조건 평가
+        condition_result = self.evaluate_condition(...)
+
+        # ✅ 일반 조건 평가 결과도 출력
+        evaluation_message = (
+            f"조건 타입: {node_data.condition_type}\n"
+            f"조건 값: {node_data.condition_value}\n"
+            f"평가 결과: {condition_result}"
+        )
+        yield (evaluation_message, None)
+
+    # 최종 결과 반환
+    yield (None, (next_node_id, result_text))
+```
+
+**변경 효과**:
+- LLM 조건: 실시간 스트리밍
+- 일반 조건 (contains, regex, length, custom): 평가 결과 즉시 출력
+
+#### 3. `ConditionExecutor.execute()` 이벤트 스트리밍 추가
+
+**파일**: `src/presentation/web/services/node_executors/condition_executor.py`
+
+```python
+async def execute(...):
+    # ✅ node_start 이벤트
+    yield WorkflowNodeExecutionEvent(event_type="node_start", ...)
+
+    # ✅ 입력 이벤트 (Worker와 동일)
+    yield WorkflowNodeExecutionEvent(
+        event_type="node_output",
+        data={"chunk": parent_output, "chunk_type": "input"}
+    )
+
+    # ✅ 조건 평가 스트리밍
+    next_node_id = None
+    result_text = ""
+
+    async for chunk, final_result in condition_evaluator.execute_condition_node_stream(...):
+        if final_result:
+            # 최종 결과 수신
+            next_node_id, result_text = final_result
+        elif chunk:
+            # ✅ 중간 출력 스트리밍 (LLM 평가 중)
+            yield WorkflowNodeExecutionEvent(
+                event_type="node_output",
+                data={"chunk": chunk, "chunk_type": "text"}
+            )
+
+    # ✅ node_complete 이벤트
+    yield WorkflowNodeExecutionEvent(event_type="node_complete", ...)
+```
+
+**변경 효과**:
+- Worker 노드와 **완전히 동일한 패턴**으로 이벤트 스트리밍
+- UI에서 Condition 노드의 실행 과정 완벽히 표시
+
+#### 4. 디버깅 로그 강화
+
+**입력값 확인** (64-71줄):
+```python
+logger.info(
+    f"[{session_id}] [{node_id}] 부모 노드 출력 확인:\n"
+    f"  - 부모 노드 ID: {parent_id}\n"
+    f"  - 출력 길이: {len(parent_output)}자\n"
+    f"  - 출력 미리보기: {parent_output[:300]}"
+)
+```
+
+**전달값 확인** (133-139줄):
+```python
+logger.info(
+    f"[{session_id}] [{node_id}] 다음 노드로 전달할 값:\n"
+    f"  - 대상 노드: {next_node_id}\n"
+    f"  - 전달 값 길이: {len(parent_output)}자\n"
+    f"  - 전달 값 미리보기: {parent_output[:300]}\n"
+    f"  - 평가 결과 (로그용): {result_text[:200]}"
+)
+```
+
+**영향**:
+- ✅ Condition 노드가 Worker 노드와 동일한 수준의 로그 출력
+- ✅ LLM 조건 평가 시 실시간 사고 과정 표시
+- ✅ 일반 조건 평가 시에도 평가 결과 표시
+- ✅ 입력/출력값 전달 과정 완벽히 추적 가능
+- ✅ "이상한 값" 전달 문제 디버깅 가능
+
+**수정 파일**:
+- `src/presentation/web/services/workflow_condition_evaluator.py` (119-319줄)
+- `src/presentation/web/services/node_executors/condition_executor.py` (57-139줄)
+
+**테스트 방법**:
+1. Condition 노드 추가 (LLM 조건 타입)
+2. 조건 값: "테스트가 성공했는지 판단해주세요"
+3. 워크플로우 실행 → **LLM 사고 과정이 실시간으로 UI에 표시됨** ✅
+4. 로그 패널에서 입력, 평가 과정, 출력 모두 확인 가능 ✅
+
+---
+
 ### [2025-11-05] 🐛 LLM 조건 평가 CLI 경로 버그 수정 (Critical)
 
 **배경**:

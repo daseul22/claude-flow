@@ -61,6 +61,15 @@ class ConditionNodeExecutor(BaseNodeExecutor):
             parent_id = parent_nodes[0]
             parent_output = node_outputs.get(parent_id, "")
 
+            logger.info(
+                f"[{session_id}] [{node_id}] 부모 노드 출력 확인:\n"
+                f"  - 부모 노드 ID: {parent_id}\n"
+                f"  - 출력 길이: {len(parent_output)}자\n"
+                f"  - 출력 미리보기: {parent_output[:300] if parent_output else '(empty)'}"
+            )
+        else:
+            logger.warning(f"[{session_id}] [{node_id}] 부모 노드가 없습니다!")
+
         node_data = node.data
 
         # node_start 이벤트
@@ -69,7 +78,6 @@ class ConditionNodeExecutor(BaseNodeExecutor):
             node_id=node_id,
             data={
                 "node_type": "condition",
-                "input": parent_output,
                 "condition_type": (
                     node_data.condition_type
                     if hasattr(node_data, "condition_type")
@@ -84,14 +92,52 @@ class ConditionNodeExecutor(BaseNodeExecutor):
             timestamp=datetime.now().isoformat(),
         )
 
+        # 입력 이벤트 (Worker와 동일)
+        yield WorkflowNodeExecutionEvent(
+            event_type="node_output",
+            node_id=node_id,
+            data={
+                "chunk": parent_output,
+                "chunk_type": "input",
+            },
+        )
+
         try:
-            # WorkflowConditionEvaluator의 execute_condition_node 호출
-            next_node_id, result_text = await condition_evaluator.execute_condition_node(
+            # WorkflowConditionEvaluator의 execute_condition_node_stream 호출 (스트리밍)
+            next_node_id = None
+            result_text = ""
+
+            async for chunk, final_result in condition_evaluator.execute_condition_node_stream(
                 node, node_outputs, edges, session_id
-            )
+            ):
+                if final_result:
+                    # 최종 결과 수신
+                    next_node_id, result_text = final_result
+                elif chunk:
+                    # 중간 출력 스트리밍 (LLM 평가 중)
+                    yield WorkflowNodeExecutionEvent(
+                        event_type="node_output",
+                        node_id=node_id,
+                        data={
+                            "chunk": chunk,
+                            "chunk_type": "text",
+                        },
+                    )
+                    logger.debug(
+                        f"[{session_id}] [{node_id}] LLM 조건 평가 중간 출력: {len(chunk)}자"
+                    )
 
             # 부모 노드의 출력을 그대로 다음 노드로 전달 (평가 결과는 로그로만)
             node_outputs[node_id] = parent_output
+
+            logger.info(
+                f"[{session_id}] [{node_id}] 다음 노드로 전달할 값:\n"
+                f"  - 대상 노드: {next_node_id}\n"
+                f"  - 전달 값 길이: {len(parent_output)}자\n"
+                f"  - 전달 값 미리보기: {parent_output[:300] if parent_output else '(empty)'}\n"
+                f"  - 평가 결과 (로그용): {result_text[:200]}"
+            )
+
             elapsed_time = time.time() - start_time
 
             # node_complete 이벤트

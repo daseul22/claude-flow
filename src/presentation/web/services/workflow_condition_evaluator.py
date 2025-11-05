@@ -116,27 +116,31 @@ class WorkflowConditionEvaluator:
 
         return True
 
-    async def evaluate_llm_condition(
+    async def evaluate_llm_condition_stream(
         self,
         condition_prompt: str,
         input_text: str,
         session_id: str,
-    ) -> Tuple[bool, str]:
+        node_id: str,
+    ):
         """
-        LLM을 사용하여 조건 평가 (Haiku 모델 사용)
+        LLM을 사용하여 조건 평가 (Haiku 모델 사용, 스트리밍 지원)
 
         Args:
             condition_prompt: LLM에게 전달할 조건 프롬프트
             input_text: 평가할 텍스트
             session_id: 세션 ID
+            node_id: 노드 ID (로깅용)
 
-        Returns:
-            Tuple[bool, str]: (조건 결과, LLM 응답 이유)
+        Yields:
+            tuple[str, Optional[tuple]]: (chunk, final_result)
+            - chunk가 있으면 중간 출력 (UI 표시용)
+            - final_result가 있으면 최종 평가 결과 (bool, str)
         """
         from claude_agent_sdk import query, AssistantMessage, TextBlock
         from claude_agent_sdk.types import ClaudeAgentOptions
 
-        logger.info(f"[{session_id}] LLM 조건 평가 시작 (Haiku 모델)")
+        logger.info(f"[{session_id}] LLM 조건 평가 시작 (Haiku 모델, 스트리밍)")
 
         # Haiku 모델로 빠른 판단
         from pathlib import Path
@@ -181,84 +185,46 @@ class WorkflowConditionEvaluator:
 """
 
         try:
-            # LLM 호출 (SDK 표준 방식)
+            # LLM 호출 (SDK 표준 방식, 스트리밍)
             response_text = ""
             async for response in query(prompt=full_prompt, options=options):
                 # AssistantMessage 처리 (SDK 표준 응답 타입)
                 if isinstance(response, AssistantMessage):
                     if response.content:
                         for content_block in response.content:
-                            # TextBlock에서 텍스트 추출
+                            # TextBlock에서 텍스트 추출 및 스트리밍
                             if isinstance(content_block, TextBlock):
-                                response_text += content_block.text
+                                chunk = content_block.text
+                                response_text += chunk
+
                                 logger.debug(
-                                    f"[{session_id}] LLM 응답 수신 (TextBlock): "
-                                    f"{len(content_block.text)} 문자"
+                                    f"[{session_id}] [{node_id}] LLM 응답 수신 (TextBlock): "
+                                    f"{len(chunk)} 문자"
                                 )
 
+                                # 중간 출력 스트리밍 (UI 표시용)
+                                yield (chunk, None)
+
             logger.debug(
-                f"[{session_id}] LLM 전체 응답 ({len(response_text)} 문자): "
+                f"[{session_id}] [{node_id}] LLM 전체 응답 ({len(response_text)} 문자): "
                 f"{response_text[:WorkflowConfig.CONDITION_OUTPUT_LIMIT]}"
             )
 
             # 응답이 비어있는 경우
             if not response_text.strip():
-                logger.warning(f"[{session_id}] LLM 응답이 비어있습니다")
-                return False, "LLM 응답이 비어있습니다"
+                logger.warning(f"[{session_id}] [{node_id}] LLM 응답이 비어있습니다")
+                yield ("", (False, "LLM 응답이 비어있습니다"))
+                return
 
             # 응답 파싱 (한글/영어 모두 지원)
-            lines = response_text.strip().split("\n")
-            result = None  # 파싱 성공 여부 추적 (None = 파싱 실패)
-            reason = ""
-            reason_start_index = -1  # "이유:" 줄의 인덱스
-
-            for i, line in enumerate(lines):
-                line_stripped = line.strip()
-                line_lower = line_stripped.lower()
-
-                # "판단:" 또는 "Decision:" 파싱 (한글/영어 모두 지원)
-                if line_stripped.startswith("판단:") or line_lower.startswith("decision:"):
-                    # "판단:" 또는 "decision:" 제거
-                    decision = line_stripped.replace("판단:", "", 1).replace("Decision:", "", 1).replace("decision:", "", 1).strip().upper()
-
-                    # YES 판단
-                    result = decision in ["YES", "Y", "TRUE", "예", "네", "T"]
-                    logger.info(f"[{session_id}] 판단 파싱 성공: '{decision}' → {result}")
-
-                elif (line_stripped.startswith("이유:") or line_lower.startswith("reason:")) and reason_start_index == -1:
-                    # "이유:" 또는 "reason:" 줄의 인덱스 저장 (첫 번째만)
-                    reason_start_index = i
-
-            # "이유:" 이후의 모든 텍스트를 reason으로 추출
-            if reason_start_index >= 0:
-                reason_lines = lines[reason_start_index:]
-                # 첫 줄에서 "이유:" 또는 "reason:" 제거
-                first_line = reason_lines[0].replace("이유:", "", 1).replace("Reason:", "", 1).replace("reason:", "", 1).strip()
-                reason_lines[0] = first_line
-                reason = "\n".join(reason_lines).strip()
-                logger.debug(f"[{session_id}] 이유 파싱 완료: {len(reason)} 문자 (여러 줄 지원)")
-
-            # 파싱 실패 처리
-            if result is None:
-                # "판단:" 형식을 찾지 못한 경우 - 전체 응답 출력 후 False 반환
-                logger.error(
-                    f"[{session_id}] LLM 응답 파싱 실패! "
-                    f"'판단:' 또는 'Decision:' 형식을 찾을 수 없습니다.\n"
-                    f"전체 응답:\n{response_text}"
-                )
-                result = False
-                reason = f"파싱 실패 (응답 형식 오류)\n\n전체 응답:\n{response_text[:500]}"
-
-            # 이유가 없으면 전체 응답 사용
-            if not reason:
-                reason = response_text[: WorkflowConfig.CONDITION_OUTPUT_LIMIT]
-                logger.warning(f"[{session_id}] 이유 파싱 실패, 전체 응답 사용")
+            result, reason = self._parse_llm_response(response_text, session_id, node_id)
 
             logger.info(
-                f"[{session_id}] LLM 조건 평가 완료: {result} (이유: {reason[:100]})"
+                f"[{session_id}] [{node_id}] LLM 조건 평가 완료: {result} (이유: {reason[:100]})"
             )
 
-            return result, reason
+            # 최종 결과 반환
+            yield ("", (result, reason))
 
         except Exception as e:
             # 실제 에러 타입과 메시지를 명확히 표시
@@ -266,14 +232,91 @@ class WorkflowConditionEvaluator:
             error_msg = str(e)
 
             logger.error(
-                f"[{session_id}] LLM 조건 평가 실패\n"
+                f"[{session_id}] [{node_id}] LLM 조건 평가 실패\n"
                 f"  에러 타입: {error_type}\n"
                 f"  에러 메시지: {error_msg}",
                 exc_info=True
             )
 
             # Fallback: LLM 실패 시 False 반환 (워크플로우 중단 방지)
-            return False, f"⚠ LLM 평가 실패 (Fallback: False)\n\n에러: {error_type}: {error_msg}"
+            yield ("", (False, f"⚠ LLM 평가 실패 (Fallback: False)\n\n에러: {error_type}: {error_msg}"))
+
+    def _parse_llm_response(
+        self, response_text: str, session_id: str, node_id: str
+    ) -> Tuple[bool, str]:
+        """
+        LLM 응답 파싱 (헬퍼 메서드)
+
+        Args:
+            response_text: LLM 응답 텍스트
+            session_id: 세션 ID
+            node_id: 노드 ID (로깅용)
+
+        Returns:
+            Tuple[bool, str]: (조건 결과, LLM 응답 이유)
+        """
+        lines = response_text.strip().split("\n")
+        result = None  # 파싱 성공 여부 추적 (None = 파싱 실패)
+        reason = ""
+        reason_start_index = -1  # "이유:" 줄의 인덱스
+
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            line_lower = line_stripped.lower()
+
+            # "판단:" 또는 "Decision:" 파싱 (한글/영어 모두 지원)
+            if line_stripped.startswith("판단:") or line_lower.startswith("decision:"):
+                # "판단:" 또는 "decision:" 제거
+                decision = (
+                    line_stripped.replace("판단:", "", 1)
+                    .replace("Decision:", "", 1)
+                    .replace("decision:", "", 1)
+                    .strip()
+                    .upper()
+                )
+
+                # YES 판단
+                result = decision in ["YES", "Y", "TRUE", "예", "네", "T"]
+                logger.info(f"[{session_id}] [{node_id}] 판단 파싱 성공: '{decision}' → {result}")
+
+            elif (
+                line_stripped.startswith("이유:") or line_lower.startswith("reason:")
+            ) and reason_start_index == -1:
+                # "이유:" 또는 "reason:" 줄의 인덱스 저장 (첫 번째만)
+                reason_start_index = i
+
+        # "이유:" 이후의 모든 텍스트를 reason으로 추출
+        if reason_start_index >= 0:
+            reason_lines = lines[reason_start_index:]
+            # 첫 줄에서 "이유:" 또는 "reason:" 제거
+            first_line = (
+                reason_lines[0]
+                .replace("이유:", "", 1)
+                .replace("Reason:", "", 1)
+                .replace("reason:", "", 1)
+                .strip()
+            )
+            reason_lines[0] = first_line
+            reason = "\n".join(reason_lines).strip()
+            logger.debug(f"[{session_id}] [{node_id}] 이유 파싱 완료: {len(reason)} 문자 (여러 줄 지원)")
+
+        # 파싱 실패 처리
+        if result is None:
+            # "판단:" 형식을 찾지 못한 경우 - 전체 응답 출력 후 False 반환
+            logger.error(
+                f"[{session_id}] [{node_id}] LLM 응답 파싱 실패! "
+                f"'판단:' 또는 'Decision:' 형식을 찾을 수 없습니다.\n"
+                f"전체 응답:\n{response_text}"
+            )
+            result = False
+            reason = f"파싱 실패 (응답 형식 오류)\n\n전체 응답:\n{response_text[:500]}"
+
+        # 이유가 없으면 전체 응답 사용
+        if not reason:
+            reason = response_text[: WorkflowConfig.CONDITION_OUTPUT_LIMIT]
+            logger.warning(f"[{session_id}] [{node_id}] 이유 파싱 실패, 전체 응답 사용")
+
+        return result, reason
 
     @staticmethod
     def evaluate_condition(condition_type: str, condition_value: str, input_text: str) -> bool:
@@ -406,15 +449,15 @@ class WorkflowConditionEvaluator:
             logger.warning(f"알 수 없는 조건 타입: {condition_type}")
             return False
 
-    async def execute_condition_node(
+    async def execute_condition_node_stream(
         self,
         node: WorkflowNode,
         node_outputs: Dict[str, str],
         edges: List[WorkflowEdge],
         session_id: str,
-    ) -> Tuple[str, str]:
+    ):
         """
-        조건 분기 노드 실행 (반복 제한 포함)
+        조건 분기 노드 실행 (반복 제한 포함, 스트리밍 지원)
 
         Args:
             node: 조건 노드
@@ -422,8 +465,10 @@ class WorkflowConditionEvaluator:
             edges: 엣지 목록 (분기 경로 확인용)
             session_id: 세션 ID
 
-        Returns:
-            Tuple[str, str]: (다음 실행할 노드 ID, 조건 평가 결과 텍스트)
+        Yields:
+            tuple[Optional[str], Optional[tuple]]: (chunk, final_result)
+            - chunk가 있으면 LLM 중간 출력 (UI 표시용)
+            - final_result가 있으면 최종 결과 (next_node_id, result_text)
 
         Raises:
             ValueError: 부모 노드가 없거나 분기 경로가 없는 경우
@@ -452,17 +497,32 @@ class WorkflowConditionEvaluator:
         parent_id = parent_nodes[0]
         parent_output = node_outputs.get(parent_id, "")
 
-        # LLM 조건인 경우 비동기 평가
+        # LLM 조건인 경우 스트리밍 평가
         llm_reason = ""
         if node_data.condition_type == "llm":
-            condition_result, llm_reason = await self.evaluate_llm_condition(
-                node_data.condition_value, parent_output, session_id
-            )
+            # LLM 스트리밍 평가
+            async for chunk, final_result in self.evaluate_llm_condition_stream(
+                node_data.condition_value, parent_output, session_id, node_id
+            ):
+                if final_result:
+                    # 최종 결과 수신
+                    condition_result, llm_reason = final_result
+                else:
+                    # 중간 출력 스트리밍
+                    yield (chunk, None)
         else:
-            # 일반 조건 평가
+            # 일반 조건 평가 (스트리밍 없음)
             condition_result = self.evaluate_condition(
                 node_data.condition_type, node_data.condition_value, parent_output
             )
+
+            # 일반 조건 평가 결과를 출력 (UI 표시용)
+            evaluation_message = (
+                f"조건 타입: {node_data.condition_type}\n"
+                f"조건 값: {node_data.condition_value}\n"
+                f"평가 결과: {condition_result}"
+            )
+            yield (evaluation_message, None)
 
         # max_iterations 체크 (반복 제한)
         max_iterations = node_data.max_iterations
@@ -546,7 +606,8 @@ class WorkflowConditionEvaluator:
         if llm_reason:
             result_text += f"\nLLM 판단 이유: {llm_reason}"
 
-        return next_node_id, result_text
+        # 최종 결과 반환
+        yield (None, (next_node_id, result_text))
 
     async def execute_merge_node(
         self,
