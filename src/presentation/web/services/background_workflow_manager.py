@@ -63,6 +63,7 @@ class BackgroundWorkflowManager:
         self,
         executor: WorkflowExecutor,
         session_store: Optional[WorkflowSessionStore] = None,
+        project_path: Optional[str] = None,
     ):
         """
         BackgroundWorkflowManager 초기화
@@ -70,12 +71,14 @@ class BackgroundWorkflowManager:
         Args:
             executor: WorkflowExecutor 인스턴스
             session_store: WorkflowSessionStore 인스턴스 (기본값: 싱글톤)
+            project_path: 프로젝트 디렉토리 경로 (세션 저장 위치 결정)
         """
         self.executor = executor
-        self.session_store = session_store or get_session_store()
+        self.project_path = project_path
+        self.session_store = session_store or get_session_store(project_path)
         self.tasks: Dict[str, BackgroundWorkflowTask] = {}
 
-        logger.info("백그라운드 워크플로우 관리자 초기화")
+        logger.info(f"백그라운드 워크플로우 관리자 초기화 (프로젝트: {project_path or '기본'})")
 
     async def start_workflow(
         self,
@@ -566,7 +569,10 @@ def get_background_workflow_manager(
         if executor is None:
             raise ValueError("첫 호출 시 executor를 제공해야 합니다")
         logger.info(f"새 BackgroundWorkflowManager 생성 (프로젝트: {cache_key})")
-        _managers[cache_key] = BackgroundWorkflowManager(executor)
+        _managers[cache_key] = BackgroundWorkflowManager(
+            executor,
+            project_path=project_path
+        )
     else:
         # 기존 인스턴스가 있지만 executor가 다르면 업데이트
         if executor is not None:
