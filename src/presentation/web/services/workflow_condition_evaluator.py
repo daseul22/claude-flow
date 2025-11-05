@@ -394,11 +394,11 @@ class WorkflowConditionEvaluator:
             )
 
         # max_iterations 체크 (반복 제한)
-        # max_iterations가 None인 경우 기본값 10 사용
-        max_iterations = node_data.max_iterations if node_data.max_iterations is not None else 10
+        max_iterations = node_data.max_iterations
         original_result = condition_result  # 원래 결과 저장 (로깅용)
 
-        if current_iteration >= max_iterations:
+        # max_iterations가 None이 아닐 때만 반복 제한 체크
+        if max_iterations is not None and current_iteration >= max_iterations:
             logger.warning(
                 f"[{session_id}] 조건 노드 {node_id}: "
                 f"최대 반복 횟수 도달 ({current_iteration}/{max_iterations}). "
@@ -409,10 +409,11 @@ class WorkflowConditionEvaluator:
             llm_reason = f"최대 반복 횟수 도달 ({max_iterations}회)"
 
         # 최종 조건 평가 결과 로깅
+        max_iter_display = max_iterations if max_iterations is not None else "무제한"
         logger.info(
             f"[{session_id}] 조건 평가 최종 결과: {condition_result} "
             f"(원래: {original_result}, 입력 길이: {len(parent_output)}, "
-            f"반복: {current_iteration}/{max_iterations})"
+            f"반복: {current_iteration}/{max_iter_display})"
         )
 
         # 분기 경로 결정 (엣지의 sourceHandle을 사용)

@@ -687,6 +687,77 @@ async def browse_directory(path: Optional[str] = None):
 
 ## 최근 개선사항 (v4.0.1)
 
+### [2025-11-05] ⚠️ Condition 노드 max_iterations null 처리 버그 수정 (Critical)
+
+**배경**:
+- Condition 노드가 **false로 평가되어도 무조건 true 경로로 분기**하는 Critical 버그 발견
+- 원인: 프론트엔드에서 `max_iterations = null` (반복 제한 체크박스 OFF) → 백엔드가 자동으로 10으로 변환
+
+**문제점**:
+
+1. **프론트엔드** (`ConditionNodeConfig.tsx:162-164`):
+   ```tsx
+   checked={data.max_iterations !== null}
+   onChange={(e) => {
+     setData({ ...data, max_iterations: e.target.checked ? 3 : null })
+   }}
+   ```
+   - 체크박스를 켜지 않으면 `max_iterations = null` (기본값)
+
+2. **백엔드** (`workflow_condition_evaluator.py:398`):
+   ```python
+   max_iterations = node_data.max_iterations if node_data.max_iterations is not None else 10
+
+   if current_iteration >= max_iterations:
+       condition_result = True  # 강제로 true로 변경!
+   ```
+   - `null`을 자동으로 10으로 변환
+   - 10회 반복 후 **의도하지 않게 강제로 true로 변경**
+
+**시나리오**:
+1. 사용자가 Condition 노드 생성 (반복 제한 체크박스 OFF)
+2. 조건: "텍스트 포함 - SUCCESS"
+3. Input: "FAIL" (조건이 false로 평가됨)
+4. **예상**: false 경로로 분기
+5. **실제**: 10회 반복 후 강제로 true 경로로 분기 ❌
+
+**수정 내용**:
+```python
+# Before
+max_iterations = node_data.max_iterations if node_data.max_iterations is not None else 10
+
+if current_iteration >= max_iterations:
+    condition_result = True  # 무조건 10회 후 true
+
+# After
+max_iterations = node_data.max_iterations
+
+if max_iterations is not None and current_iteration >= max_iterations:
+    condition_result = True  # null이면 체크 건너뜀
+
+# 로그 개선
+max_iter_display = max_iterations if max_iterations is not None else "무제한"
+logger.info(f"반복: {current_iteration}/{max_iter_display}")
+```
+
+**변경 효과**:
+- ✅ `max_iterations = null` (기본값) → **반복 제한 없음** (조건 평가 결과를 정확히 따름)
+- ✅ `max_iterations = 3` (체크박스 ON) → 3회 반복 후 강제 true
+- ✅ false 경로가 제대로 실행됨
+- ✅ 로그 가독성 향상: "반복: 5/무제한"
+
+**테스트 방법**:
+1. Condition 노드 추가 (반복 제한 체크박스 **OFF**)
+2. 조건 타입: "텍스트 포함", 조건 값: "SUCCESS"
+3. Input 노드에서 "FAIL" 입력
+4. 워크플로우 실행 → **false 경로로 분기** ✅
+5. (이전에는 10회 후 true로 강제 전환됨 ❌)
+
+**수정 파일**:
+- `src/presentation/web/services/workflow_condition_evaluator.py` (396-417줄)
+
+---
+
 ### [2025-11-05] 자동 출력 추출 기능 추가 + 프롬프트 개선
 
 **배경**:
