@@ -15,12 +15,14 @@ import { ValidationErrorsPanel } from './ValidationErrorsPanel'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { Settings, FileText, AlertCircle } from 'lucide-react'
 import { Badge } from './ui/badge'
+import { ToastType } from './Toast'
 
 interface RightSidebarProps {
   className?: string
+  addToast: (type: ToastType, message: string, duration?: number) => void
 }
 
-export const RightSidebar: React.FC<RightSidebarProps> = ({ className = '' }) => {
+export const RightSidebar: React.FC<RightSidebarProps> = ({ className = '', addToast }) => {
   const getSelectedNode = useWorkflowStore((state) => state.getSelectedNode)
   const validationErrors = useWorkflowStore((state) => state.validationErrors)
   const execution = useWorkflowStore((state) => state.execution)
@@ -98,7 +100,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ className = '' }) =>
 
           <TabsContent value="logs" className="h-full m-0 p-0 flex flex-col">
             <div className="h-full px-4 py-4 overflow-hidden flex flex-col">
-              <ExecutionLogsPanel />
+              <ExecutionLogsPanel addToast={addToast} />
             </div>
           </TabsContent>
 

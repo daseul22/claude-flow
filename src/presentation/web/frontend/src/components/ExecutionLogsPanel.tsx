@@ -20,8 +20,13 @@ import { useWorkflowStore } from '@/stores/workflowStore'
 import { FileText, Clock, Zap, CheckCircle2, AlertCircle, Info, Filter, Eye, EyeOff, Maximize2, RotateCcw } from 'lucide-react'
 import { ParsedContent } from './ParsedContent'
 import { LogDetailModal } from './LogDetailModal'
+import { ToastType } from './Toast'
 
-export const ExecutionLogsPanel: React.FC = () => {
+interface ExecutionLogsPanelProps {
+  addToast: (type: ToastType, message: string, duration?: number) => void
+}
+
+export const ExecutionLogsPanel: React.FC<ExecutionLogsPanelProps> = ({ addToast }) => {
   const { execution, nodes, selectedNodeId: canvasSelectedNodeId } = useWorkflowStore()
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -263,7 +268,7 @@ export const ExecutionLogsPanel: React.FC = () => {
   const handleRestartFromNode = async (nodeId: string) => {
     try {
       if (!execution.sessionId) {
-        alert('재시작 실패: 세션 ID를 찾을 수 없습니다')
+        addToast('error', '재시작 실패: 세션 ID를 찾을 수 없습니다')
         return
       }
 
@@ -274,7 +279,7 @@ export const ExecutionLogsPanel: React.FC = () => {
         return
       }
 
-      console.log(`워크플로우 재시작: '${nodeName}' 노드부터 재시작 중...`)
+      addToast('info', `워크플로우 재시작: '${nodeName}' 노드부터 재시작 중...`)
 
       // API 호출
       const response = await fetch(`/api/workflows/sessions/${execution.sessionId}/restart`, {
@@ -290,14 +295,14 @@ export const ExecutionLogsPanel: React.FC = () => {
         throw new Error(errorData.detail || '재시작 실패')
       }
 
-      console.log(`재시작 성공: '${nodeName}' 노드부터 실행이 시작되었습니다`)
+      addToast('success', `재시작 성공: '${nodeName}' 노드부터 실행이 시작되었습니다`)
 
       // 페이지 새로고침 (SSE 재연결)
       window.location.reload()
 
     } catch (error) {
       console.error('워크플로우 재시작 실패:', error)
-      alert(`재시작 실패: ${error instanceof Error ? error.message : "워크플로우 재시작에 실패했습니다"}`)
+      addToast('error', `재시작 실패: ${error instanceof Error ? error.message : "워크플로우 재시작에 실패했습니다"}`)
     }
   }
 

@@ -485,7 +485,7 @@ function App() {
           </main>
 
           {/* 오른쪽: 탭 기반 사이드바 */}
-          {rightSidebarOpen && <RightSidebar />}
+          {rightSidebarOpen && <RightSidebar addToast={addToast} />}
         </div>
 
         {/* 토스트 알림 */}
