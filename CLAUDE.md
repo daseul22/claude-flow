@@ -687,6 +687,108 @@ async def browse_directory(path: Optional[str] = None):
 
 ## 최근 개선사항 (v4.0.1)
 
+### [2025-11-05] 🐛 LLM 조건 평가 CLI 경로 버그 수정 (Critical)
+
+**배경**:
+- Condition 노드의 LLM 조건 평가 기능이 "Request interrupted by user" 에러로 실패
+- 실제 원인: Claude Agent SDK가 쉘 alias를 인식하지 못해 잘못된 CLI 버전(1.0.103) 사용
+- SDK는 최소 2.0.0 버전을 요구하나, PATH에서 찾은 오래된 CLI 사용
+
+**근본 원인**:
+1. `claude` 명령이 쉘 alias로 `~/.claude/local/claude` (2.0.33)를 가리킴
+2. Python의 `shutil.which()`는 쉘 alias를 인식하지 못함
+3. SDK가 다른 위치의 오래된 `claude` (1.0.103)를 사용
+4. 버전 불일치로 `--setting-sources` 옵션 에러 발생
+
+**수정 내용**:
+
+`workflow_condition_evaluator.py:145-151` (수정 후):
+```python
+# Claude CLI 경로 명시적 지정 (alias 인식 문제 해결)
+claude_cli_path = Path.home() / ".claude" / "local" / "claude"
+
+options = ClaudeAgentOptions(
+    model=WorkflowConfig.HAIKU_MODEL,
+    allowed_tools=[],
+    permission_mode="bypassPermissions",
+    cli_path=str(claude_cli_path),  # 명시적 경로 지정
+)
+```
+
+**에러 처리 개선**:
+
+`workflow_condition_evaluator.py:263-276` (수정 후):
+```python
+except Exception as e:
+    # 실제 에러 타입과 메시지를 명확히 표시
+    error_type = type(e).__name__
+    error_msg = str(e)
+
+    logger.error(
+        f"[{session_id}] LLM 조건 평가 실패\n"
+        f"  에러 타입: {error_type}\n"
+        f"  에러 메시지: {error_msg}",
+        exc_info=True
+    )
+
+    # Fallback: LLM 실패 시 False 반환 (워크플로우 중단 방지)
+    return False, f"⚠ LLM 평가 실패 (Fallback: False)\n\n에러: {error_type}: {error_msg}"
+```
+
+**변경 효과**:
+- ✅ LLM 조건 평가 정상 작동 (Claude Code 2.0.33 사용)
+- ✅ 에러 발생 시 실제 에러 메시지가 명확히 표시됨
+- ✅ 장황한 하드코딩 메시지 제거 (20줄 → 4줄)
+- ✅ 디버깅 용이성 향상
+
+**테스트 결과**: ✅ 성공
+```
+판단: YES
+이유: "모든 테스트 통과"라는 출력이 테스트 성공 조건을 명확히 만족합니다.
+```
+
+**수정 파일**:
+- `src/presentation/web/services/workflow_condition_evaluator.py` (145-151줄, 263-276줄)
+
+---
+
+### [2025-11-05] 🐛 프로젝트별 로그 경로 버그 수정
+
+**배경**:
+- 로그가 `~/.claude-flow/{project-name}/logs`에 저장되어야 하는데
+- 실제로는 `~/.claude-flow/better-llm/logs`에 하드코딩되어 저장되는 문제 발견
+- 원인: `execute_workflow`에서 `project_path` 파라미터가 `None`일 때 자동 감지가 이전 프로젝트 이름을 반환
+
+**문제점**:
+
+`workflow_executor.py:417` (수정 전):
+```python
+add_session_file_handlers(session_id, project_path)
+# project_path가 None → get_project_name() 호출 → 이전 프로젝트 이름 반환
+```
+
+**수정 내용**:
+
+`workflow_executor.py:417-418` (수정 후):
+```python
+# project_path가 None이면 self.project_path 사용
+add_session_file_handlers(session_id, project_path or self.project_path)
+```
+
+**영향**:
+- ✅ 프로젝트별로 로그가 올바른 경로에 저장됨
+- ✅ `~/.claude-flow/{현재-프로젝트-이름}/logs/` 경로 사용
+- ✅ 프로젝트 전환 시에도 로그가 제대로 분리됨
+
+**추가 조치**:
+- `~/.claude-flow/workflows` 디렉토리 정리 (과거 버전의 잔여물)
+- 현재 코드는 프로젝트 디렉토리 내부(`{project}/.claude-flow/workflows/`)에 워크플로우 저장
+
+**수정 파일**:
+- `src/presentation/web/services/workflow_executor.py:418`
+
+---
+
 ### [2025-11-05] 🚀 동적 워크플로우 실행 엔진 구현 (Condition 분기 완벽 지원)
 
 **배경**:

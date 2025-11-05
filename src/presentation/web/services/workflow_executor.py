@@ -414,7 +414,8 @@ class WorkflowExecutor:
             Exception: 노드 실행 실패
         """
         # 세션별 파일 핸들러 추가
-        add_session_file_handlers(session_id, project_path)
+        # project_path가 None이면 self.project_path 사용
+        add_session_file_handlers(session_id, project_path or self.project_path)
 
         # 세션별 Condition 노드 반복 횟수 초기화
         self._condition_iterations[session_id] = {}

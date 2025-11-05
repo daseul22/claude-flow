@@ -139,10 +139,16 @@ class WorkflowConditionEvaluator:
         logger.info(f"[{session_id}] LLM 조건 평가 시작 (Haiku 모델)")
 
         # Haiku 모델로 빠른 판단
+        from pathlib import Path
+
+        # Claude CLI 경로 명시적 지정 (alias 인식 문제 해결)
+        claude_cli_path = Path.home() / ".claude" / "local" / "claude"
+
         options = ClaudeAgentOptions(
             model=WorkflowConfig.HAIKU_MODEL,
             allowed_tools=[],  # 도구 사용 안함
             permission_mode="bypassPermissions",  # 자동 실행을 위해 승인 우회
+            cli_path=str(claude_cli_path),  # 명시적 경로 지정
         )
 
         # 입력 텍스트 길이 제한
@@ -255,20 +261,19 @@ class WorkflowConditionEvaluator:
             return result, reason
 
         except Exception as e:
-            error_msg = (
-                f"LLM 조건 평가 실패: {str(e)}\n\n"
-                f"가능한 원인:\n"
-                f"1. Claude Code 버전이 낮음 (최소 2.0.0 필요)\n"
-                f"2. CLAUDE_CODE_OAUTH_TOKEN이 잘못됨\n"
-                f"3. 네트워크 연결 문제\n\n"
-                f"해결 방법:\n"
-                f"- Claude Code 업데이트: npm install -g @anthropics/claude-code\n"
-                f"- 토큰 재설정: .env 파일의 CLAUDE_CODE_OAUTH_TOKEN 확인"
+            # 실제 에러 타입과 메시지를 명확히 표시
+            error_type = type(e).__name__
+            error_msg = str(e)
+
+            logger.error(
+                f"[{session_id}] LLM 조건 평가 실패\n"
+                f"  에러 타입: {error_type}\n"
+                f"  에러 메시지: {error_msg}",
+                exc_info=True
             )
-            logger.error(f"[{session_id}] {error_msg}", exc_info=True)
-            # ❌ 이전: 에러 발생 시 자동으로 False 반환 (버그!)
-            # ✅ 수정: 에러를 상위로 전파하여 사용자가 확인할 수 있도록 함
-            raise ValueError(error_msg) from e
+
+            # Fallback: LLM 실패 시 False 반환 (워크플로우 중단 방지)
+            return False, f"⚠ LLM 평가 실패 (Fallback: False)\n\n에러: {error_type}: {error_msg}"
 
     @staticmethod
     def evaluate_condition(condition_type: str, condition_value: str, input_text: str) -> bool:
