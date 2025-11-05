@@ -20,11 +20,9 @@ import { useWorkflowStore } from '@/stores/workflowStore'
 import { FileText, Clock, Zap, CheckCircle2, AlertCircle, Info, Filter, Eye, EyeOff, Maximize2, RotateCcw } from 'lucide-react'
 import { ParsedContent } from './ParsedContent'
 import { LogDetailModal } from './LogDetailModal'
-import { useToast } from '@/hooks/use-toast'
 
 export const ExecutionLogsPanel: React.FC = () => {
   const { execution, nodes, selectedNodeId: canvasSelectedNodeId } = useWorkflowStore()
-  const { toast } = useToast()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // 필터 상태
@@ -265,11 +263,7 @@ export const ExecutionLogsPanel: React.FC = () => {
   const handleRestartFromNode = async (nodeId: string) => {
     try {
       if (!execution.sessionId) {
-        toast({
-          title: "재시작 실패",
-          description: "세션 ID를 찾을 수 없습니다",
-          variant: "destructive"
-        })
+        alert('재시작 실패: 세션 ID를 찾을 수 없습니다')
         return
       }
 
@@ -280,10 +274,7 @@ export const ExecutionLogsPanel: React.FC = () => {
         return
       }
 
-      toast({
-        title: "워크플로우 재시작",
-        description: `'${nodeName}' 노드부터 재시작 중...`
-      })
+      console.log(`워크플로우 재시작: '${nodeName}' 노드부터 재시작 중...`)
 
       // API 호출
       const response = await fetch(`/api/workflows/sessions/${execution.sessionId}/restart`, {
@@ -299,23 +290,14 @@ export const ExecutionLogsPanel: React.FC = () => {
         throw new Error(errorData.detail || '재시작 실패')
       }
 
-      // SSE 스트림 처리는 WorkflowCanvas나 상위 컴포넌트에서 처리
-      // 여기서는 성공 토스트만 표시
-      toast({
-        title: "재시작 성공",
-        description: `'${nodeName}' 노드부터 실행이 시작되었습니다`,
-      })
+      console.log(`재시작 성공: '${nodeName}' 노드부터 실행이 시작되었습니다`)
 
-      // 페이지 새로고침 또는 실행 로그 탭으로 전환
+      // 페이지 새로고침 (SSE 재연결)
       window.location.reload()
 
     } catch (error) {
       console.error('워크플로우 재시작 실패:', error)
-      toast({
-        title: "재시작 실패",
-        description: error instanceof Error ? error.message : "워크플로우 재시작에 실패했습니다",
-        variant: "destructive"
-      })
+      alert(`재시작 실패: ${error instanceof Error ? error.message : "워크플로우 재시작에 실패했습니다"}`)
     }
   }
 
