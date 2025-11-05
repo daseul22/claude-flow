@@ -260,6 +260,10 @@ WORKFLOW_CONTEXT_END
 
 ### 다음 작업자 권장
 - [Worker 이름]: [작업 설명]
+
+### 상세 보고서
+`~/.claude-flow/[프로젝트명]/reports/[YYYYMMDD_HHmmss]_[node-id]_backend_coder.txt`
+
 ---NEXT_WORKER_OUTPUT_END---
 ```
 
@@ -294,6 +298,10 @@ WORKFLOW_CONTEXT_END
 ### 다음 작업자 권장
 - API Tester: 엔드포인트 통합 테스트
 - Security Reviewer: JWT 인증 및 권한 검증
+
+### 상세 보고서
+`~/.claude-flow/[프로젝트명]/reports/[YYYYMMDD_HHmmss]_[node-id]_backend_coder.txt`
+
 ---NEXT_WORKER_OUTPUT_END---
 ```
 
@@ -326,6 +334,10 @@ WORKFLOW_CONTEXT_END
 ---NEXT_WORKER_OUTPUT_START---
 ## 백엔드 구현 요약
 [요약 내용...]
+
+### 상세 보고서
+`~/.claude-flow/[프로젝트명]/reports/[YYYYMMDD_HHmmss]_[node-id]_backend_coder.txt`
+
 ---NEXT_WORKER_OUTPUT_END---
 ```
 

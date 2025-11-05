@@ -272,6 +272,10 @@ WORKFLOW_CONTEXT_END
 ## [Agent 유형] 작업 결과
 
 [핵심 요약 내용]
+
+### 상세 보고서
+`~/.claude-flow/[프로젝트명]/reports/[YYYYMMDD_HHmmss]_[node-id]_e2e_tester.txt`
+
 ---NEXT_WORKER_OUTPUT_END---
 ```
 
@@ -303,6 +307,10 @@ WORKFLOW_CONTEXT_END
 ---NEXT_WORKER_OUTPUT_START---
 ## [요약 제목]
 [요약 내용...]
+
+### 상세 보고서
+`~/.claude-flow/[프로젝트명]/reports/[YYYYMMDD_HHmmss]_[node-id]_e2e_tester.txt`
+
 ---NEXT_WORKER_OUTPUT_END---
 ```
 

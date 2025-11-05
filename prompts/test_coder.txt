@@ -410,6 +410,10 @@ Coder의 코드를 **무조건 신뢰하지 마세요**:
 ## [Agent 유형] 작업 결과
 
 [핵심 요약 내용]
+
+### 상세 보고서
+`~/.claude-flow/[프로젝트명]/reports/[YYYYMMDD_HHmmss]_[node-id]_test_coder.txt`
+
 ---NEXT_WORKER_OUTPUT_END---
 ```
 
@@ -441,6 +445,10 @@ Coder의 코드를 **무조건 신뢰하지 마세요**:
 ---NEXT_WORKER_OUTPUT_START---
 ## [요약 제목]
 [요약 내용...]
+
+### 상세 보고서
+`~/.claude-flow/[프로젝트명]/reports/[YYYYMMDD_HHmmss]_[node-id]_test_coder.txt`
+
 ---NEXT_WORKER_OUTPUT_END---
 ```
 

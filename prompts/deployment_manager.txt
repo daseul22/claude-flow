@@ -174,7 +174,11 @@ WORKFLOW_CONTEXT_END
 ```
 
 **중요 사항**:
-- ✅ 마커는 **반드시 정확히** `---NEXT_WORKER_OUTPUT_START---`와 `---NEXT_WORKER_OUTPUT_END---`를 사용하세요
+- ✅ 마커는 **반드시 정확히** `---NEXT_WORKER_OUTPUT_START---`와 `
+### 상세 보고서
+`~/.claude-flow/[프로젝트명]/reports/[YYYYMMDD_HHmmss]_[node-id]_deployment_manager.txt`
+
+---NEXT_WORKER_OUTPUT_END---`를 사용하세요
 - ✅ 마커는 독립된 줄에 작성하세요 (앞뒤 공백 없이)
 - ✅ 시스템이 자동으로 마커 사이의 내용만 추출하여 다음 워커에게 전달합니다
 - ✅ 전체 보고서는 파일에 저장되므로 필요 시 참고 가능합니다

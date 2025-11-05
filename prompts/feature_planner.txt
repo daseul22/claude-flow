@@ -269,6 +269,10 @@ WORKFLOW_CONTEXT_END
 ### 다음 작업자 권장
 - [Worker 이름]: [작업 설명]
 - [Worker 이름]: [작업 설명]
+
+### 상세 보고서
+`~/.claude-flow/[프로젝트명]/reports/[YYYYMMDD_HHmmss]_[node-id]_feature_planner.txt`
+
 ---NEXT_WORKER_OUTPUT_END---
 ```
 
@@ -299,6 +303,10 @@ WORKFLOW_CONTEXT_END
 ### 다음 작업자 권장
 - Database Planner: 데이터베이스 스키마 상세 설계
 - API Planner: API 엔드포인트 상세 설계
+
+### 상세 보고서
+`~/.claude-flow/[프로젝트명]/reports/[YYYYMMDD_HHmmss]_[node-id]_feature_planner.txt`
+
 ---NEXT_WORKER_OUTPUT_END---
 ```
 
@@ -331,6 +339,10 @@ WORKFLOW_CONTEXT_END
 ---NEXT_WORKER_OUTPUT_START---
 ## 기능 개발 계획 요약
 [요약 내용...]
+
+### 상세 보고서
+`~/.claude-flow/[프로젝트명]/reports/[YYYYMMDD_HHmmss]_[node-id]_feature_planner.txt`
+
 ---NEXT_WORKER_OUTPUT_END---
 ```
 

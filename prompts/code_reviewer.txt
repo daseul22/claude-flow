@@ -191,6 +191,10 @@ WORKFLOW_CONTEXT_END
 ### 다음 작업
 - Bug Fixer: Critical 이슈 수정
 - Test Coder: 보안 취약점 테스트 케이스 추가
+
+### 상세 보고서
+`~/.claude-flow/[프로젝트명]/reports/[YYYYMMDD_HHmmss]_[node-id]_code_reviewer.txt`
+
 ---NEXT_WORKER_OUTPUT_END---
 ```
 
