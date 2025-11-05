@@ -33,18 +33,45 @@ export function LogDetailModal({ isOpen, onClose, sections, title = "실행 로�
   const hasSections = sections.length > 0
   const singleSection = sections.length === 1
 
+  // 노드 필터링 상태
+  const [selectedFilterNodeId, setSelectedFilterNodeId] = useState<string>('all')
+
+  // 필터링된 섹션
+  const filteredSections = selectedFilterNodeId === 'all'
+    ? sections
+    : sections.filter(section => section.nodeId === selectedFilterNodeId)
+
+  const hasFilteredSections = filteredSections.length > 0
+  const singleFilteredSection = filteredSections.length === 1
+
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" data-modal="log-detail">
       <div className="bg-white rounded-lg w-full h-full max-w-7xl max-h-[90vh] flex flex-col shadow-2xl border border-gray-200" role="dialog" aria-modal="true">
         {/* 헤더 */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <Maximize2 className="w-5 h-5 text-blue-600" />
             <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
             {hasSections && (
               <span className="text-sm text-gray-600">
                 ({sections.length}개 노드)
               </span>
+            )}
+            {/* 노드 필터 드롭다운 (노드가 2개 이상일 때만 표시) */}
+            {sections.length > 1 && (
+              <Select value={selectedFilterNodeId} onValueChange={setSelectedFilterNodeId}>
+                <SelectTrigger className="h-8 w-[180px] text-xs">
+                  <SelectValue placeholder="노드 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">모든 노드 ({sections.length}개)</SelectItem>
+                  {sections.map((section) => (
+                    <SelectItem key={section.nodeId} value={section.nodeId}>
+                      {section.nodeName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
           <button
@@ -57,19 +84,19 @@ export function LogDetailModal({ isOpen, onClose, sections, title = "실행 로�
 
         {/* 로그 내용 */}
         <div className="flex-1 overflow-hidden">
-          {!hasSections ? (
+          {!hasFilteredSections ? (
             <div className="h-full flex items-center justify-center text-gray-500">
               로그가 없습니다
             </div>
-          ) : singleSection ? (
+          ) : singleFilteredSection ? (
             // 단일 노드: 전체 화면
             <div className="h-full bg-gray-50">
-              <LogSection section={sections[0]} />
+              <LogSection section={filteredSections[0]} />
             </div>
           ) : (
             // 다중 노드: 좌우 분할 또는 그리드
-            <div className={`h-full grid ${sections.length === 2 ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4 p-4 overflow-y-auto bg-gray-50`}>
-              {sections.map((section) => (
+            <div className={`h-full grid ${filteredSections.length === 2 ? 'grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'} gap-4 p-4 overflow-y-auto bg-gray-50`}>
+              {filteredSections.map((section) => (
                 <div key={section.nodeId} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
                   <LogSection section={section} />
                 </div>

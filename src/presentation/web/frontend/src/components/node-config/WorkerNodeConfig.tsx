@@ -22,12 +22,19 @@ interface WorkerNodeConfigProps {
   node: WorkflowNode
 }
 
+interface OutputExtractionConfig {
+  strategy: 'full' | 'last_block' | 'between_markers'
+  start_marker?: string
+  end_marker?: string
+}
+
 interface WorkerNodeData {
   task_template: string
   allowed_tools?: string[]
   thinking?: boolean
   system_prompt?: string  // 커스텀 워커용 시스템 프롬프트
   parallel_execution?: boolean  // 병렬 실행 플래그
+  output_extraction?: OutputExtractionConfig  // 출력 추출 설정
   config?: {
     output_format?: string
     custom_prompt?: string
@@ -66,6 +73,11 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
     thinking: node.data.thinking,
     system_prompt: node.data.system_prompt || '',  // 커스텀 워커용
     parallel_execution: node.data.parallel_execution ?? false,
+    output_extraction: node.data.output_extraction || {
+      strategy: 'full',
+      start_marker: undefined,
+      end_marker: undefined,
+    },
     config: {
       output_format: node.data.config?.output_format || 'plain_text',
       custom_prompt: node.data.config?.custom_prompt || '',
@@ -340,6 +352,81 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
                 <span className="text-sm font-medium">⚙️ 고급 설정</span>
               </AccordionTrigger>
               <AccordionContent className="px-3 pb-3 space-y-3">
+                {/* 출력 추출 전략 */}
+                <div className="space-y-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <label className="text-sm font-medium text-blue-900">📤 출력 추출 전략</label>
+                  <select
+                    className="w-full p-2 border rounded-md text-sm"
+                    value={data.output_extraction?.strategy || 'full'}
+                    onChange={(e) => setData({
+                      ...data,
+                      output_extraction: {
+                        ...data.output_extraction,
+                        strategy: e.target.value as 'full' | 'last_block' | 'between_markers',
+                        start_marker: data.output_extraction?.start_marker,
+                        end_marker: data.output_extraction?.end_marker,
+                      }
+                    })}
+                  >
+                    <option value="full">전체 텍스트 (기본)</option>
+                    <option value="last_block">마지막 블록만</option>
+                    <option value="between_markers">마커 사이 텍스트</option>
+                  </select>
+                  <FieldHint
+                    hint={
+                      data.output_extraction?.strategy === 'full'
+                        ? "모든 텍스트 블록을 다음 노드로 전달합니다"
+                        : data.output_extraction?.strategy === 'last_block'
+                        ? "마지막 텍스트 블록만 다음 노드로 전달합니다"
+                        : "지정한 마커 사이의 텍스트만 다음 노드로 전달합니다"
+                    }
+                  />
+
+                  {/* between_markers 전략 선택 시 마커 입력 필드 */}
+                  {data.output_extraction?.strategy === 'between_markers' && (
+                    <div className="space-y-2 mt-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-blue-900">시작 마커</label>
+                        <input
+                          type="text"
+                          className="w-full p-2 border rounded-md text-xs font-mono"
+                          value={data.output_extraction?.start_marker || ''}
+                          onChange={(e) => setData({
+                            ...data,
+                            output_extraction: {
+                              ...data.output_extraction!,
+                              start_marker: e.target.value
+                            }
+                          })}
+                          onKeyDown={handleInputKeyDown}
+                          placeholder="예: <!-- START -->"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-blue-900">종료 마커</label>
+                        <input
+                          type="text"
+                          className="w-full p-2 border rounded-md text-xs font-mono"
+                          value={data.output_extraction?.end_marker || ''}
+                          onChange={(e) => setData({
+                            ...data,
+                            output_extraction: {
+                              ...data.output_extraction!,
+                              end_marker: e.target.value
+                            }
+                          })}
+                          onKeyDown={handleInputKeyDown}
+                          placeholder="예: <!-- END -->"
+                        />
+                      </div>
+                      <FieldHint
+                        hint="Worker에게 출력 시 마커를 포함하도록 지시하세요"
+                        tooltip="예: '결과를 <!-- START -->와 <!-- END --> 사이에 작성해주세요'"
+                      />
+                    </div>
+                  )}
+                </div>
+
                 {/* 추가 지시사항 */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium">추가 지시사항</label>
