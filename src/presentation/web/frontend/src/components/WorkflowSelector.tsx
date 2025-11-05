@@ -325,14 +325,20 @@ export function WorkflowSelector({
                         )}
                         <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
                           <span>
-                            {new Date(workflow.last_modified).toLocaleString('ko-KR', {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
+                            {workflow.last_modified
+                              ? new Date(workflow.last_modified).toLocaleString('ko-KR', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : '날짜 없음'}
                           </span>
-                          <span>{(workflow.size / 1024).toFixed(1)} KB</span>
+                          <span>
+                            {workflow.size != null
+                              ? `${(workflow.size / 1024).toFixed(1)} KB`
+                              : '크기 없음'}
+                          </span>
                         </div>
                       </div>
                       <div className="flex items-center gap-1">

@@ -1,7 +1,7 @@
 """
-로그 및 세션 스키마
+로그, 세션 및 보고서 스키마
 
-로그 파일 및 세션 뷰어 관련 스키마를 정의합니다.
+로그 파일, 세션 및 보고서 뷰어 관련 스키마를 정의합니다.
 """
 
 from typing import List, Dict, Any
@@ -102,3 +102,52 @@ class SessionContentResponse(BaseModel):
 
     content: Dict[str, Any] = Field(..., description="세션 파일 내용 (JSON)")
     file_info: SessionFileInfo = Field(..., description="파일 정보")
+
+
+class ReportFileInfo(BaseModel):
+    """
+    보고서 파일 정보
+
+    Attributes:
+        path: 파일 상대 경로 (reports/ 기준)
+        name: 파일명
+        size: 파일 크기 (bytes)
+        modified: 수정 시간 (ISO 8601)
+        node_id: 노드 ID (파일명에서 추출)
+        extension: 파일 확장자 (md, txt, json, etc)
+    """
+
+    path: str = Field(..., description="파일 상대 경로")
+    name: str = Field(..., description="파일명")
+    size: int = Field(..., description="파일 크기 (bytes)")
+    modified: str = Field(..., description="수정 시간 (ISO 8601)")
+    node_id: str = Field(..., description="노드 ID")
+    extension: str = Field(..., description="파일 확장자")
+
+
+class ReportListResponse(BaseModel):
+    """
+    보고서 파일 목록 응답
+
+    Attributes:
+        reports: 보고서 파일 목록
+        total_count: 전체 파일 개수
+        total_size: 전체 파일 크기 (bytes)
+    """
+
+    reports: List[ReportFileInfo] = Field(..., description="보고서 파일 목록")
+    total_count: int = Field(..., description="전체 파일 개수")
+    total_size: int = Field(..., description="전체 파일 크기 (bytes)")
+
+
+class ReportContentResponse(BaseModel):
+    """
+    보고서 파일 내용 응답
+
+    Attributes:
+        content: 보고서 파일 내용
+        file_info: 파일 정보
+    """
+
+    content: str = Field(..., description="보고서 파일 내용")
+    file_info: ReportFileInfo = Field(..., description="파일 정보")

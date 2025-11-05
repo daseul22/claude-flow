@@ -91,13 +91,21 @@ async def list_workflows() -> Dict[str, Any]:
 
     for workflow_file in workflow_files:
         try:
+            # 파일 정보 가져오기
+            stat = workflow_file.stat()
+            file_size = stat.st_size
+            modified_time = datetime.fromtimestamp(stat.st_mtime).isoformat()
+
             with open(workflow_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
+                workflow_data = data.get("workflow", {})
                 workflows.append(
                     {
                         "name": workflow_file.stem,
-                        "title": data.get("name", workflow_file.stem),
-                        "node_count": len(data.get("nodes", [])),
+                        "display_name": workflow_data.get("name", workflow_file.stem),
+                        "description": workflow_data.get("description", ""),
+                        "last_modified": modified_time,
+                        "size": file_size,
                     }
                 )
         except Exception as e:

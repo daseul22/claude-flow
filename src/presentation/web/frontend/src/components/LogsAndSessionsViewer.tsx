@@ -1,12 +1,12 @@
 /**
- * 로그 및 세션 파일 뷰어
+ * 로그, 세션 및 보고서 파일 뷰어
  *
- * 프로젝트의 로그 파일과 세션 파일을 목록으로 표시하고,
+ * 프로젝트의 로그 파일, 세션 파일, 보고서 파일을 목록으로 표시하고,
  * 선택한 파일의 상세 내용을 보여줍니다.
  */
 
 import { useState, useEffect } from 'react'
-import { X, FileText, Clock, HardDrive, AlertCircle, RefreshCw } from 'lucide-react'
+import { X, FileText, Clock, HardDrive, AlertCircle, RefreshCw, FileCode } from 'lucide-react'
 import { Button } from './ui/button'
 
 interface LogFileInfo {
@@ -26,6 +26,15 @@ interface SessionFileInfo {
   status: string
 }
 
+interface ReportFileInfo {
+  path: string
+  name: string
+  size: number
+  modified: string
+  node_id: string
+  extension: string
+}
+
 interface LogsAndSessionsViewerProps {
   isOpen: boolean
   onClose: () => void
@@ -37,13 +46,16 @@ export function LogsAndSessionsViewer({
   onClose,
   projectPath
 }: LogsAndSessionsViewerProps) {
-  const [activeTab, setActiveTab] = useState<'logs' | 'sessions'>('logs')
+  const [activeTab, setActiveTab] = useState<'logs' | 'sessions' | 'reports'>('logs')
   const [logs, setLogs] = useState<LogFileInfo[]>([])
   const [sessions, setSessions] = useState<SessionFileInfo[]>([])
+  const [reports, setReports] = useState<ReportFileInfo[]>([])
   const [selectedLog, setSelectedLog] = useState<LogFileInfo | null>(null)
   const [selectedSession, setSelectedSession] = useState<SessionFileInfo | null>(null)
+  const [selectedReport, setSelectedReport] = useState<ReportFileInfo | null>(null)
   const [logContent, setLogContent] = useState<string>('')
   const [sessionContent, setSessionContent] = useState<any>(null)
+  const [reportContent, setReportContent] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -121,14 +133,53 @@ export function LogsAndSessionsViewer({
     }
   }
 
+  // 보고서 파일 목록 로드
+  const loadReports = async () => {
+    if (!projectPath) return
+
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/projects/reports/list')
+      if (!response.ok) throw new Error('보고서 목록 로드 실패')
+      const data = await response.json()
+      setReports(data.reports || [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '보고서 목록 로드 실패')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 보고서 파일 내용 로드
+  const loadReportContent = async (report: ReportFileInfo) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await fetch(
+        `/api/projects/reports/content?file_path=${encodeURIComponent(report.path)}`
+      )
+      if (!response.ok) throw new Error('보고서 내용 로드 실패')
+      const data = await response.json()
+      setReportContent(data.content || '')
+      setSelectedReport(report)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '보고서 내용 로드 실패')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // 탭 변경 시 목록 로드
   useEffect(() => {
     if (!isOpen || !projectPath) return
 
     if (activeTab === 'logs') {
       loadLogs()
-    } else {
+    } else if (activeTab === 'sessions') {
       loadSessions()
+    } else {
+      loadReports()
     }
   }, [isOpen, activeTab, projectPath])
 
@@ -159,7 +210,7 @@ export function LogsAndSessionsViewer({
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-[90vw] h-[85vh] flex flex-col">
         {/* 헤더 */}
         <div className="flex items-center justify-between p-4 border-b dark:border-gray-700">
-          <h2 className="text-xl font-semibold">로그 & 세션 뷰어</h2>
+          <h2 className="text-xl font-semibold">로그, 세션 & 보고서 뷰어</h2>
           <Button
             variant="ghost"
             size="sm"
@@ -202,11 +253,30 @@ export function LogsAndSessionsViewer({
             <Clock className="inline h-4 w-4 mr-1" />
             세션 파일
           </button>
+          <button
+            className={`px-4 py-2 font-medium ${
+              activeTab === 'reports'
+                ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'text-gray-600 dark:text-gray-400'
+            }`}
+            onClick={() => {
+              setActiveTab('reports')
+              setSelectedReport(null)
+              setReportContent('')
+            }}
+          >
+            <FileCode className="inline h-4 w-4 mr-1" />
+            보고서 파일
+          </button>
           <div className="ml-auto px-4 py-2">
             <Button
               variant="outline"
               size="sm"
-              onClick={() => activeTab === 'logs' ? loadLogs() : loadSessions()}
+              onClick={() =>
+                activeTab === 'logs' ? loadLogs() :
+                activeTab === 'sessions' ? loadSessions() :
+                loadReports()
+              }
               disabled={loading}
             >
               <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
@@ -269,7 +339,7 @@ export function LogsAndSessionsViewer({
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : activeTab === 'sessions' ? (
               <div className="p-2">
                 {sessions.length === 0 && !loading && (
                   <p className="text-center text-gray-500 py-8">세션 파일이 없습니다</p>
@@ -308,6 +378,46 @@ export function LogsAndSessionsViewer({
                   </div>
                 ))}
               </div>
+            ) : (
+              <div className="p-2">
+                {reports.length === 0 && !loading && (
+                  <p className="text-center text-gray-500 py-8">보고서 파일이 없습니다</p>
+                )}
+                {reports.map((report) => (
+                  <div
+                    key={report.path}
+                    className={`p-3 mb-2 rounded cursor-pointer transition-colors ${
+                      selectedReport?.path === report.path
+                        ? 'bg-blue-100 dark:bg-blue-900/30 border-2 border-blue-500'
+                        : 'bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 border-2 border-transparent'
+                    }`}
+                    onClick={() => loadReportContent(report)}
+                  >
+                    <div className="font-medium text-sm">{report.name}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {report.path}
+                    </div>
+                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-600 dark:text-gray-400">
+                      <span className="flex items-center gap-1">
+                        <HardDrive className="h-3 w-3" />
+                        {formatSize(report.size)}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {formatDate(report.modified)}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                        {report.node_id}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-400">
+                        .{report.extension}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
@@ -338,6 +448,20 @@ export function LogsAndSessionsViewer({
                 <div className="flex-1 overflow-auto p-4">
                   <pre className="text-xs font-mono whitespace-pre-wrap bg-gray-900 text-gray-100 p-4 rounded">
                     {JSON.stringify(sessionContent, null, 2)}
+                  </pre>
+                </div>
+              </>
+            ) : activeTab === 'reports' && selectedReport ? (
+              <>
+                <div className="p-3 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                  <div className="text-sm font-medium">{selectedReport.name}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {selectedReport.path} • {formatSize(selectedReport.size)} • 노드: {selectedReport.node_id}
+                  </div>
+                </div>
+                <div className="flex-1 overflow-auto p-4">
+                  <pre className="text-xs font-mono whitespace-pre-wrap bg-gray-900 text-gray-100 p-4 rounded">
+                    {reportContent || '보고서 내용이 없습니다.'}
                   </pre>
                 </div>
               </>

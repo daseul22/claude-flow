@@ -65,7 +65,7 @@ from .display_schemas import (
     DisplayConfigSaveRequest,
 )
 
-# 로그 및 세션
+# 로그, 세션 및 보고서
 from .log_session_schemas import (
     LogFileInfo,
     SessionFileInfo,
@@ -73,6 +73,9 @@ from .log_session_schemas import (
     SessionListResponse,
     LogContentResponse,
     SessionContentResponse,
+    ReportFileInfo,
+    ReportListResponse,
+    ReportContentResponse,
 )
 
 __all__ = [
@@ -107,11 +110,14 @@ __all__ = [
     "DisplayConfig",
     "DisplayConfigLoadResponse",
     "DisplayConfigSaveRequest",
-    # 로그/세션
+    # 로그/세션/보고서
     "LogFileInfo",
     "SessionFileInfo",
     "LogListResponse",
     "SessionListResponse",
     "LogContentResponse",
     "SessionContentResponse",
+    "ReportFileInfo",
+    "ReportListResponse",
+    "ReportContentResponse",
 ]

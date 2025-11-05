@@ -120,38 +120,32 @@ export function HeaderBar({
   onClearLogs,
 }: HeaderBarProps) {
   return (
-    <header className="border-b bg-white px-6 py-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold text-primary">Claude Flow</h1>
+    <header className="border-b bg-white px-6 py-3">
+      <div className="flex items-center justify-between gap-6">
+        {/* 왼쪽 영역 */}
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          {/* 로고 */}
+          <h1 className="text-2xl font-bold text-primary whitespace-nowrap">Claude Flow</h1>
 
           {/* 워크플로우 선택 */}
           {currentProjectPath && (
-            <WorkflowSelector
-              currentProjectPath={currentProjectPath}
-              currentWorkflow={currentWorkflow}
-              currentWorkflowName={currentWorkflowFileName}
-              onWorkflowChange={onWorkflowChange}
-              onWorkflowNameChange={onWorkflowNameChange}
-            />
+            <div className="flex-shrink-0">
+              <WorkflowSelector
+                currentProjectPath={currentProjectPath}
+                currentWorkflow={currentWorkflow}
+                currentWorkflowName={currentWorkflowFileName}
+                onWorkflowChange={onWorkflowChange}
+                onWorkflowNameChange={onWorkflowNameChange}
+              />
+            </div>
           )}
-
-          {/* 워크플로우 이름 입력 */}
-          <input
-            type="text"
-            value={workflowName}
-            onChange={(e) => onWorkflowNameChange(e.target.value)}
-            className="text-lg font-medium border-b border-transparent hover:border-gray-300 focus:border-primary outline-none px-2"
-            placeholder="워크플로우 이름"
-            aria-label="워크플로우 이름 입력"
-          />
 
           {/* 프로젝트 경로 표시 */}
           {currentProjectPath && (
-            <div className="text-sm text-muted-foreground flex items-center gap-2">
-              <Folder className="h-4 w-4" aria-hidden="true" />
+            <div className="text-sm text-muted-foreground flex items-center gap-1.5 flex-shrink-0">
+              <Folder className="h-3.5 w-3.5" aria-hidden="true" />
               <span
-                className="max-w-[200px] truncate"
+                className="max-w-[280px] truncate"
                 title={currentProjectPath}
                 aria-label={`현재 프로젝트: ${currentProjectPath}`}
               >
@@ -161,9 +155,9 @@ export function HeaderBar({
           )}
 
           {/* 저장 상태 표시 */}
-          {currentProjectPath && (
+          {currentProjectPath && saveStatus !== 'idle' && (
             <div
-              className="text-xs text-muted-foreground flex items-center gap-1"
+              className="text-xs text-muted-foreground flex items-center gap-1.5 flex-shrink-0"
               role="status"
               aria-live="polite"
             >
@@ -173,7 +167,7 @@ export function HeaderBar({
                     className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"
                     aria-hidden="true"
                   />
-                  <span>자동 저장 대기 중...</span>
+                  <span>저장 대기</span>
                 </>
               )}
               {saveStatus === 'saving' && (
@@ -182,7 +176,7 @@ export function HeaderBar({
                     className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"
                     aria-hidden="true"
                   />
-                  <span>저장 중...</span>
+                  <span>저장 중</span>
                 </>
               )}
               {saveStatus === 'saved' && (
@@ -199,10 +193,11 @@ export function HeaderBar({
         </div>
 
         {/* 오른쪽 버튼 그룹 */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-shrink-0">
           <Button
             onClick={onManualSave}
             variant="outline"
+            size="sm"
             disabled={!currentProjectPath || nodeCount === 0 || isExecuting}
             title={
               isExecuting
@@ -211,26 +206,28 @@ export function HeaderBar({
             }
             aria-label="워크플로우 수동 저장"
           >
-            <Save className="mr-2 h-4 w-4" />
+            <Save className="mr-1.5 h-4 w-4" />
             저장
           </Button>
 
           <Button
             onClick={onOpenTemplateGallery}
             variant="outline"
+            size="sm"
             aria-label="템플릿 갤러리 열기"
           >
-            <BookTemplate className="mr-2 h-4 w-4" />
+            <BookTemplate className="mr-1.5 h-4 w-4" />
             템플릿
           </Button>
 
           <Button
             onClick={onOpenProjectDialog}
             variant="outline"
+            size="sm"
             aria-label="프로젝트 선택 다이얼로그 열기"
           >
-            <Folder className="mr-2 h-4 w-4" />
-            프로젝트 선택
+            <Folder className="mr-1.5 h-4 w-4" />
+            프로젝트
           </Button>
 
           {/* 프로젝트 관리 메뉴 */}
