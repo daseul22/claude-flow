@@ -81,14 +81,40 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Claude Flow", version="4.0.0", lifespan=lifespan)
 
-origins = os.getenv("WEB_ALLOWED_ORIGINS", "*").split(",")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS 설정 (보안: allow_credentials=True일 때 allow_origins에 "*" 사용 금지)
+# BUG-001 FIX: CORS 설정 취약점 (Critical)
+origins_str = os.getenv("WEB_ALLOWED_ORIGINS", "http://localhost:5173")
+origins = [origin.strip() for origin in origins_str.split(",")]
+
+# 검증: "*"와 다른 오리진의 혼합 사용 방지
+if "*" in origins and len(origins) > 1:
+    logger.warning(
+        "⚠️  CORS: 와일드카드(*)와 다른 오리진을 함께 사용할 수 없습니다. "
+        "와일드카드만 사용합니다."
+    )
+    origins = ["*"]
+
+# 검증: "*"와 allow_credentials=True 동시 사용 방지
+if "*" in origins:
+    logger.warning(
+        "⚠️  CORS: 와일드카드(*)와 allow_credentials=True를 함께 사용하면 보안 위험이 있습니다. "
+        "allow_credentials=False로 설정합니다."
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=False,  # 보안: 와일드카드 사용 시 False
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,  # 특정 오리진만 지정할 때 True 가능
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 app.include_router(health_router)
 app.include_router(agents_router)

@@ -89,6 +89,44 @@ def is_hidden_or_ignored(name: str) -> bool:
     return False
 
 
+def is_safe_path(base_path: Path, requested_path: Path) -> bool:
+    """
+    경로 탐색 공격 방지 (Path Traversal)
+
+    BUG-002 FIX: High priority security fix
+
+    요청 경로가 기본 경로(홈 디렉토리) 하위인지 확인합니다.
+    ../../../../../etc 같은 공격으로부터 보호합니다.
+
+    Args:
+        base_path: 허용된 기본 경로 (예: 홈 디렉토리)
+        requested_path: 사용자가 요청한 경로
+
+    Returns:
+        bool: 안전한 경로 여부
+    """
+    try:
+        # 경로 정규화 (심볼릭 링크 해석)
+        resolved_base = base_path.resolve()
+        resolved_requested = requested_path.resolve()
+
+        # 요청 경로가 기본 경로 하위인지 확인
+        # Python 3.9+: is_relative_to 사용
+        try:
+            # is_relative_to()는 boolean을 반환 (예외를 발생시키지 않음)
+            return resolved_requested.is_relative_to(resolved_base)
+        except AttributeError:
+            # Python 3.8 이하 호환성
+            try:
+                resolved_requested.relative_to(resolved_base)
+                return True
+            except ValueError:
+                return False
+    except (ValueError, RuntimeError):
+        logger.warning(f"경로 검증 실패: {requested_path}")
+        return False
+
+
 @router.get("/home")
 async def get_home_directory() -> dict[str, str]:
     """
@@ -144,6 +182,12 @@ async def browse_directory(
         target_path = Path.home()
     else:
         target_path = Path(path).resolve()
+
+        # BUG-002 FIX: Path Traversal 방어
+        # 사용자가 홈 디렉토리 밖의 경로에 접근하려는 시도를 차단
+        if not is_safe_path(Path.home(), target_path):
+            logger.warning(f"Path Traversal 시도 감지: {target_path}")
+            raise HTTPException(status_code=403, detail="접근 권한이 없는 경로입니다")
 
     # 경로 존재 확인
     if not target_path.exists():

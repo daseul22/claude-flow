@@ -503,9 +503,58 @@ npm run build
 
 ---
 
+## 보안 수정 이력
+
+### [2025-11-05] Critical 보안 취약점 2개 수정
+
+#### BUG-002: Path Traversal (CWE-22)
+
+**수정 파일**: `src/presentation/web/routers/filesystem.py`
+
+**문제**: `is_safe_path()` 함수가 정의되어 있으나 `browse_directory()`에서 호출되지 않음
+
+**해결**:
+```python
+# Before
+@router.get("/browse")
+async def browse_directory(path: Optional[str] = None):
+    target_path = Path(path).resolve()  # 검증 없음
+    # ...
+
+# After
+@router.get("/browse")
+async def browse_directory(path: Optional[str] = None):
+    target_path = Path(path).resolve()
+    if not is_safe_path(Path.home(), target_path):  # 검증 추가
+        raise HTTPException(403, "접근 권한이 없는 경로입니다")
+```
+
+#### BUG-003: Remote Code Execution (CWE-94)
+
+**수정 파일**: `src/presentation/web/services/workflow_condition_evaluator.py`
+
+**문제**: Condition 노드의 "custom" 타입에서 `eval()` 직접 사용
+
+**해결**:
+- `eval()` 제거
+- AST 기반 화이트리스트 파싱 구현 (`_is_safe_ast_node()`)
+- 허용 함수: `len`, `str`, `int`, `float`, `bool`, `abs`, `min`, `max`, `sum`, `round`, `pow`
+- 차단: 속성 접근, 메서드 호출, 위험한 함수 호출
+
+**마이그레이션**: 자세한 내용은 [SECURITY.md](SECURITY.md#bug-003-remote-code-execution-rce-via-eval-cwe-94)를 참조
+
+**테스트 결과**: ✅ 11/11 통과
+- Path Traversal 방어: 4/4 통과
+- RCE 방지: 7/7 통과
+
+자세한 내용은 [SECURITY.md](SECURITY.md)와 [CHANGELOG.md](CHANGELOG.md)를 참조하세요.
+
+---
+
 ## 향후 개선 사항
 
 - **Application Layer**: 비즈니스 로직을 Presentation에서 분리하여 Application Layer로 이동
 - **테스트**: 단위 테스트 및 통합 테스트 추가 (pytest)
 - **타입 힌팅**: 점진적으로 `disallow_untyped_defs: true`로 전환
 - **문서화**: `docs/` 디렉토리에 API 문서 및 사용자 가이드 추가
+- **보안**: AST 화이트리스트를 설정 파일로 분리하여 확장 가능하도록 개선
