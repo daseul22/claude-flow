@@ -365,6 +365,9 @@ class WorkflowSessionStore:
         lock = self._get_lock(session.session_id)
         async with lock:
             try:
+                # 디렉토리 확인 및 생성
+                session_path.parent.mkdir(parents=True, exist_ok=True)
+
                 # JSON 직렬화
                 data = session.to_dict()
                 json_str = json.dumps(data, ensure_ascii=False, indent=2)
@@ -373,10 +376,10 @@ class WorkflowSessionStore:
                 async with aiofiles.open(session_path, "w", encoding="utf-8") as f:
                     await f.write(json_str)
 
-                logger.debug(f"세션 저장 완료: {session.session_id}")
+                logger.info(f"세션 저장 완료: {session.session_id} → {session_path}")
 
             except Exception as e:
-                logger.error(f"세션 저장 실패: {session.session_id} - {e}", exc_info=True)
+                logger.error(f"세션 저장 실패: {session.session_id} → {session_path} - {e}", exc_info=True)
 
 
 # 싱글톤 인스턴스 캐시 (프로젝트 경로별로 별도 인스턴스)

@@ -304,15 +304,16 @@ def get_project_name() -> str:
     return Path.cwd().name
 
 
-def get_data_dir(subdir: Optional[str] = None) -> Path:
+def get_data_dir(subdir: Optional[str] = None, project_path: Optional[str] = None) -> Path:
     """
-    데이터 디렉토리 경로 반환 (~/.better-llm/{project-name}/)
+    데이터 디렉토리 경로 반환 (~/.claude-flow/{project-name}/)
 
     프로젝트별 세션, 로그 등을 저장하는 디렉토리를 반환합니다.
     디렉토리가 없으면 자동으로 생성합니다.
 
     Args:
         subdir: 하위 디렉토리 이름 (예: "sessions", "logs")
+        project_path: 프로젝트 디렉토리 경로 (None이면 자동 감지 시도)
 
     Returns:
         데이터 디렉토리 경로 (절대 경로)
@@ -322,22 +323,29 @@ def get_data_dir(subdir: Optional[str] = None) -> Path:
 
     Example:
         >>> get_data_dir()
-        Path('/Users/daniel/.better-llm/better-llm')
-        >>> get_data_dir("sessions")
-        Path('/Users/daniel/.better-llm/better-llm/sessions')
+        Path('/Users/daniel/.claude-flow/claude-flow')
+        >>> get_data_dir("sessions", "/path/to/my-project")
+        Path('/Users/daniel/.claude-flow/my-project/sessions')
 
     Notes:
-        - 프로젝트 이름은 get_project_name()으로 자동 감지됩니다.
+        - project_path가 제공되면 해당 프로젝트 이름 사용
+        - project_path가 None이면 get_project_name()으로 자동 감지
         - 디렉토리가 없으면 자동으로 생성됩니다 (parents=True, exist_ok=True).
         - 멀티 프로젝트 환경에서도 각 프로젝트의 데이터가 격리됩니다.
     """
     home_dir = Path.home()
-    project_name = get_project_name()
+
+    if project_path:
+        # 명시적으로 전달된 프로젝트 경로 사용
+        project_name = Path(project_path).name
+    else:
+        # 자동 감지 시도
+        project_name = get_project_name()
 
     if subdir:
-        data_path = home_dir / ".better-llm" / project_name / subdir
+        data_path = home_dir / ".claude-flow" / project_name / subdir
     else:
-        data_path = home_dir / ".better-llm" / project_name
+        data_path = home_dir / ".claude-flow" / project_name
 
     # 디렉토리 생성 (없으면)
     try:

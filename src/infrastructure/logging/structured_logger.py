@@ -18,19 +18,25 @@ from structlog.stdlib import add_log_level
 JSONSerializable = Union[str, int, float, bool, None, dict, list]
 
 
-def _get_default_log_dir() -> str:
+def _get_default_log_dir(project_path: Optional[str] = None) -> str:
     """
     기본 로그 디렉토리 경로 반환 (~/.claude-flow/{project-name}/logs)
+
+    Args:
+        project_path: 프로젝트 디렉토리 경로 (None이면 자동 감지)
 
     Returns:
         로그 디렉토리 경로 (문자열)
     """
     try:
         from ..config import get_data_dir
-        return str(get_data_dir("logs"))
-    except Exception:
+        return str(get_data_dir("logs", project_path))
+    except Exception as e:
         # import 실패 시 폴백
-        return "logs"
+        from pathlib import Path
+        fallback_path = Path.home() / ".claude-flow" / "logs"
+        fallback_path.mkdir(parents=True, exist_ok=True)
+        return str(fallback_path)
 
 
 def configure_structlog(

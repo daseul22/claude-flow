@@ -200,34 +200,53 @@ class WorkflowConditionEvaluator:
                 logger.warning(f"[{session_id}] LLM 응답이 비어있습니다")
                 return False, "LLM 응답이 비어있습니다"
 
-            # 응답 파싱
+            # 응답 파싱 (한글/영어 모두 지원)
             lines = response_text.strip().split("\n")
-            result = False
+            result = None  # 파싱 성공 여부 추적 (None = 파싱 실패)
             reason = ""
             reason_start_index = -1  # "이유:" 줄의 인덱스
 
             for i, line in enumerate(lines):
                 line_stripped = line.strip()
-                if line_stripped.startswith("판단:"):
-                    decision = line_stripped.replace("판단:", "").strip().upper()
-                    result = decision in ["YES", "Y", "TRUE", "예", "네"]
-                    logger.debug(f"[{session_id}] 판단 파싱: '{decision}' → {result}")
-                elif line_stripped.startswith("이유:") and reason_start_index == -1:
-                    # "이유:" 줄의 인덱스 저장 (첫 번째만)
+                line_lower = line_stripped.lower()
+
+                # "판단:" 또는 "Decision:" 파싱 (한글/영어 모두 지원)
+                if line_stripped.startswith("판단:") or line_lower.startswith("decision:"):
+                    # "판단:" 또는 "decision:" 제거
+                    decision = line_stripped.replace("판단:", "", 1).replace("Decision:", "", 1).replace("decision:", "", 1).strip().upper()
+
+                    # YES 판단
+                    result = decision in ["YES", "Y", "TRUE", "예", "네", "T"]
+                    logger.info(f"[{session_id}] 판단 파싱 성공: '{decision}' → {result}")
+
+                elif (line_stripped.startswith("이유:") or line_lower.startswith("reason:")) and reason_start_index == -1:
+                    # "이유:" 또는 "reason:" 줄의 인덱스 저장 (첫 번째만)
                     reason_start_index = i
 
             # "이유:" 이후의 모든 텍스트를 reason으로 추출
             if reason_start_index >= 0:
                 reason_lines = lines[reason_start_index:]
-                # 첫 줄에서 "이유:" 제거
-                reason_lines[0] = reason_lines[0].replace("이유:", "").strip()
+                # 첫 줄에서 "이유:" 또는 "reason:" 제거
+                first_line = reason_lines[0].replace("이유:", "", 1).replace("Reason:", "", 1).replace("reason:", "", 1).strip()
+                reason_lines[0] = first_line
                 reason = "\n".join(reason_lines).strip()
                 logger.debug(f"[{session_id}] 이유 파싱 완료: {len(reason)} 문자 (여러 줄 지원)")
 
-            # 파싱 실패 시 전체 응답 사용
+            # 파싱 실패 처리
+            if result is None:
+                # "판단:" 형식을 찾지 못한 경우 - 전체 응답 출력 후 False 반환
+                logger.error(
+                    f"[{session_id}] LLM 응답 파싱 실패! "
+                    f"'판단:' 또는 'Decision:' 형식을 찾을 수 없습니다.\n"
+                    f"전체 응답:\n{response_text}"
+                )
+                result = False
+                reason = f"파싱 실패 (응답 형식 오류)\n\n전체 응답:\n{response_text[:500]}"
+
+            # 이유가 없으면 전체 응답 사용
             if not reason:
                 reason = response_text[: WorkflowConfig.CONDITION_OUTPUT_LIMIT]
-                logger.warning(f"[{session_id}] 응답 파싱 실패, 전체 응답 사용")
+                logger.warning(f"[{session_id}] 이유 파싱 실패, 전체 응답 사용")
 
             logger.info(
                 f"[{session_id}] LLM 조건 평가 완료: {result} (이유: {reason[:100]})"
