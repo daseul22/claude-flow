@@ -239,6 +239,106 @@ class WorkflowExecutor:
         parent_nodes = graph_manager.get_parent_nodes(node_id)
         return all(parent_id in executed_nodes for parent_id in parent_nodes)
 
+    async def _execute_nodes_in_parallel(
+        self,
+        node_ids: List[str],
+        node_map: Dict[str, Any],
+        node_outputs: Dict[str, str],
+        node_inputs: Dict[str, str],
+        initial_input: str,
+        session_id: str,
+        edges: List[WorkflowEdge],
+        all_nodes: List[Any],
+        project_path: Optional[str],
+    ) -> AsyncIterator[WorkflowNodeExecutionEvent]:
+        """
+        여러 노드를 병렬로 실행하고 이벤트를 스트리밍
+
+        Args:
+            node_ids: 병렬 실행할 노드 ID 목록
+            node_map: 노드 ID -> 노드 객체 매핑
+            node_outputs: 노드 출력 저장소
+            node_inputs: 노드 입력 저장소
+            initial_input: 초기 입력
+            session_id: 세션 ID
+            edges: 워크플로우 엣지 목록
+            all_nodes: 모든 노드 목록
+            project_path: 프로젝트 경로
+
+        Yields:
+            WorkflowNodeExecutionEvent: 각 노드의 실행 이벤트
+        """
+        event_queue = asyncio.Queue()
+        completed_nodes = set()
+
+        async def execute_node_task(node_id: str):
+            """단일 노드 실행 태스크"""
+            try:
+                node = node_map.get(node_id)
+                if not node:
+                    logger.error(f"[{session_id}] 병렬 실행: 노드를 찾을 수 없음: {node_id}")
+                    return
+
+                async for event in self.node_executor.execute_single_node(
+                    node=node,
+                    node_outputs=node_outputs,
+                    node_inputs=node_inputs,
+                    initial_input=initial_input,
+                    session_id=session_id,
+                    edges=edges,
+                    all_nodes=all_nodes,
+                    condition_evaluator=self.condition_evaluator,
+                    template_renderer=self.template_renderer,
+                    project_path=project_path,
+                ):
+                    await event_queue.put(event)
+
+                completed_nodes.add(node_id)
+                logger.info(f"[{session_id}] ✓ 병렬 노드 완료: {node_id}")
+
+            except Exception as e:
+                logger.error(
+                    f"[{session_id}] ✗ 병렬 노드 실행 실패: {node_id} - {e}",
+                    exc_info=True,
+                )
+                # 에러 이벤트 전송
+                error_event = WorkflowNodeExecutionEvent(
+                    event_type="node_error",
+                    node_id=node_id,
+                    data={"error": str(e)},
+                    timestamp=datetime.now().isoformat(),
+                )
+                await event_queue.put(error_event)
+                completed_nodes.add(node_id)  # 에러여도 완료로 표시
+
+        # 모든 노드 병렬 실행
+        logger.info(f"[{session_id}] 🔀 병렬 실행 시작: {node_ids} ({len(node_ids)}개 노드)")
+        tasks = [asyncio.create_task(execute_node_task(nid)) for nid in node_ids]
+
+        # 이벤트 스트리밍 (모든 노드가 완료될 때까지)
+        while len(completed_nodes) < len(node_ids):
+            try:
+                # 0.1초 타임아웃으로 이벤트 대기
+                event = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                yield event
+            except asyncio.TimeoutError:
+                # 취소 확인
+                self._check_cancellation(session_id)
+                continue
+
+        # 남은 이벤트 모두 처리
+        while not event_queue.empty():
+            event = await event_queue.get()
+            yield event
+
+        # 모든 태스크 완료 대기 (예외 발생 시 전파)
+        await asyncio.gather(*tasks)
+
+        logger.info(
+            f"[{session_id}] ✅ 병렬 실행 완료: {node_ids} "
+            f"({len(completed_nodes)}/{len(node_ids)} 성공)"
+        )
+
     async def execute_single_node_continue(
         self,
         node_id: str,
@@ -464,15 +564,114 @@ class WorkflowExecutor:
                                 logger.info(f"[{session_id}] 다음 노드 (단일): {child_id}")
 
                         else:
-                            # 여러 자식: 첫 번째만 실행 (병렬 실행은 나중에 구현)
-                            first_child = children[0]
-                            parent_output = node_outputs.get(current_node_id, "")
-                            node_inputs[first_child] = parent_output
-                            current_node_id = first_child
-                            logger.warning(
-                                f"[{session_id}] 여러 자식 노드 발견, 첫 번째만 실행: "
-                                f"{first_child} (전체: {children})"
+                            # 여러 자식: 병렬 실행
+                            logger.info(
+                                f"[{session_id}] 여러 자식 노드 발견, 병렬 실행: {children}"
                             )
+
+                            # 모든 자식에 부모 출력 전달
+                            parent_output = node_outputs.get(current_node_id, "")
+                            for child_id in children:
+                                node_inputs[child_id] = parent_output
+
+                            # 병렬 실행
+                            async for event in self._execute_nodes_in_parallel(
+                                node_ids=children,
+                                node_map=node_map,
+                                node_outputs=node_outputs,
+                                node_inputs=node_inputs,
+                                initial_input=initial_input,
+                                session_id=session_id,
+                                edges=workflow.edges,
+                                all_nodes=workflow.nodes,
+                                project_path=project_path,
+                            ):
+                                yield event
+
+                            # 모든 자식 완료 표시
+                            executed_nodes.update(children)
+
+                            # 다음 노드 결정: 자식들의 자식 노드들 수집
+                            next_candidates = set()
+                            for child_id in children:
+                                child_children = graph_manager.get_child_nodes(child_id)
+                                next_candidates.update(child_children)
+
+                            if not next_candidates:
+                                # 더 이상 진행할 노드 없음
+                                current_node_id = None
+                                logger.info(
+                                    f"[{session_id}] 병렬 실행 후 자식 노드 없음, 종료 대기"
+                                )
+                            else:
+                                # Merge 노드와 일반 노드 분류
+                                merge_nodes = [
+                                    nid
+                                    for nid in next_candidates
+                                    if node_map.get(nid) and node_map.get(nid).type == "merge"
+                                ]
+                                regular_nodes = [
+                                    nid for nid in next_candidates if nid not in merge_nodes
+                                ]
+
+                                if merge_nodes:
+                                    # Merge 노드가 있으면 실행 가능 여부 확인
+                                    merge_ready = False
+                                    for merge_id in merge_nodes:
+                                        if self._can_execute_merge_node(
+                                            merge_id, executed_nodes, graph_manager
+                                        ):
+                                            # Merge 노드 실행 가능
+                                            # Merge 노드는 여러 부모의 출력을 병합하므로
+                                            # node_inputs 설정하지 않음
+                                            current_node_id = merge_id
+                                            merge_ready = True
+                                            logger.info(
+                                                f"[{session_id}] 병렬 실행 후 Merge 노드 "
+                                                f"준비 완료: {merge_id}"
+                                            )
+                                            break
+                                        else:
+                                            # 아직 미완료 부모가 있으면 대기
+                                            pending_merge_nodes.add(merge_id)
+                                            logger.info(
+                                                f"[{session_id}] 병렬 실행 후 Merge 노드 "
+                                                f"대기 등록: {merge_id}"
+                                            )
+
+                                    if not merge_ready:
+                                        # Merge 노드가 준비되지 않았으면 일반 노드로 진행
+                                        if regular_nodes:
+                                            next_node = regular_nodes[0]
+                                            # 병렬 실행된 자식 중 하나의 출력을 전달
+                                            # (일반적으로 병렬 후 Merge로 가야 하지만,
+                                            # 예외적인 경우 처리)
+                                            current_node_id = next_node
+                                            logger.info(
+                                                f"[{session_id}] 병렬 실행 후 일반 노드로 "
+                                                f"진행: {next_node}"
+                                            )
+                                        else:
+                                            current_node_id = None
+
+                                elif regular_nodes:
+                                    # Merge 노드 없이 일반 노드만 있으면 첫 번째 선택
+                                    next_node = regular_nodes[0]
+                                    # 병렬 실행된 자식 중 하나의 출력을 전달
+                                    # (병렬 후 단일 노드로 진행하는 것은 비정상적이지만 처리)
+                                    current_node_id = next_node
+                                    if len(regular_nodes) > 1:
+                                        logger.warning(
+                                            f"[{session_id}] 병렬 실행 후 여러 일반 노드 발견, "
+                                            f"첫 번째 선택: {next_node} (전체: {regular_nodes})"
+                                        )
+                                    else:
+                                        logger.info(
+                                            f"[{session_id}] 병렬 실행 후 단일 노드로 "
+                                            f"진행: {next_node}"
+                                        )
+                                else:
+                                    current_node_id = None
 
                 # === Pending Merge 노드 확인 ===
                 if not current_node_id and pending_merge_nodes:
