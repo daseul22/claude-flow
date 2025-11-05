@@ -371,6 +371,166 @@ class BackgroundWorkflowManager:
 
         return removed_count
 
+    async def restart_workflow_from_node(
+        self,
+        original_session_id: str,
+        restart_node_id: str,
+        new_session_id: str,
+    ) -> None:
+        """
+        특정 노드부터 워크플로우 재시작
+
+        이전 실행의 상태(node_outputs, node_inputs)를 복원하여
+        지정된 노드부터 워크플로우를 다시 실행합니다.
+
+        Args:
+            original_session_id: 원본 세션 ID (이전 실행)
+            restart_node_id: 재시작할 노드 ID
+            new_session_id: 새 세션 ID (재시작 실행)
+
+        Raises:
+            ValueError: 원본 세션을 찾을 수 없는 경우
+        """
+        # 원본 세션 조회
+        original_session = await self.session_store.get_session(original_session_id)
+        if not original_session:
+            raise ValueError(f"원본 세션을 찾을 수 없습니다: {original_session_id}")
+
+        logger.info(
+            f"[{new_session_id}] 워크플로우 재시작 요청 - "
+            f"원본: {original_session_id}, 재시작 노드: {restart_node_id}"
+        )
+
+        # 재시작 노드 확인
+        restart_node = next(
+            (n for n in original_session.workflow.nodes if n.id == restart_node_id), None
+        )
+        if not restart_node:
+            raise ValueError(
+                f"재시작 노드를 찾을 수 없습니다: {restart_node_id} "
+                f"(워크플로우: {original_session.workflow.name})"
+            )
+
+        # 재시작 노드 이전에 실행된 노드들 수집
+        all_node_ids = {n.id for n in original_session.workflow.nodes}
+        executed_before_restart = set()
+
+        # node_outputs에 저장된 노드들 = 이미 실행 완료된 노드들
+        for node_id in original_session.node_outputs.keys():
+            if node_id in all_node_ids and node_id != restart_node_id:
+                executed_before_restart.add(node_id)
+
+        logger.info(
+            f"[{new_session_id}] 이전 실행 상태 복원 - "
+            f"실행 완료 노드: {len(executed_before_restart)}개, "
+            f"노드 출력: {len(original_session.node_outputs)}개, "
+            f"노드 입력: {len(original_session.node_inputs)}개"
+        )
+
+        # 백그라운드 Task 생성 (restore 파라미터 전달)
+        task = asyncio.create_task(
+            self._run_workflow_with_restore(
+                session_id=new_session_id,
+                workflow=original_session.workflow,
+                initial_input=original_session.initial_input,
+                project_path=original_session.project_path,
+                start_node_id=restart_node_id,
+                restore_node_outputs=original_session.node_outputs,
+                restore_node_inputs=original_session.node_inputs,
+                restore_executed_nodes=executed_before_restart,
+            )
+        )
+
+        # Task 등록
+        self.tasks[new_session_id] = BackgroundWorkflowTask(
+            session_id=new_session_id,
+            task=task,
+        )
+
+    async def _run_workflow_with_restore(
+        self,
+        session_id: str,
+        workflow: Workflow,
+        initial_input: str,
+        project_path: Optional[str] = None,
+        start_node_id: Optional[str] = None,
+        restore_node_outputs: Optional[Dict[str, str]] = None,
+        restore_node_inputs: Optional[Dict[str, str]] = None,
+        restore_executed_nodes: Optional[set] = None,
+    ) -> None:
+        """
+        워크플로우 실행 (복원 파라미터 포함)
+
+        Args:
+            session_id: 세션 ID
+            workflow: 실행할 워크플로우
+            initial_input: 초기 입력
+            project_path: 프로젝트 디렉토리 경로
+            start_node_id: 시작 노드 ID
+            restore_node_outputs: 복원할 노드 출력
+            restore_node_inputs: 복원할 노드 입력
+            restore_executed_nodes: 복원할 실행 완료 노드 목록
+        """
+        bg_task = self.tasks[session_id]
+
+        try:
+            logger.info(f"[{session_id}] 워크플로우 재시작 실행 시작 (백그라운드)")
+
+            # WorkflowExecutor 실행 (restore 파라미터 전달)
+            async for event in self.executor.execute_workflow(
+                workflow=workflow,
+                initial_input=initial_input,
+                session_id=session_id,
+                project_path=project_path,
+                start_node_id=start_node_id,
+                restore_node_outputs=restore_node_outputs,
+                restore_node_inputs=restore_node_inputs,
+                restore_executed_nodes=restore_executed_nodes,
+            ):
+                # 이벤트를 큐에 저장
+                bg_task.event_queue.append(event)
+
+                # 세션 저장소에도 기록
+                await self.session_store.append_log(session_id, event)
+
+                logger.debug(
+                    f"[{session_id}] 이벤트 큐에 추가: {event.event_type} "
+                    f"(큐 크기: {len(bg_task.event_queue)})"
+                )
+
+            # 완료 처리
+            bg_task.completed = True
+            logger.info(f"[{session_id}] 워크플로우 재시작 실행 완료 (백그라운드)")
+
+        except Exception as e:
+            error_msg = str(e)
+            bg_task.error = error_msg
+
+            logger.error(
+                f"[{session_id}] 워크플로우 재시작 실행 실패 (백그라운드): {error_msg}",
+                exc_info=True,
+            )
+
+            # 에러 이벤트를 큐에 추가
+            error_event = WorkflowNodeExecutionEvent(
+                event_type="workflow_error",
+                node_id="",
+                data={"error": error_msg},
+                timestamp=datetime.now().isoformat(),
+            )
+            bg_task.event_queue.append(error_event)
+
+            # 완료 처리
+            bg_task.completed = True
+
+            # 세션 상태 업데이트
+            await self.session_store.update_session(
+                session_id,
+                status="error",
+                error=error_msg,
+                end_time=datetime.now().isoformat(),
+            )
+
 
 # 프로젝트별 인스턴스 캐시 (프로젝트 경로 → BackgroundWorkflowManager)
 _managers: Dict[str, BackgroundWorkflowManager] = {}

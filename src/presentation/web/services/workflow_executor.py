@@ -184,28 +184,34 @@ class WorkflowExecutor:
         """
         return [edge.source for edge in edges if edge.target == node_id]
 
-    def _find_input_node(
-        self, workflow: Workflow, start_node_id: Optional[str] = None
+    def _find_start_node(
+        self,
+        workflow: Workflow,
+        start_node_id: Optional[str] = None,
+        allow_non_input: bool = False,
     ) -> str:
         """
-        워크플로우의 시작 노드(Input 노드) 찾기
+        워크플로우의 시작 노드 찾기
 
         Args:
             workflow: 워크플로우 객체
             start_node_id: 지정된 시작 노드 ID (옵션)
+            allow_non_input: Input 노드가 아닌 노드도 허용 (재시작 시 True)
 
         Returns:
-            str: Input 노드 ID
+            str: 시작 노드 ID
 
         Raises:
-            ValueError: Input 노드를 찾을 수 없는 경우
+            ValueError: 시작 노드를 찾을 수 없는 경우
         """
         if start_node_id:
             # 지정된 시작 노드 확인
             start_node = next((n for n in workflow.nodes if n.id == start_node_id), None)
             if not start_node:
                 raise ValueError(f"지정된 시작 노드를 찾을 수 없습니다: {start_node_id}")
-            if start_node.type != "input":
+
+            # 재시작 모드가 아니면 Input 노드만 허용
+            if not allow_non_input and start_node.type != "input":
                 raise ValueError(
                     f"시작 노드는 Input 노드여야 합니다: {start_node_id} (타입: {start_node.type})"
                 )
@@ -374,6 +380,9 @@ class WorkflowExecutor:
         session_id: str,
         project_path: Optional[str] = None,
         start_node_id: Optional[str] = None,
+        restore_node_outputs: Optional[Dict[str, str]] = None,
+        restore_node_inputs: Optional[Dict[str, str]] = None,
+        restore_executed_nodes: Optional[Set[str]] = None,
     ) -> AsyncIterator[WorkflowNodeExecutionEvent]:
         """
         워크플로우 실행 (동적 노드 선택, Condition 분기 지원)
@@ -383,12 +392,19 @@ class WorkflowExecutor:
         - Merge 노드의 대기 로직 개선
         - 중복 실행 방지 (executed_nodes Set)
 
+        **v4.2.0 변경사항**: 워크플로우 재시작 지원
+        - restore_node_outputs, restore_node_inputs로 이전 실행 상태 복원
+        - start_node_id와 함께 사용하여 특정 노드부터 재시작
+
         Args:
             workflow: 실행할 워크플로우
             initial_input: 초기 입력 데이터
             session_id: 세션 ID
             project_path: 프로젝트 디렉토리 경로 (세션별 로그 저장용)
-            start_node_id: 시작 노드 ID (옵션, 지정 시 해당 Input 노드에서만 시작)
+            start_node_id: 시작 노드 ID (옵션, 지정 시 해당 노드에서 시작)
+            restore_node_outputs: 복원할 노드 출력 (재시작 시)
+            restore_node_inputs: 복원할 노드 입력 (재시작 시)
+            restore_executed_nodes: 복원할 실행 완료 노드 목록 (재시작 시)
 
         Yields:
             WorkflowNodeExecutionEvent: 노드 실행 이벤트
@@ -409,8 +425,12 @@ class WorkflowExecutor:
         logger.info(f"[{session_id}] 사용자 입력 Queue 생성 (Human-in-the-Loop 지원)")
 
         try:
+            # 재시작 모드 확인
+            is_restart = restore_node_outputs is not None or restore_node_inputs is not None
+            restart_info = f" (재시작: {start_node_id})" if is_restart else ""
+
             logger.info(
-                f"[{session_id}] 워크플로우 실행 시작 (동적 실행): {workflow.name} "
+                f"[{session_id}] 워크플로우 실행 시작 (동적 실행): {workflow.name}{restart_info} "
                 f"(노드: {len(workflow.nodes)}, 엣지: {len(workflow.edges)})"
             )
 
@@ -420,15 +440,31 @@ class WorkflowExecutor:
             # 노드 맵 생성 (빠른 조회)
             node_map = {node.id: node for node in workflow.nodes}
 
-            # 시작 노드 찾기 (Input 노드)
-            current_node_id = self._find_input_node(workflow, start_node_id)
+            # 시작 노드 찾기 (재시작 시 allow_non_input=True)
+            current_node_id = self._find_start_node(
+                workflow, start_node_id, allow_non_input=is_restart
+            )
             logger.info(f"[{session_id}] 시작 노드: {current_node_id}")
 
-            # 실행 추적
-            executed_nodes: Set[str] = set()
+            # 실행 추적 (재시작 시 이전 상태 복원)
+            executed_nodes: Set[str] = restore_executed_nodes.copy() if restore_executed_nodes else set()
             pending_merge_nodes: Set[str] = set()
-            node_outputs: Dict[str, str] = {}
-            node_inputs: Dict[str, str] = {}  # 각 노드가 실제로 받을 입력 (피드백 루프 지원)
+            node_outputs: Dict[str, str] = restore_node_outputs.copy() if restore_node_outputs else {}
+            node_inputs: Dict[str, str] = restore_node_inputs.copy() if restore_node_inputs else {}
+
+            # 재시작 시 복원 정보 로깅
+            if is_restart:
+                logger.info(
+                    f"[{session_id}] 이전 상태 복원 완료 - "
+                    f"실행 완료 노드: {len(executed_nodes)}개, "
+                    f"노드 출력: {len(node_outputs)}개, "
+                    f"노드 입력: {len(node_inputs)}개"
+                )
+                # 재시작 노드를 executed_nodes에서 제거 (다시 실행하기 위해)
+                if start_node_id and start_node_id in executed_nodes:
+                    executed_nodes.remove(start_node_id)
+                    logger.info(f"[{session_id}] 재시작 노드를 실행 목록에서 제거: {start_node_id}")
+
             max_iterations = len(workflow.nodes) * 10  # 무한 루프 방지
             iteration_count = 0
 

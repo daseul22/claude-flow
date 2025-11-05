@@ -840,3 +840,110 @@ async def clear_node_sessions() -> Dict[str, Any]:
             status_code=500,
             detail=f"노드 세션 초기화 실패: {str(e)}",
         )
+
+
+@router.post("/sessions/{session_id}/restart")
+async def restart_workflow_from_node(
+    session_id: str,
+    restart_node_id: str = Body(..., embed=True),
+    bg_manager: BackgroundWorkflowManager = Depends(get_background_manager),
+):
+    """
+    특정 노드부터 워크플로우 재시작
+
+    워크플로우 실행 중 중단/에러 발생 시, 이미 실행한 노드를 선택하여
+    해당 노드부터 워크플로우를 다시 실행합니다.
+
+    재시작 시:
+    - 이전 실행의 node_outputs, node_inputs 복원
+    - 재시작 노드는 이전에 받았던 입력을 그대로 받아서 실행
+    - 새로운 세션 ID로 실행 (이전 세션과 분리)
+
+    Args:
+        session_id: 원본 세션 ID (이전 실행)
+        restart_node_id: 재시작할 노드 ID
+        bg_manager: BackgroundWorkflowManager 의존성 주입
+
+    Returns:
+        EventSourceResponse: SSE 스트림 (워크플로우 실행 이벤트)
+
+    Raises:
+        HTTPException 404: 원본 세션을 찾을 수 없음
+        HTTPException 400: 재시작 노드를 찾을 수 없음
+        HTTPException 500: 재시작 실패
+    """
+    try:
+        logger.info(
+            f"워크플로우 재시작 요청 - 원본: {session_id}, 재시작 노드: {restart_node_id}"
+        )
+
+        # 원본 세션 존재 확인
+        session_store = get_session_store()
+        original_session = await session_store.get_session(session_id)
+        if not original_session:
+            raise HTTPException(
+                status_code=404,
+                detail=f"원본 세션을 찾을 수 없습니다: {session_id}",
+            )
+
+        # 새 세션 ID 생성
+        new_session_id = str(uuid.uuid4())
+        logger.info(f"새 세션 ID 생성: {new_session_id} (원본: {session_id})")
+
+        # 새 세션 생성 (원본 세션 정보 복사)
+        new_session = await session_store.create_session(
+            session_id=new_session_id,
+            workflow=original_session.workflow,
+            initial_input=original_session.initial_input,
+            project_path=original_session.project_path,
+        )
+
+        # 워크플로우 재시작 (백그라운드)
+        await bg_manager.restart_workflow_from_node(
+            original_session_id=session_id,
+            restart_node_id=restart_node_id,
+            new_session_id=new_session_id,
+        )
+
+        logger.info(
+            f"[{new_session_id}] 워크플로우 재시작 시작 (원본: {session_id}, 노드: {restart_node_id})"
+        )
+
+        # SSE 이벤트 스트리밍
+        async def event_generator():
+            """SSE 이벤트 생성기"""
+            try:
+                async for event in bg_manager.stream_events(new_session_id):
+                    event_dict = event.model_dump() if hasattr(event, "model_dump") else event
+                    yield {
+                        "event": event_dict.get("event_type", "unknown"),
+                        "data": json.dumps(event_dict, ensure_ascii=False),
+                    }
+
+            except Exception as e:
+                logger.error(f"[{new_session_id}] SSE 스트리밍 에러: {e}", exc_info=True)
+                # 에러 이벤트 전송
+                error_event = {
+                    "event": "error",
+                    "data": json.dumps(
+                        {
+                            "event_type": "error",
+                            "node_id": "",
+                            "data": {"error": str(e)},
+                            "timestamp": "",
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+                yield error_event
+
+        return EventSourceResponse(event_generator())
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"워크플로우 재시작 실패: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"워크플로우 재시작 실패: {str(e)}",
+        )
