@@ -78,6 +78,11 @@ interface HeaderBarProps {
   onOpenProjectDialog: () => void
 
   /**
+   * UI Preview 모달 열기 핸들러
+   */
+  onOpenUIPreview: () => void
+
+  /**
    * 로그 & 세션 뷰어 열기 핸들러
    */
   onOpenLogsViewer: () => void
@@ -114,6 +119,7 @@ export function HeaderBar({
   onManualSave,
   onOpenTemplateGallery,
   onOpenProjectDialog,
+  onOpenUIPreview,
   onOpenLogsViewer,
   onClearNodeSessions,
   onClearSessions,
@@ -233,6 +239,7 @@ export function HeaderBar({
           {/* 프로젝트 관리 메뉴 */}
           <ProjectMenu
             projectPath={currentProjectPath}
+            onOpenUIPreview={onOpenUIPreview}
             onOpenLogsViewer={onOpenLogsViewer}
             onClearNodeSessions={onClearNodeSessions}
             onClearSessions={onClearSessions}

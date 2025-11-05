@@ -5,12 +5,20 @@
  */
 
 export interface ParsedLogMessage {
-  type: 'user_message' | 'tool_result' | 'assistant_message' | 'tool_use' | 'thinking' | 'text'
+  type: 'user_message' | 'tool_result' | 'assistant_message' | 'tool_use' | 'thinking' | 'text' | 'tool_flow'
   content: string
   toolUse?: {
     toolName: string
     input: Record<string, any>
     output?: string
+  }
+  // 툴 플로우: tool_use와 tool_result를 하나로 묶음
+  toolFlow?: {
+    toolName: string
+    input: Record<string, any>
+    output: string
+    duration?: number  // 소요 시간 (초)
+    success: boolean
   }
 }
 
@@ -449,4 +457,81 @@ export function parseLogMessageBlocks(message: string, toolUseIdToNameGlobal?: R
     blocks: parsedBlocks,
     hasMultipleBlocks: parsedBlocks.length > 1,
   }
+}
+
+/**
+ * 툴 플로우 그룹화: tool_use와 tool_result를 하나로 묶음
+ *
+ * @param blocks - 파싱된 블록들
+ * @returns 툴 플로우가 적용된 블록들
+ */
+export function groupToolFlows(blocks: ParsedLogMessage[]): ParsedLogMessage[] {
+  const result: ParsedLogMessage[] = []
+  const toolUseMap = new Map<string, { block: ParsedLogMessage; index: number }>()
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]
+
+    if (block.type === 'tool_use' && block.toolUse) {
+      // tool_use 블록 저장 (tool_use_id 추출 시도)
+      const toolUseId = `${block.toolUse.toolName}_${i}` // 임시 ID
+      toolUseMap.set(toolUseId, { block, index: i })
+      // tool_use는 나중에 tool_result와 매칭되면 제거되므로 일단 추가하지 않음
+      result.push(block)
+    } else if (block.type === 'tool_result' && block.toolUse) {
+      // tool_result 블록 발견 -> 이전 tool_use와 매칭 시도
+      const toolName = block.toolUse.toolName
+
+      // 가장 최근의 같은 이름을 가진 tool_use 찾기
+      let matchedToolUse: ParsedLogMessage | null = null
+      let matchedIndex = -1
+
+      for (const [id, entry] of toolUseMap.entries()) {
+        if (entry.block.toolUse?.toolName === toolName && entry.index < i) {
+          if (matchedIndex === -1 || entry.index > matchedIndex) {
+            matchedToolUse = entry.block
+            matchedIndex = entry.index
+          }
+        }
+      }
+
+      if (matchedToolUse && matchedToolUse.toolUse) {
+        // 매칭 성공 -> tool_flow 블록 생성
+        const toolFlowBlock: ParsedLogMessage = {
+          type: 'tool_flow',
+          content: `${toolName} 실행`,
+          toolFlow: {
+            toolName,
+            input: matchedToolUse.toolUse.input,
+            output: block.toolUse.output || block.content,
+            success: !block.content.toLowerCase().includes('error'),
+          }
+        }
+
+        // 이전 tool_use 블록을 tool_flow로 교체
+        const prevIndex = result.findIndex((b, idx) =>
+          b.type === 'tool_use' &&
+          b.toolUse?.toolName === toolName &&
+          idx >= matchedIndex
+        )
+
+        if (prevIndex !== -1) {
+          result[prevIndex] = toolFlowBlock
+        } else {
+          result.push(toolFlowBlock)
+        }
+
+        // 매칭된 tool_use 제거
+        toolUseMap.delete(`${toolName}_${matchedIndex}`)
+      } else {
+        // 매칭 실패 -> tool_result 블록 그대로 추가
+        result.push(block)
+      }
+    } else {
+      // 다른 블록들은 그대로 추가
+      result.push(block)
+    }
+  }
+
+  return result
 }

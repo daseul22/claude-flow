@@ -30,6 +30,7 @@ import { ToastContainer, ToastType } from './components/Toast'
 import { TemplateGallery } from './components/TemplateGallery'
 import { LogsAndSessionsViewer } from './components/LogsAndSessionsViewer'
 import { AskUserModal } from './components/AskUserModal'
+import { UIPreviewModal } from './components/UIPreviewModal'
 import { useSessionRestore } from './hooks/useSessionRestore'
 
 const STORAGE_KEY_PROJECT_PATH = 'claude-flow-last-project-path'
@@ -60,6 +61,9 @@ function App() {
 
   // 로그/세션 뷰어 상태
   const [showLogsViewer, setShowLogsViewer] = useState(false)
+
+  // UI Preview 모달 상태
+  const [showUIPreview, setShowUIPreview] = useState(false)
 
   // 사이드바 토글 상태
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true)
@@ -404,6 +408,7 @@ function App() {
           onManualSave={handleManualSave}
           onOpenTemplateGallery={() => setShowTemplateGallery(true)}
           onOpenProjectDialog={() => setShowProjectDialog(true)}
+          onOpenUIPreview={() => setShowUIPreview(true)}
           onOpenLogsViewer={() => setShowLogsViewer(true)}
           onClearNodeSessions={handleClearNodeSessions}
           onClearSessions={handleClearSessions}
@@ -500,6 +505,12 @@ function App() {
             }}
           />
         )}
+
+        {/* UI Preview 모달 */}
+        <UIPreviewModal
+          isOpen={showUIPreview}
+          onClose={() => setShowUIPreview(false)}
+        />
 
         {/* 로그 & 세션 뷰어 */}
         <LogsAndSessionsViewer
