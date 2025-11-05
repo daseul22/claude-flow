@@ -99,18 +99,22 @@ def configure_structlog(
     # 에러 로그: 5MB (ERROR 이상만 필터링되므로 용량 적음)
     # 디버그 로그: 20MB (상세 정보가 많아 용량 증가)
     # 터미널 출력 추가: 파일 + 콘솔에 로그 기록
+    file_handler = logging.handlers.RotatingFileHandler(
+        str(log_path / "claude-flow.log"),
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding="utf-8"
+    )
+    file_handler.setLevel(getattr(logging, log_level.upper()))
+
+    console_handler = logging.StreamHandler()
+    # 🔧 FIX: 콘솔은 항상 INFO 이상만 출력 (DEBUG 로그로 너무 지저분해지는 것 방지)
+    console_handler.setLevel(logging.INFO)
+
     logging.basicConfig(
         format="%(message)s",
-        level=getattr(logging, log_level.upper()),
-        handlers=[
-            logging.handlers.RotatingFileHandler(
-                str(log_path / "claude-flow.log"),
-                maxBytes=10 * 1024 * 1024,  # 10MB
-                backupCount=5,
-                encoding="utf-8"
-            ),
-            logging.StreamHandler(),  # 콘솔 출력 추가
-        ],
+        level=logging.DEBUG,  # 루트 로거는 DEBUG로 설정 (핸들러가 필터링)
+        handlers=[file_handler, console_handler],
         force=True  # 기존 설정 덮어쓰기
     )
 
@@ -228,6 +232,10 @@ def add_session_file_handlers(
     # 루트 로거 가져오기
     root_logger = logging.getLogger()
 
+    # 🔧 FIX: 세션 실행 중에는 DEBUG 로그를 활성화
+    # 루트 로거의 레벨을 DEBUG로 낮춰서 DEBUG 로그가 핸들러에 도달하도록 함
+    root_logger.setLevel(logging.DEBUG)
+
     # system.log 핸들러 추가 (모든 레벨 - DEBUG 이상)
     system_handler = logging.handlers.RotatingFileHandler(
         str(base_log_dir / "system.log"),
@@ -290,12 +298,13 @@ def remove_session_file_handlers(session_id: str) -> None:
     """
     root_logger = logging.getLogger()
 
-    # 세션 ID와 관련된 핸들러만 제거
+    # 세션 ID와 관련된 핸들러 + system.log 핸들러 제거
     handlers_to_remove = []
     for handler in root_logger.handlers:
         if isinstance(handler, logging.handlers.RotatingFileHandler):
-            # 파일 경로에 세션 ID가 포함되어 있으면 제거 대상
-            if session_id in str(handler.baseFilename):
+            # 파일 경로에 세션 ID 또는 system.log가 포함되어 있으면 제거 대상
+            filename = str(handler.baseFilename)
+            if session_id in filename or "system.log" in filename:
                 handlers_to_remove.append(handler)
 
     for handler in handlers_to_remove:

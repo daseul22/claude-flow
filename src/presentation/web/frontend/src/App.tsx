@@ -21,6 +21,7 @@ import {
   sendUserInput,
   clearProjectSessions,
   clearProjectLogs,
+  clearProjectReports,
   clearNodeSessions,
   loadDisplayConfig,
   saveDisplayConfig,
@@ -368,14 +369,29 @@ function App() {
     }
   }
 
-  // 모든 노드 세션 초기화 핸들러
-  const handleClearNodeSessions = async () => {
+  // 보고서 비우기 핸들러
+  const handleClearReports = async () => {
     if (!currentProjectPath) {
       addToast('warning', '프로젝트가 선택되지 않았습니다')
       return
     }
 
-    if (!confirm('모든 노드의 세션을 초기화하시겠습니까?\n각 노드의 대화 기록이 모두 삭제됩니다.')) {
+    try {
+      const result = await clearProjectReports()
+      addToast(
+        'success',
+        `${result.message} (${result.deleted_files}개 파일, ${result.freed_space_mb} MB 확보)`
+      )
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err)
+      addToast('error', `보고서 비우기 실패: ${errorMsg}`)
+    }
+  }
+
+  // 모든 노드 세션 초기화 핸들러
+  const handleClearNodeSessions = async () => {
+    if (!currentProjectPath) {
+      addToast('warning', '프로젝트가 선택되지 않았습니다')
       return
     }
 
@@ -410,9 +426,6 @@ function App() {
           onOpenProjectDialog={() => setShowProjectDialog(true)}
           onOpenUIPreview={() => setShowUIPreview(true)}
           onOpenLogsViewer={() => setShowLogsViewer(true)}
-          onClearNodeSessions={handleClearNodeSessions}
-          onClearSessions={handleClearSessions}
-          onClearLogs={handleClearLogs}
         />
 
         {/* 프로젝트 미선택 경고 배너 */}
@@ -517,6 +530,10 @@ function App() {
           isOpen={showLogsViewer}
           onClose={() => setShowLogsViewer(false)}
           projectPath={currentProjectPath}
+          onClearLogs={handleClearLogs}
+          onClearSessions={handleClearSessions}
+          onClearReports={handleClearReports}
+          onClearNodeSessions={handleClearNodeSessions}
         />
 
         {/* 프로젝트 선택 다이얼로그 */}

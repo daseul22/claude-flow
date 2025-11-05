@@ -4,14 +4,11 @@
  * 프로젝트 관련 작업을 수행하는 드롭다운 메뉴
  * - UI Preview (실험적 기능)
  * - 로그 & 세션 보기
- * - 노드 세션 초기화
- * - 프로젝트 세션 비우기
- * - 로그 비우기
  */
 
 import { useState, useEffect } from 'react'
 import { Button } from './ui/button'
-import { Settings, Eye, Trash2, FileText, Palette } from 'lucide-react'
+import { Settings, Eye, Palette } from 'lucide-react'
 
 interface ProjectMenuProps {
   /**
@@ -28,21 +25,6 @@ interface ProjectMenuProps {
    * 로그 & 세션 뷰어 열기 핸들러
    */
   onOpenLogsViewer: () => void
-
-  /**
-   * 노드 세션 초기화 핸들러
-   */
-  onClearNodeSessions: () => Promise<void>
-
-  /**
-   * 프로젝트 세션 비우기 핸들러
-   */
-  onClearSessions: () => Promise<void>
-
-  /**
-   * 로그 비우기 핸들러
-   */
-  onClearLogs: () => Promise<void>
 }
 
 /**
@@ -52,9 +34,6 @@ export function ProjectMenu({
   projectPath,
   onOpenUIPreview,
   onOpenLogsViewer,
-  onClearNodeSessions,
-  onClearSessions,
-  onClearLogs,
 }: ProjectMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
 
@@ -116,59 +95,18 @@ export function ProjectMenu({
 
             {/* 프로젝트 관련 메뉴들 (프로젝트 선택 시에만) */}
             {projectPath && (
-              <>
-                <button
-                  onClick={() => {
-                    onOpenLogsViewer()
-                    setIsOpen(false)
-                  }}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center gap-2 transition-colors"
-                  role="menuitem"
-                  aria-label="로그 및 세션 보기"
-                >
-                  <Eye className="h-4 w-4 text-green-600" />
-                  <span>로그 & 세션 보기</span>
-                </button>
-
-                <button
-                  onClick={async () => {
-                    await onClearNodeSessions()
-                    setIsOpen(false)
-                  }}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center gap-2 transition-colors"
-                  role="menuitem"
-                  aria-label="모든 노드 세션 초기화"
-                >
-                  <Trash2 className="h-4 w-4 text-red-600" />
-                  <span>모든 노드 세션 초기화</span>
-                </button>
-
-                <button
-                  onClick={async () => {
-                    await onClearSessions()
-                    setIsOpen(false)
-                  }}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center gap-2 transition-colors"
-                  role="menuitem"
-                  aria-label="프로젝트 세션 비우기"
-                >
-                  <Trash2 className="h-4 w-4 text-orange-600" />
-                  <span>프로젝트 세션 비우기</span>
-                </button>
-
-                <button
-                  onClick={async () => {
-                    await onClearLogs()
-                    setIsOpen(false)
-                  }}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center gap-2 transition-colors"
-                  role="menuitem"
-                  aria-label="로그 비우기"
-                >
-                  <FileText className="h-4 w-4 text-blue-600" />
-                  <span>로그 비우기</span>
-                </button>
-              </>
+              <button
+                onClick={() => {
+                  onOpenLogsViewer()
+                  setIsOpen(false)
+                }}
+                className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center gap-2 transition-colors"
+                role="menuitem"
+                aria-label="로그, 세션 및 보고서 관리"
+              >
+                <Eye className="h-4 w-4 text-green-600" />
+                <span>로그, 세션 & 보고서 관리</span>
+              </button>
             )}
           </div>
         </div>

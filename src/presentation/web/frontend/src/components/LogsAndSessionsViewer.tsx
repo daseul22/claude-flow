@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect } from 'react'
-import { X, FileText, Clock, HardDrive, AlertCircle, RefreshCw, FileCode } from 'lucide-react'
+import { X, FileText, Clock, HardDrive, AlertCircle, RefreshCw, FileCode, Trash2 } from 'lucide-react'
 import { Button } from './ui/button'
 
 interface LogFileInfo {
@@ -39,12 +39,20 @@ interface LogsAndSessionsViewerProps {
   isOpen: boolean
   onClose: () => void
   projectPath: string | null
+  onClearLogs: () => Promise<void>
+  onClearSessions: () => Promise<void>
+  onClearReports: () => Promise<void>
+  onClearNodeSessions: () => Promise<void>
 }
 
 export function LogsAndSessionsViewer({
   isOpen,
   onClose,
-  projectPath
+  projectPath,
+  onClearLogs,
+  onClearSessions,
+  onClearReports,
+  onClearNodeSessions
 }: LogsAndSessionsViewerProps) {
   const [activeTab, setActiveTab] = useState<'logs' | 'sessions' | 'reports'>('logs')
   const [logs, setLogs] = useState<LogFileInfo[]>([])
@@ -58,6 +66,77 @@ export function LogsAndSessionsViewer({
   const [reportContent, setReportContent] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // 로그 비우기
+  const handleClearLogs = async () => {
+    if (!window.confirm('모든 로그 파일을 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.')) {
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    try {
+      await onClearLogs()
+      await loadLogs() // 목록 새로고침
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '로그 삭제 실패')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 세션 비우기
+  const handleClearSessions = async () => {
+    if (!window.confirm('모든 워크플로우 세션 파일을 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.')) {
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    try {
+      await onClearSessions()
+      await loadSessions() // 목록 새로고침
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '세션 삭제 실패')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 보고서 비우기
+  const handleClearReports = async () => {
+    if (!window.confirm('모든 보고서 파일을 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.')) {
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    try {
+      await onClearReports()
+      await loadReports() // 목록 새로고침
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '보고서 삭제 실패')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 노드 세션 초기화
+  const handleClearNodeSessions = async () => {
+    if (!window.confirm('모든 노드의 세션을 초기화하시겠습니까?\n\n각 노드의 대화 기록이 모두 삭제됩니다.')) {
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    try {
+      await onClearNodeSessions()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '노드 세션 초기화 실패')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // 로그 파일 목록 로드
   const loadLogs = async () => {
@@ -268,7 +347,7 @@ export function LogsAndSessionsViewer({
             <FileCode className="inline h-4 w-4 mr-1" />
             보고서 파일
           </button>
-          <div className="ml-auto px-4 py-2">
+          <div className="ml-auto px-4 py-2 flex gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -281,6 +360,36 @@ export function LogsAndSessionsViewer({
             >
               <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
               새로고침
+            </Button>
+
+            {/* 파일 비우기 버튼 */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                activeTab === 'logs' ? handleClearLogs() :
+                activeTab === 'sessions' ? handleClearSessions() :
+                handleClearReports()
+              }
+              disabled={loading}
+              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+            >
+              <Trash2 className="h-4 w-4 mr-1" />
+              {activeTab === 'logs' ? '로그 비우기' :
+               activeTab === 'sessions' ? '세션 비우기' :
+               '보고서 비우기'}
+            </Button>
+
+            {/* 노드 세션 초기화 버튼 */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClearNodeSessions}
+              disabled={loading}
+              className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+            >
+              <Trash2 className="h-4 w-4 mr-1" />
+              노드 세션 초기화
             </Button>
           </div>
         </div>

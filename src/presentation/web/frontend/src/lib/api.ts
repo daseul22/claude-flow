@@ -1006,6 +1006,26 @@ export async function clearProjectLogs(): Promise<{
   return await response.json()
 }
 
+/**
+ * 프로젝트 보고서 파일 비우기
+ */
+export async function clearProjectReports(): Promise<{
+  message: string
+  deleted_files: number
+  freed_space_mb: number
+}> {
+  const response = await fetch(`${API_BASE}/projects/reports`, {
+    method: "DELETE",
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`)
+  }
+
+  return await response.json()
+}
+
 // ==================== 커스텀 워커 API ====================
 
 /**

@@ -255,9 +255,20 @@ class WorkflowConditionEvaluator:
             return result, reason
 
         except Exception as e:
-            logger.error(f"[{session_id}] LLM 조건 평가 실패: {e}", exc_info=True)
-            # 에러 발생 시 안전하게 False 반환
-            return False, f"LLM 평가 실패: {str(e)}"
+            error_msg = (
+                f"LLM 조건 평가 실패: {str(e)}\n\n"
+                f"가능한 원인:\n"
+                f"1. Claude Code 버전이 낮음 (최소 2.0.0 필요)\n"
+                f"2. CLAUDE_CODE_OAUTH_TOKEN이 잘못됨\n"
+                f"3. 네트워크 연결 문제\n\n"
+                f"해결 방법:\n"
+                f"- Claude Code 업데이트: npm install -g @anthropics/claude-code\n"
+                f"- 토큰 재설정: .env 파일의 CLAUDE_CODE_OAUTH_TOKEN 확인"
+            )
+            logger.error(f"[{session_id}] {error_msg}", exc_info=True)
+            # ❌ 이전: 에러 발생 시 자동으로 False 반환 (버그!)
+            # ✅ 수정: 에러를 상위로 전파하여 사용자가 확인할 수 있도록 함
+            raise ValueError(error_msg) from e
 
     @staticmethod
     def evaluate_condition(condition_type: str, condition_value: str, input_text: str) -> bool:
@@ -274,15 +285,36 @@ class WorkflowConditionEvaluator:
         """
         import re
 
+        # 🔍 디버깅 로그: 조건 평가 시작
+        logger.info(
+            f"조건 평가 시작:\n"
+            f"  - 조건 타입: {condition_type}\n"
+            f"  - 조건 값: {repr(condition_value)}\n"
+            f"  - 입력 텍스트 길이: {len(input_text)} 문자\n"
+            f"  - 입력 텍스트 미리보기: {repr(input_text[:200])}"
+        )
+
         if condition_type == "contains":
             # 텍스트 포함 검사
-            return condition_value in input_text
+            result = condition_value in input_text
+            logger.info(
+                f"조건 평가 (contains): {result}\n"
+                f"  - 찾는 문자열: {repr(condition_value)}\n"
+                f"  - 입력 텍스트에서 발견: {result}"
+            )
+            return result
 
         elif condition_type == "regex":
             # 정규표현식 매칭
             try:
                 pattern = re.compile(condition_value)
-                return bool(pattern.search(input_text))
+                result = bool(pattern.search(input_text))
+                logger.info(
+                    f"조건 평가 (regex): {result}\n"
+                    f"  - 정규표현식: {repr(condition_value)}\n"
+                    f"  - 매칭 결과: {result}"
+                )
+                return result
             except re.error as e:
                 logger.error(f"정규표현식 오류: {e}")
                 return False
@@ -294,23 +326,31 @@ class WorkflowConditionEvaluator:
                 # condition_value를 파싱하여 비교
                 if condition_value.startswith(">="):
                     threshold = int(condition_value[2:].strip())
-                    return text_length >= threshold
+                    result = text_length >= threshold
                 elif condition_value.startswith("<="):
                     threshold = int(condition_value[2:].strip())
-                    return text_length <= threshold
+                    result = text_length <= threshold
                 elif condition_value.startswith(">"):
                     threshold = int(condition_value[1:].strip())
-                    return text_length > threshold
+                    result = text_length > threshold
                 elif condition_value.startswith("<"):
                     threshold = int(condition_value[1:].strip())
-                    return text_length < threshold
+                    result = text_length < threshold
                 elif condition_value.startswith("=="):
                     threshold = int(condition_value[2:].strip())
-                    return text_length == threshold
+                    result = text_length == threshold
                 else:
                     # 숫자만 있는 경우 == 로 간주
                     threshold = int(condition_value.strip())
-                    return text_length == threshold
+                    result = text_length == threshold
+
+                logger.info(
+                    f"조건 평가 (length): {result}\n"
+                    f"  - 조건: {repr(condition_value)}\n"
+                    f"  - 입력 길이: {text_length}\n"
+                    f"  - 비교 결과: {result}"
+                )
+                return result
             except (ValueError, IndexError) as e:
                 logger.error(f"길이 조건 파싱 오류: {e}")
                 return False
@@ -341,7 +381,14 @@ class WorkflowConditionEvaluator:
                 }
                 compiled = compile(tree, '<string>', 'eval')
                 result = eval(compiled, {"__builtins__": {}}, namespace)
-                return bool(result)
+                result_bool = bool(result)
+
+                logger.info(
+                    f"조건 평가 (custom): {result_bool}\n"
+                    f"  - 표현식: {repr(condition_value)}\n"
+                    f"  - 평가 결과: {result} → {result_bool}"
+                )
+                return result_bool
 
             except SyntaxError as e:
                 logger.error(f"커스텀 조건 구문 오류: {e}")
@@ -435,19 +482,52 @@ class WorkflowConditionEvaluator:
             f"반복: {current_iteration}/{max_iter_display})"
         )
 
+        # 🔍 디버깅: 모든 엣지의 sourceHandle 출력
+        logger.info(
+            f"[{session_id}] 조건 노드 {node_id}의 분기 경로 검색 중...\n"
+            f"  - 조건 평가 결과: {condition_result}\n"
+            f"  - 찾아야 할 sourceHandle: {'true' if condition_result else 'false'}"
+        )
+
+        # 이 노드에서 나가는 모든 엣지 출력 (디버깅)
+        outgoing_edges = [edge for edge in edges if edge.source == node_id]
+        logger.info(
+            f"[{session_id}] 조건 노드 {node_id}에서 나가는 엣지 목록 ({len(outgoing_edges)}개):"
+        )
+        for i, edge in enumerate(outgoing_edges):
+            logger.info(
+                f"  [{i+1}] edge.id={edge.id}, edge.sourceHandle={repr(edge.sourceHandle)}, "
+                f"edge.target={edge.target}"
+            )
+
         # 분기 경로 결정 (엣지의 sourceHandle을 사용)
         next_node_id = None
         for edge in edges:
             if edge.source == node_id:
                 if condition_result and edge.sourceHandle == "true":
                     next_node_id = edge.target
+                    logger.info(
+                        f"[{session_id}] ✅ True 분기 경로 발견: {next_node_id} "
+                        f"(edge.sourceHandle={repr(edge.sourceHandle)})"
+                    )
                     break
                 elif not condition_result and edge.sourceHandle == "false":
                     next_node_id = edge.target
+                    logger.info(
+                        f"[{session_id}] ✅ False 분기 경로 발견: {next_node_id} "
+                        f"(edge.sourceHandle={repr(edge.sourceHandle)})"
+                    )
                     break
 
         if next_node_id is None:
             branch_type = "true" if condition_result else "false"
+            logger.error(
+                f"[{session_id}] ❌ 조건 노드 {node_id}의 {branch_type} 분기 경로를 찾을 수 없습니다!\n"
+                f"  - 조건 평가 결과: {condition_result}\n"
+                f"  - 필요한 sourceHandle: {repr(branch_type)}\n"
+                f"  - 나가는 엣지 개수: {len(outgoing_edges)}\n"
+                f"  - 엣지 목록: {[(e.sourceHandle, e.target) for e in outgoing_edges]}"
+            )
             raise ValueError(
                 f"조건 노드 {node_id}의 {branch_type} 분기 경로가 없습니다. "
                 f"sourceHandle이 '{branch_type}'인 엣지를 추가해주세요."

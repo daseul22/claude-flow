@@ -83,24 +83,9 @@ interface HeaderBarProps {
   onOpenUIPreview: () => void
 
   /**
-   * 로그 & 세션 뷰어 열기 핸들러
+   * 로그, 세션 & 보고서 관리 뷰어 열기 핸들러
    */
   onOpenLogsViewer: () => void
-
-  /**
-   * 노드 세션 초기화 핸들러
-   */
-  onClearNodeSessions: () => Promise<void>
-
-  /**
-   * 프로젝트 세션 비우기 핸들러
-   */
-  onClearSessions: () => Promise<void>
-
-  /**
-   * 로그 비우기 핸들러
-   */
-  onClearLogs: () => Promise<void>
 }
 
 /**
@@ -121,9 +106,6 @@ export function HeaderBar({
   onOpenProjectDialog,
   onOpenUIPreview,
   onOpenLogsViewer,
-  onClearNodeSessions,
-  onClearSessions,
-  onClearLogs,
 }: HeaderBarProps) {
   return (
     <header className="border-b bg-white px-6 py-3">
@@ -241,9 +223,6 @@ export function HeaderBar({
             projectPath={currentProjectPath}
             onOpenUIPreview={onOpenUIPreview}
             onOpenLogsViewer={onOpenLogsViewer}
-            onClearNodeSessions={onClearNodeSessions}
-            onClearSessions={onClearSessions}
-            onClearLogs={onClearLogs}
           />
         </div>
       </div>
