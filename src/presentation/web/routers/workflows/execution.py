@@ -87,7 +87,9 @@ async def execute_workflow(
     from src.presentation.web.routers.projects import _current_project_path
 
     # 프로젝트가 선택되지 않았으면 에러
+    logger.info(f"[{session_id}] 프로젝트 경로 확인: {_current_project_path}")
     if _current_project_path is None:
+        logger.error(f"[{session_id}] 프로젝트 미선택 상태에서 워크플로우 실행 시도")
         raise HTTPException(
             status_code=400,
             detail="프로젝트를 먼저 선택해주세요. 헤더의 '프로젝트 선택' 버튼을 클릭하세요."
