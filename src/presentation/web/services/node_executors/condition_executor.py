@@ -88,7 +88,8 @@ class ConditionNodeExecutor(BaseNodeExecutor):
                 node, node_outputs, edges, session_id
             )
 
-            node_outputs[node_id] = result_text
+            # 부모 노드의 출력을 그대로 다음 노드로 전달 (평가 결과는 로그로만)
+            node_outputs[node_id] = parent_output
             elapsed_time = time.time() - start_time
 
             # node_complete 이벤트
@@ -98,13 +99,18 @@ class ConditionNodeExecutor(BaseNodeExecutor):
                 data={
                     "node_type": "condition",
                     "next_node": next_node_id,
-                    "output": result_text,
+                    "output": result_text,  # 로그에는 평가 결과 표시
+                    "evaluation_result": result_text,  # 평가 결과 메타정보
+                    "forwarded_output": parent_output[:200] if parent_output else "(empty)",  # 실제 전달값 미리보기
                 },
                 timestamp=datetime.now().isoformat(),
                 elapsed_time=elapsed_time,
             )
 
-            logger.info(f"[{session_id}] 조건 노드 완료: {node_id} → {next_node_id}")
+            logger.info(
+                f"[{session_id}] 조건 노드 완료: {node_id} → {next_node_id} "
+                f"(부모 출력 {len(parent_output)}자를 그대로 전달)"
+            )
 
         except Exception as e:
             error_msg = f"조건 노드 실행 실패: {str(e)}"

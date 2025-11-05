@@ -758,6 +758,87 @@ logger.info(f"반복: {current_iteration}/{max_iter_display}")
 
 ---
 
+### [2025-11-05] ⚠️ Condition 노드 입력값 전달 버그 수정 (Critical)
+
+**배경**:
+- Condition 노드가 **평가 결과 메타정보**를 다음 노드로 전달하는 Critical 버그 발견
+- 원래는 **이전 노드의 출력(평가 대상 텍스트)**을 그대로 전달해야 함
+
+**문제점**:
+
+**잘못된 동작 흐름:**
+```
+Input 노드 (출력: "테스트 실패")
+  ↓
+Condition 노드 (조건 평가: false)
+  ↓ (출력: "조건 평가 결과: False\n분기: worker-1")  ❌
+  ↓
+Worker 노드 (입력: "조건 평가 결과: False\n분기: worker-1")  ❌
+```
+
+**올바른 동작 흐름:**
+```
+Input 노드 (출력: "테스트 실패")
+  ↓
+Condition 노드 (조건 평가: false)
+  ↓ (출력: "테스트 실패")  ✅
+  ↓
+Worker 노드 (입력: "테스트 실패")  ✅
+```
+
+**코드 분석** (`condition_executor.py:91`):
+```python
+# Before
+node_outputs[node_id] = result_text  # ❌ 평가 결과 메타정보 전달
+# result_text = "조건 평가 결과: True\n분기: node-123"
+
+# After
+node_outputs[node_id] = parent_output  # ✅ 부모 출력 그대로 전달
+# parent_output = "테스트 실패" (원래 입력값)
+```
+
+**수정 내용**:
+1. **입력값 전달 개선**:
+   - `node_outputs[node_id] = parent_output` (부모 노드의 출력을 그대로 전달)
+   - Condition 노드는 **분기만 수행**하고, 데이터 변환은 하지 않음
+
+2. **로그 개선**:
+   - `node_complete` 이벤트에 평가 결과(`evaluation_result`)와 실제 전달값(`forwarded_output`) 분리
+   - 로그 메시지: "조건 노드 완료: condition-1 → worker-1 (부모 출력 150자를 그대로 전달)"
+
+**변경 효과**:
+- ✅ Condition 노드 이후의 Worker가 **원래 입력값**을 받음
+- ✅ 평가 결과는 로그로만 표시되어 디버깅 가능
+- ✅ 데이터 흐름이 직관적으로 변경 (Condition은 분기만 담당)
+
+**예시**:
+
+**이전** (잘못된 동작):
+```
+Input: "코드 테스트 결과: FAIL"
+  → Condition (조건: "PASS" 포함)
+    → False 경로
+      → Worker 입력: "조건 평가 결과: False\n분기: fixer-1"  ❌
+        → Worker가 의미 없는 메타정보를 받음
+```
+
+**수정 후** (올바른 동작):
+```
+Input: "코드 테스트 결과: FAIL"
+  → Condition (조건: "PASS" 포함)
+    → False 경로
+      → Worker 입력: "코드 테스트 결과: FAIL"  ✅
+        → Worker가 원래 입력값을 받아서 정상 처리
+```
+
+**Merge 노드 확인**:
+- Merge 노드는 문제 없음 (병합된 실제 텍스트를 전달)
+
+**수정 파일**:
+- `src/presentation/web/services/node_executors/condition_executor.py` (91-113줄)
+
+---
+
 ### [2025-11-05] 자동 출력 추출 기능 추가 + 프롬프트 개선
 
 **배경**:
