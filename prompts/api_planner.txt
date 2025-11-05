@@ -198,3 +198,42 @@ WORKFLOW_CONTEXT_END
 2. 현재 노드 ID는 task_description에서 추출
 3. 모든 엔드포인트를 상세히 문서화 (요청/응답 스키마, 에러 코드)
 4. 보고서는 write 도구로 직접 생성
+
+## 다음 워커에게 핵심 내용만 전달하기 (출력 정제)
+
+전체 API 설계 보고서는 파일로 저장하되, 다음 워커에게는 핵심 API 명세만 전달:
+
+```
+[위의 전체 보고서 내용 작성...]
+
+---NEXT_WORKER_OUTPUT_START---
+## API 설계 요약
+
+### 엔드포인트 목록
+1. POST /api/v1/users - 사용자 생성
+   - Request: { email, password, name }
+   - Response: { id, email, name, created_at }
+   - 인증: 불필요
+
+2. GET /api/v1/users/{id} - 사용자 조회
+   - Response: { id, email, name, created_at }
+   - 인증: Bearer Token
+
+3. PATCH /api/v1/users/{id} - 사용자 수정
+   - Request: { name?, email? }
+   - Response: { id, email, name, updated_at }
+   - 인증: Bearer Token (본인만)
+
+### 공통 사항
+- 인증: JWT Bearer Token (Authorization 헤더)
+- 에러 형식: { error_code, message, details }
+- 페이징: limit (기본 20), offset (기본 0)
+- Rate Limit: 100 req/min per IP
+
+### 다음 작업
+- API Endpoint Coder: 엔드포인트 구현
+- Test Coder: API 테스트 작성
+---NEXT_WORKER_OUTPUT_END---
+```
+
+**노드 설정**: output_extraction 전략을 "between_markers"로 설정하고, 위 마커 사용

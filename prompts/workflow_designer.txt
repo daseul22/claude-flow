@@ -958,3 +958,113 @@
 - 2개 이상의 독립적 작업이 있으면 적극 활용
 - 부모 노드의 `parallel_execution: true` 설정
 - 시간 단축 효과: 20-50%
+
+## 출력 정제 기능 (Output Extraction)
+
+### 개요
+
+v4.0.0부터 Worker 노드는 **출력 정제 전략**을 설정하여 다음 워커에게 필요한 정보만 전달할 수 있습니다.
+
+### 사용 시나리오
+
+1. **상세 보고서 vs 핵심 요약**
+   - Feature Planner → 상세 기획서를 파일로 저장, 다음 Coder에게는 태스크 목록만 전달
+   - Code Reviewer → 전체 리뷰 보고서 저장, 다음 Bug Fixer에게는 Critical 이슈만 전달
+
+2. **중간 산출물 제거**
+   - Thinking 과정, 코드 분석 내용 등을 제외하고 최종 결과만 전달
+   - 다음 워커의 컨텍스트 윈도우 절약
+
+3. **구조화된 데이터 전달**
+   - 마커로 감싼 JSON, YAML, 코드 블록만 추출
+
+### 추출 전략 3가지
+
+1. **full** (기본값)
+   - 모든 텍스트 블록 전달
+   - 설정 불필요
+
+2. **last_block**
+   - 마지막 텍스트 블록만 전달
+   - 최종 요약이 마지막에 있을 때 유용
+
+3. **between_markers** (권장)
+   - 특정 마커 사이의 내용만 전달
+   - 가장 유연하고 명확함
+
+### 워크플로우 설계 예시
+
+```json
+{
+  "nodes": [
+    {
+      "id": "planner",
+      "type": "worker",
+      "data": {
+        "agent_name": "feature_planner",
+        "task_template": "사용자 인증 기능 기획",
+        "output_extraction": {
+          "strategy": "between_markers",
+          "start_marker": "---NEXT_WORKER_OUTPUT_START---",
+          "end_marker": "---NEXT_WORKER_OUTPUT_END---"
+        }
+      }
+    },
+    {
+      "id": "coder",
+      "type": "worker",
+      "data": {
+        "agent_name": "backend_coder",
+        "task_template": "{{node_planner}}를 구현하세요"
+      }
+    }
+  ],
+  "edges": [
+    {"source": "planner", "target": "coder"}
+  ]
+}
+```
+
+### 프롬프트 작성 가이드
+
+Worker 프롬프트에서 마커 사용 예시:
+
+```
+[전체 상세 보고서 작성...]
+
+---NEXT_WORKER_OUTPUT_START---
+## 다음 작업자를 위한 요약
+
+[핵심 내용만 간결하게 작성]
+---NEXT_WORKER_OUTPUT_END---
+```
+
+### 주의사항
+
+1. **마커는 정확히 입력**: 오타 시 전체 텍스트 반환
+2. **프롬프트에 안내**: Worker가 마커를 사용하도록 프롬프트에 명시
+3. **WORKFLOW_CONTEXT와 병용 가능**:
+   - WORKFLOW_CONTEXT: 메타데이터 (자동 파싱용)
+   - NEXT_WORKER_OUTPUT: 콘텐츠 (사람이 읽기 편한 요약)
+
+### 기본 제공 프롬프트
+
+다음 프롬프트에 출력 정제 안내가 포함되어 있습니다:
+- `feature_planner.txt`
+- `backend_coder.txt`
+- `code_reviewer.txt`
+
+기본 마커: `---NEXT_WORKER_OUTPUT_START---` / `---NEXT_WORKER_OUTPUT_END---`
+
+### 언제 사용할까?
+
+✅ **사용 권장**:
+- Planner → Coder: 계획 요약 전달
+- Coder → Reviewer: 코드 요약 전달
+- Reviewer → Fixer: 이슈 목록만 전달
+- 긴 보고서 → 짧은 액션 아이템
+
+❌ **사용 불필요**:
+- 워커 출력이 원래 짧은 경우 (< 500자)
+- 전체 컨텍스트가 필요한 경우
+- 마지막 노드 (출력이 UI로 직접 표시)

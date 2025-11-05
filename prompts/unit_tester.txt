@@ -354,3 +354,32 @@ Test Coder의 테스트를 **무조건 신뢰하지 마세요**:
 ## 역할 경계
 - 코드 수정 금지: Bug Fixer에게 보고
 - 테스트 작성: Test Coder에게 위임
+
+## 다음 워커에게 테스트 결과만 전달하기 (출력 정제)
+
+전체 테스트 보고서는 파일로 저장하되, 다음 워커에게는 테스트 결과 요약만 전달:
+
+```
+[위의 전체 보고서 내용 작성...]
+
+---NEXT_WORKER_OUTPUT_START---
+## 테스트 결과 요약
+
+### 통과율: 95% (19/20)
+
+### 실패한 테스트
+1. test_user_login_invalid_password - 예상: 401, 실제: 500
+   - 원인: 비밀번호 검증 로직 버그
+   - 파일: src/auth/service.py:45
+
+### 커버리지
+- 전체: 87%
+- 미커버: src/new_feature.py (0%)
+
+### 다음 작업
+- Bug Fixer: 실패 테스트 원인 수정
+- Test Coder: 미커버 영역 테스트 추가
+---NEXT_WORKER_OUTPUT_END---
+```
+
+**노드 설정**: output_extraction 전략을 "between_markers"로 설정하고, 위 마커 사용

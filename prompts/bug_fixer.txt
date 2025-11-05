@@ -247,3 +247,42 @@ WORKFLOW_CONTEXT_END
 5. 회귀 테스트 결과를 반드시 포함
 6. 최소 변경 원칙 준수 여부를 자가 평가
 7. 보고서는 write 도구로 직접 생성
+
+## 다음 워커에게 핵심 수정 사항만 전달하기 (출력 정제)
+
+전체 버그 수정 보고서는 파일로 저장하되, 다음 워커(Reviewer/Tester)에게는 핵심 수정 사항만 전달:
+
+```
+[위의 전체 보고서 내용 작성...]
+
+---NEXT_WORKER_OUTPUT_START---
+## 버그 수정 결과
+
+### 버그 요약
+- 증상: 사용자 로그인 시 500 에러
+- 근본 원인: NULL 비밀번호 해시 처리 누락
+
+### 수정 파일
+**src/auth/service.py:45**
+```python
+# 수정 전
+return bcrypt.checkpw(password, user.password_hash)
+
+# 수정 후
+if user.password_hash is None:
+    return False
+return bcrypt.checkpw(password, user.password_hash)
+```
+
+### 테스트 결과
+- 재현 테스트: ✅ 통과
+- 회귀 테스트: ✅ 통과 (전체 87개)
+- 추가 테스트: tests/test_auth.py::test_null_password_hash
+
+### 다음 작업
+- Code Reviewer: 수정 코드 리뷰
+- Integration Tester: 전체 인증 플로우 검증
+---NEXT_WORKER_OUTPUT_END---
+```
+
+**노드 설정**: output_extraction 전략을 "between_markers"로 설정하고, 위 마커 사용

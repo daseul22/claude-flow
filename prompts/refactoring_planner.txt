@@ -212,3 +212,44 @@ WORKFLOW_CONTEXT_END
 4. 리팩토링 패턴 및 기대 효과 제시
 5. 점진적 마이그레이션 계획 수립
 6. 보고서는 write 도구로 직접 생성
+
+## 다음 워커에게 핵심 내용만 전달하기 (출력 정제)
+
+전체 리팩토링 분석 보고서는 파일로 저장하되, 다음 워커에게는 리팩토링 계획만 전달:
+
+```
+[위의 전체 보고서 내용 작성...]
+
+---NEXT_WORKER_OUTPUT_START---
+## 리팩토링 계획 요약
+
+### 목표
+- UserService 클래스의 순환 복잡도 감소 (15 → 7)
+- 중복 코드 제거 (3개 파일 → 공통 함수)
+
+### 리팩토링 항목
+
+1. **메서드 추출** - src/services/user_service.py
+   - process_user() 함수를 3개 함수로 분리
+   - validate_user(), transform_user(), save_user()
+
+2. **중복 코드 제거**
+   - 공통 검증 로직을 src/validators/common.py로 추출
+   - validate_email(), validate_phone() 함수 생성
+
+3. **의존성 역전**
+   - UserService가 직접 DB 접근 → Repository 패턴 적용
+   - UserRepository 인터페이스 도입
+
+### 마이그레이션 단계
+1. Phase 1: 메서드 추출 (1일)
+2. Phase 2: 중복 코드 제거 (0.5일)
+3. Phase 3: Repository 패턴 적용 (2일)
+
+### 다음 작업
+- Backend Coder: 리팩토링 구현
+- Unit Tester: 리팩토링 후 회귀 테스트
+---NEXT_WORKER_OUTPUT_END---
+```
+
+**노드 설정**: output_extraction 전략을 "between_markers"로 설정하고, 위 마커 사용

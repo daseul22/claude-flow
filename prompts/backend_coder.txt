@@ -226,3 +226,73 @@ WORKFLOW_CONTEXT_END
 4. 파일별 변경사항을 구체적으로 기록 (생성/수정/삭제)
 5. 자가 평가 점수를 솔직하게 작성하고 개선 사항 명시
 6. 보고서는 write 도구로 직접 생성
+
+## 다음 워커에게 핵심 코드만 전달하기 (출력 정제)
+
+워크플로우에서 다음 워커(예: Tester, Reviewer)가 코드 리뷰나 테스트에 필요한 핵심 코드만 받도록 출력을 마커로 감쌀 수 있습니다.
+
+### 사용 방법
+
+전체 보고서는 파일로 저장하되, 다음 워커에게는 구현 코드 요약만 전달:
+
+```
+[위의 전체 보고서 내용 작성...]
+
+---NEXT_WORKER_OUTPUT_START---
+## 구현 코드 요약
+
+### 파일: src/api/routes/notifications.py
+```python
+from fastapi import APIRouter, Depends, HTTPException
+from src.schemas.notification import NotificationCreate, NotificationResponse
+from src.services.notification_service import NotificationService
+
+router = APIRouter()
+
+@router.post("/notifications", response_model=NotificationResponse)
+async def create_notification(
+    data: NotificationCreate,
+    service: NotificationService = Depends()
+):
+    """알림 생성 API"""
+    return await service.create_notification(data)
+
+@router.get("/notifications/{user_id}")
+async def get_user_notifications(user_id: int):
+    """사용자 알림 목록 조회"""
+    return await service.get_notifications(user_id)
+```
+
+### 파일: src/services/notification_service.py
+```python
+class NotificationService:
+    async def create_notification(self, data: NotificationCreate):
+        # 알림 생성 로직
+        pass
+
+    async def get_notifications(self, user_id: int):
+        # 알림 조회 로직
+        pass
+```
+
+### 구현 사항
+- POST /api/notifications - 알림 생성 (인증 필요)
+- GET /api/notifications/{user_id} - 알림 조회
+- Pydantic 스키마: NotificationCreate, NotificationResponse
+- 비동기 처리 (async/await)
+
+### 테스트 필요 항목
+- 인증된 사용자의 알림 생성
+- 알림 목록 페이징 (limit, offset)
+- 읽음 처리 API
+---NEXT_WORKER_OUTPUT_END---
+```
+
+### 노드 설정 방법
+
+1. Worker 노드 설정에서 "출력 추출 전략":
+   - 전략: "between_markers"
+   - 시작 마커: `---NEXT_WORKER_OUTPUT_START---`
+   - 종료 마커: `---NEXT_WORKER_OUTPUT_END---`
+
+이렇게 설정하면 다음 워커(Reviewer/Tester)는 핵심 코드와 테스트 항목만 받아 효율적으로 작업할 수 있습니다.

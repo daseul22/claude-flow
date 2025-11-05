@@ -19,8 +19,10 @@ from src.presentation.web.schemas.workflow import (
     WorkerNodeData,
     TokenUsage,
 )
+from src.presentation.web.schemas.workflow_nodes import OutputExtractionConfig
 from src.presentation.web.services.workflow_utils import (
     extract_text_from_worker_output,
+    extract_text_with_strategy,
     classify_chunk_type,
 )
 from .base import BaseNodeExecutor
@@ -67,6 +69,7 @@ class WorkerNodeExecutor(BaseNodeExecutor):
             task_template,
             allowed_tools_override,
             thinking_override,
+            output_extraction,
         ) = self._parse_worker_node_data(node, session_id)
 
         # 2. Agent 설정 준비 (오버라이드 적용)
@@ -223,15 +226,23 @@ class WorkerNodeExecutor(BaseNodeExecutor):
                 )
                 yield output_event
 
-            # 최종 텍스트 추출
+            # 최종 텍스트 추출 (출력 추출 전략 적용)
             full_output = "".join(node_output_chunks)
-            final_text = extract_text_from_worker_output(full_output)
+            final_text = extract_text_with_strategy(full_output, output_extraction)
             node_outputs[node_id] = final_text
 
-            logger.info(
-                f"[{session_id}] 노드 출력 처리 완료: {node_id} "
-                f"(전체: {len(full_output)}자, 최종 텍스트: {len(final_text)}자)"
-            )
+            # 출력 추출 전략 로깅
+            if output_extraction:
+                logger.info(
+                    f"[{session_id}] 노드 출력 처리 완료: {node_id} "
+                    f"(전체: {len(full_output)}자, 최종 텍스트: {len(final_text)}자, "
+                    f"추출 전략: {output_extraction.strategy})"
+                )
+            else:
+                logger.info(
+                    f"[{session_id}] 노드 출력 처리 완료: {node_id} "
+                    f"(전체: {len(full_output)}자, 최종 텍스트: {len(final_text)}자)"
+                )
 
             # SDK 세션 ID 저장
             if worker.last_session_id:
@@ -398,9 +409,9 @@ class WorkerNodeExecutor(BaseNodeExecutor):
                 logger.debug(f"📝 이벤트 생성: node_output (node: {node_id}, type: {chunk_type})")
                 yield output_event
 
-            # 최종 텍스트 추출
+            # 최종 텍스트 추출 (추가 프롬프트 실행 시에는 기본 전략 사용)
             full_output = "".join(node_output_chunks)
-            final_text = extract_text_from_worker_output(full_output)
+            final_text = extract_text_with_strategy(full_output, extraction_config=None)
 
             logger.info(
                 f"노드 출력 처리 완료: {node_id} "
@@ -453,7 +464,7 @@ class WorkerNodeExecutor(BaseNodeExecutor):
 
     def _parse_worker_node_data(
         self, node: WorkflowNode, session_id: str
-    ) -> tuple[str, str, Optional[List[str]], Optional[str]]:
+    ) -> tuple[str, str, Optional[List[str]], Optional[str], Optional[OutputExtractionConfig]]:
         """
         Worker 노드 데이터 파싱
 
@@ -462,7 +473,7 @@ class WorkerNodeExecutor(BaseNodeExecutor):
             session_id: 세션 ID
 
         Returns:
-            tuple: (agent_name, task_template, allowed_tools_override, thinking_override)
+            tuple: (agent_name, task_template, allowed_tools_override, thinking_override, output_extraction)
 
         Raises:
             ValueError: 필수 필드가 누락된 경우
@@ -474,6 +485,12 @@ class WorkerNodeExecutor(BaseNodeExecutor):
             task_template = node.data.get("task_template")
             allowed_tools_override = node.data.get("allowed_tools")
             thinking_override = node.data.get("thinking")
+            output_extraction_dict = node.data.get("output_extraction")
+
+            # dict를 OutputExtractionConfig로 변환 (옵션)
+            output_extraction = None
+            if output_extraction_dict:
+                output_extraction = OutputExtractionConfig(**output_extraction_dict)
 
             if not agent_name:
                 raise ValueError(f"노드 {node_id}: agent_name이 지정되지 않았습니다")
@@ -485,8 +502,9 @@ class WorkerNodeExecutor(BaseNodeExecutor):
             task_template = node_data.task_template
             allowed_tools_override = node_data.allowed_tools
             thinking_override = node_data.thinking
+            output_extraction = node_data.output_extraction
 
-        return agent_name, task_template, allowed_tools_override, thinking_override
+        return agent_name, task_template, allowed_tools_override, thinking_override, output_extraction
 
     def _prepare_worker_agent_config(
         self,

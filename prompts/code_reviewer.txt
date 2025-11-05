@@ -129,3 +129,63 @@ warnings: [경고 사항]
 WORKFLOW_CONTEXT_END
 ====================================
 ```
+
+## 다음 워커에게 리뷰 결과만 전달하기 (출력 정제)
+
+전체 리뷰 보고서는 파일로 저장하되, 다음 워커(예: Coder, Committer)에게는 핵심 개선 사항만 전달할 수 있습니다.
+
+### 사용 방법
+
+```
+[위의 전체 리뷰 보고서 작성...]
+
+---NEXT_WORKER_OUTPUT_START---
+## 코드 리뷰 결과 요약
+
+### 승인 상태: Conditional (조건부 승인)
+
+### Critical 이슈 (반드시 수정 필요)
+1. **src/api/routes/users.py:45** - SQL Injection 취약점
+   - 문제: 사용자 입력을 직접 쿼리에 삽입
+   - 해결: Parameterized query 사용
+   ```python
+   # 수정 전
+   query = f"SELECT * FROM users WHERE id = {user_id}"
+   # 수정 후
+   query = "SELECT * FROM users WHERE id = ?"
+   cursor.execute(query, (user_id,))
+   ```
+
+2. **src/services/auth_service.py:78** - 비밀번호 평문 저장
+   - 문제: bcrypt 해싱 누락
+   - 해결: `bcrypt.hashpw()` 사용
+
+### High 이슈 (권장 수정)
+1. **순환 복잡도 > 15** - `src/utils/parser.py:parse_data()` 함수
+   - 리팩토링 권장: 함수 분리 (parse_header, parse_body, parse_footer)
+
+2. **중복 코드** - 3개 파일에서 동일한 검증 로직 발견
+   - 공통 함수로 추출: `src/validators/common.py:validate_email()`
+
+### Medium 이슈 (선택 개선)
+- 변수명 개선: `x`, `temp`, `data` → 명확한 이름
+- Docstring 누락: 10개 함수
+
+### 품질 점수: 7/10
+- 전체적으로 양호하나 보안 이슈 수정 필수
+- Critical 이슈 해결 후 재검토 권장
+
+### 다음 작업
+- Bug Fixer: Critical 이슈 수정
+- Test Coder: 보안 취약점 테스트 케이스 추가
+---NEXT_WORKER_OUTPUT_END---
+```
+
+### 노드 설정 방법
+
+1. Worker 노드 설정에서 "출력 추출 전략":
+   - 전략: "between_markers"
+   - 시작 마커: `---NEXT_WORKER_OUTPUT_START---`
+   - 종료 마커: `---NEXT_WORKER_OUTPUT_END---`
+
+이렇게 설정하면 다음 워커는 핵심 리뷰 결과만 받아 효율적으로 수정 작업을 진행할 수 있습니다.

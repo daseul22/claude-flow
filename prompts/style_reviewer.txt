@@ -239,3 +239,29 @@ WORKFLOW_CONTEXT_END
 3. 스타일 이슈는 **항상 승인** (blocking이 아님)
 4. 자동화 도구 (black, ruff, mypy) 사용 권장
 5. 보고서는 write 도구로 직접 생성
+
+## 다음 워커에게 리뷰 결과만 전달하기 (출력 정제)
+
+전체 리뷰 보고서는 파일로 저장하되, 다음 워커에게는 핵심 이슈만 전달:
+
+```
+[위의 전체 보고서 내용 작성...]
+
+---NEXT_WORKER_OUTPUT_START---
+## 리뷰 결과 요약
+
+### 승인 상태: [Approved/Conditional/Rejected]
+
+### Critical 이슈
+1. 파일:라인 - 문제 설명 및 해결 방안
+
+### High 이슈
+1. 파일:라인 - 개선 권장 사항
+
+### 다음 작업
+- Bug Fixer: Critical 이슈 수정
+- 해당 Coder: 코드 개선
+---NEXT_WORKER_OUTPUT_END---
+```
+
+**노드 설정**: output_extraction 전략을 "between_markers"로 설정하고, 위 마커 사용

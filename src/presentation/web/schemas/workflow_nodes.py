@@ -8,6 +8,30 @@ from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
 
 
+class OutputExtractionConfig(BaseModel):
+    """
+    Worker 출력 추출 설정
+
+    Attributes:
+        strategy: 추출 전략 ('full', 'last_block', 'between_markers')
+        start_marker: 시작 마커 (between_markers 전략 시 필수)
+        end_marker: 종료 마커 (between_markers 전략 시 필수)
+    """
+
+    strategy: str = Field(
+        default="full",
+        description="추출 전략 (full: 전체, last_block: 마지막 블록, between_markers: 마커 사이)"
+    )
+    start_marker: Optional[str] = Field(
+        default=None,
+        description="시작 마커 (between_markers 전략 시 필수)"
+    )
+    end_marker: Optional[str] = Field(
+        default=None,
+        description="종료 마커 (between_markers 전략 시 필수)"
+    )
+
+
 class WorkerNodeData(BaseModel):
     """
     Worker 노드의 데이터 (개별 Worker Agent)
@@ -17,6 +41,7 @@ class WorkerNodeData(BaseModel):
         task_template: 작업 설명 템플릿 ({{input}} 등의 변수 지원)
         allowed_tools: 사용 가능한 도구 목록 (옵션, 미지정 시 기본 설정 사용)
         thinking: Thinking 모드 활성화 여부 (ultrathink 프롬프트 추가, 옵션)
+        output_extraction: 출력 추출 설정 (옵션, 미지정 시 전체 텍스트 추출)
         parallel_execution: 자식 노드를 병렬로 실행할지 여부 (기본: false)
         config: 추가 설정 (옵션)
     """
@@ -28,6 +53,9 @@ class WorkerNodeData(BaseModel):
     )
     thinking: Optional[bool] = Field(
         default=None, description="Thinking 모드 활성화 여부 (ultrathink 프롬프트 추가, 옵션)"
+    )
+    output_extraction: Optional[OutputExtractionConfig] = Field(
+        default=None, description="출력 추출 설정 (옵션, 미지정 시 전체 텍스트 추출)"
     )
     parallel_execution: Optional[bool] = Field(
         default=False, description="자식 노드를 병렬로 실행할지 여부 (기본: false)"
