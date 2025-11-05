@@ -4,6 +4,7 @@
 Condition 노드와 Merge 노드의 실행 로직을 담당합니다.
 """
 
+import ast
 from typing import Dict, Tuple, List
 from src.presentation.web.schemas.workflow import (
     WorkflowNode,
@@ -49,6 +50,71 @@ class WorkflowConditionEvaluator:
             List[str]: 부모 노드 ID 목록
         """
         return [edge.source for edge in edges if edge.target == node_id]
+
+    @staticmethod
+    def _is_safe_ast_node(node: ast.AST) -> bool:
+        """
+        BUG-003 FIX: AST 노드가 안전한지 검증 (RCE 방지)
+
+        허용되는 노드 타입만 화이트리스트로 검증합니다.
+        허용: 상수, 변수, 산술/비교/논리 연산, 안전한 함수 호출
+        차단: 위험한 함수 호출, 속성 접근, 임포트 등
+
+        Args:
+            node: AST 노드
+
+        Returns:
+            bool: 안전한 노드 여부
+        """
+        # 허용된 노드 타입 (화이트리스트)
+        SAFE_NODE_TYPES = (
+            ast.Expression,  # 표현식 루트
+            ast.Constant,    # 상수 (리터럴)
+            ast.Name,        # 변수 이름
+            ast.Load,        # 변수 로드
+            ast.BinOp,       # 이항 연산 (+, -, *, /, //, %, **)
+            ast.UnaryOp,     # 단항 연산 (+, -, not)
+            ast.Compare,     # 비교 연산 (==, !=, <, >, <=, >=, in, not in, is, is not)
+            ast.BoolOp,      # 논리 연산 (and, or)
+            ast.Call,        # 함수 호출 (안전한 함수만 허용, 아래에서 검증)
+            # 연산자 타입들
+            ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
+            ast.UAdd, ast.USub, ast.Not, ast.Invert,
+            ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.Is, ast.IsNot, ast.In, ast.NotIn,
+            ast.And, ast.Or,
+        )
+
+        # 허용된 함수 이름 (화이트리스트)
+        SAFE_FUNCTIONS = {
+            "len", "str", "int", "float", "bool",
+            "abs", "min", "max", "sum",
+            "round", "pow",
+        }
+
+        # 노드 타입 검증
+        if not isinstance(node, SAFE_NODE_TYPES):
+            logger.warning(f"허용되지 않은 AST 노드 타입: {type(node).__name__}")
+            return False
+
+        # Call 노드의 경우 함수 이름 검증
+        if isinstance(node, ast.Call):
+            # 함수 이름 추출
+            if isinstance(node.func, ast.Name):
+                func_name = node.func.id
+                if func_name not in SAFE_FUNCTIONS:
+                    logger.warning(f"허용되지 않은 함수 호출: {func_name}")
+                    return False
+            else:
+                # 함수가 Name이 아닌 경우 (예: obj.method()) 차단
+                logger.warning(f"허용되지 않은 함수 호출 형태: {type(node.func).__name__}")
+                return False
+
+        # 재귀적으로 자식 노드 검증
+        for child in ast.iter_child_nodes(node):
+            if not WorkflowConditionEvaluator._is_safe_ast_node(child):
+                return False
+
+        return True
 
     async def evaluate_llm_condition(
         self,
@@ -138,16 +204,25 @@ class WorkflowConditionEvaluator:
             lines = response_text.strip().split("\n")
             result = False
             reason = ""
+            reason_start_index = -1  # "이유:" 줄의 인덱스
 
-            for line in lines:
-                line = line.strip()
-                if line.startswith("판단:"):
-                    decision = line.replace("판단:", "").strip().upper()
+            for i, line in enumerate(lines):
+                line_stripped = line.strip()
+                if line_stripped.startswith("판단:"):
+                    decision = line_stripped.replace("판단:", "").strip().upper()
                     result = decision in ["YES", "Y", "TRUE", "예", "네"]
                     logger.debug(f"[{session_id}] 판단 파싱: '{decision}' → {result}")
-                elif line.startswith("이유:"):
-                    reason = line.replace("이유:", "").strip()
-                    logger.debug(f"[{session_id}] 이유 파싱: '{reason}'")
+                elif line_stripped.startswith("이유:") and reason_start_index == -1:
+                    # "이유:" 줄의 인덱스 저장 (첫 번째만)
+                    reason_start_index = i
+
+            # "이유:" 이후의 모든 텍스트를 reason으로 추출
+            if reason_start_index >= 0:
+                reason_lines = lines[reason_start_index:]
+                # 첫 줄에서 "이유:" 제거
+                reason_lines[0] = reason_lines[0].replace("이유:", "").strip()
+                reason = "\n".join(reason_lines).strip()
+                logger.debug(f"[{session_id}] 이유 파싱 완료: {len(reason)} 문자 (여러 줄 지원)")
 
             # 파싱 실패 시 전체 응답 사용
             if not reason:
@@ -222,9 +297,22 @@ class WorkflowConditionEvaluator:
                 return False
 
         elif condition_type == "custom":
-            # 커스텀 Python 표현식 평가
+            # BUG-003 FIX: eval() 제거, AST 안전 파싱으로 교체
+            # 커스텀 Python 표현식을 안전하게 평가 (RCE 방지)
             try:
-                # 안전한 평가를 위해 제한된 네임스페이스 사용
+                # 1. AST 파싱
+                tree = ast.parse(condition_value, mode='eval')
+
+                # 2. AST 노드 화이트리스트 검증
+                if not WorkflowConditionEvaluator._is_safe_ast_node(tree):
+                    logger.error(
+                        f"커스텀 조건에 허용되지 않은 표현식이 포함되어 있습니다: {condition_value}\n"
+                        f"허용된 표현식: 변수, 상수, 산술/비교/논리 연산만 가능\n"
+                        f"차단된 표현식: 함수 호출, 속성 접근, 임포트, 람다 등"
+                    )
+                    return False
+
+                # 3. 안전한 네임스페이스로 컴파일 및 실행
                 namespace = {
                     "output": input_text,
                     "len": len,
@@ -232,8 +320,13 @@ class WorkflowConditionEvaluator:
                     "int": int,
                     "float": float,
                 }
-                result = eval(condition_value, {"__builtins__": {}}, namespace)
+                compiled = compile(tree, '<string>', 'eval')
+                result = eval(compiled, {"__builtins__": {}}, namespace)
                 return bool(result)
+
+            except SyntaxError as e:
+                logger.error(f"커스텀 조건 구문 오류: {e}")
+                return False
             except Exception as e:
                 logger.error(f"커스텀 조건 평가 오류: {e}")
                 return False
@@ -300,21 +393,27 @@ class WorkflowConditionEvaluator:
                 node_data.condition_type, node_data.condition_value, parent_output
             )
 
-        logger.info(f"[{session_id}] 조건 평가 결과: {condition_result} (입력 길이: {len(parent_output)})")
-
         # max_iterations 체크 (반복 제한)
         # max_iterations가 None인 경우 기본값 10 사용
         max_iterations = node_data.max_iterations if node_data.max_iterations is not None else 10
+        original_result = condition_result  # 원래 결과 저장 (로깅용)
 
         if current_iteration >= max_iterations:
             logger.warning(
                 f"[{session_id}] 조건 노드 {node_id}: "
                 f"최대 반복 횟수 도달 ({current_iteration}/{max_iterations}). "
-                f"강제로 true 경로로 이동합니다."
+                f"원래 결과({original_result})를 무시하고 강제로 true 경로로 이동합니다."
             )
             # 최대 반복 횟수 도달 시 강제로 true 경로로 이동
             condition_result = True
             llm_reason = f"최대 반복 횟수 도달 ({max_iterations}회)"
+
+        # 최종 조건 평가 결과 로깅
+        logger.info(
+            f"[{session_id}] 조건 평가 최종 결과: {condition_result} "
+            f"(원래: {original_result}, 입력 길이: {len(parent_output)}, "
+            f"반복: {current_iteration}/{max_iterations})"
+        )
 
         # 분기 경로 결정 (엣지의 sourceHandle을 사용)
         next_node_id = None
@@ -336,8 +435,8 @@ class WorkflowConditionEvaluator:
 
         # 조건 결과를 텍스트로 변환
         result_text = f"조건 평가 결과: {condition_result}\n"
-        result_text += f"반복 횟수: {current_iteration}/{max_iterations}"
-        result_text += f"\n분기: {next_node_id}"
+        result_text += f"반복 횟수: {current_iteration}/{max_iterations}\n"  # 줄바꿈 추가
+        result_text += f"분기: {next_node_id}"
 
         if llm_reason:
             result_text += f"\nLLM 판단 이유: {llm_reason}"
