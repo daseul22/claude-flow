@@ -262,7 +262,7 @@ Worker가 `@ASK_USER: 질문내용` 패턴 출력 → Frontend가 AskUserModal �
 
 ## 프롬프트 라이브러리
 
-`prompts/` 디렉토리에 47개의 사전 정의 Worker 프롬프트 제공:
+`prompts/` 디렉토리에 69개의 사전 정의 Worker 프롬프트 제공:
 
 - `feature_planner.txt`: 기능 기획
 - `backend_coder.txt`: 백엔드 코딩
@@ -271,7 +271,7 @@ Worker가 `@ASK_USER: 질문내용` 패턴 출력 → Frontend가 AskUserModal �
 - `test_coder.txt`: 테스트 코드 작성
 - `security_reviewer.txt`: 보안 리뷰
 - `documenter.txt`: 문서화
-- 등 (총 47개)
+- 등 (총 69개)
 
 ### 프롬프트 자동 등록 시스템
 
@@ -726,7 +726,7 @@ async def browse_directory(path: Optional[str] = None):
 
 **영향**:
 - ✅ Zero-configuration: 설정 없이 자동으로 핵심 출력만 추출
-- ✅ 프롬프트 호환성: 기존 47개 프롬프트와 완벽 호환
+- ✅ 프롬프트 호환성: 기존 69개 프롬프트와 완벽 호환
 - ✅ 유연성 유지: 사용자가 원하면 여전히 커스텀 마커 사용 가능
 - ✅ 컨텍스트 절감: 불필요한 보고서 내용이 다음 노드로 전달되지 않음
 

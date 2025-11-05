@@ -244,8 +244,7 @@ class WorkerAgent:
         last_session_id (str, optional): 마지막 실행의 세션 ID
 
     Methods:
-        query(): Worker에게 작업 전달 (스트리밍 응답)
-        resume_session(): 이전 세션 재개 (컨텍스트 유지)
+        query(): Worker에게 작업 전달 (스트리밍 응답, resume_session_id로 세션 재개 지원)
     """
 
     def __init__(
@@ -799,6 +798,9 @@ class WorkflowNodeExecutor:
 #### 3.1 BaseNodeExecutor (추상 베이스)
 
 ```python
+from abc import ABC, abstractmethod
+from typing import AsyncIterator
+
 class BaseNodeExecutor(ABC):
     """
     노드 실행기 베이스 클래스 (Abstract Base Class)
@@ -814,25 +816,31 @@ class BaseNodeExecutor(ABC):
     async def execute(
         self,
         node: WorkflowNode,
-        edges: List[WorkflowEdge],
-        node_outputs: Dict[str, str],
+        node_outputs: dict[str, str],
         initial_input: str,
         session_id: str,
-    ) -> WorkflowNodeExecutionEvent:
+        edges: list[WorkflowEdge],
+        all_nodes: list[WorkflowNode],
+        condition_evaluator: ConditionEvaluatorProtocol,
+        template_renderer: TemplateRendererProtocol,
+    ) -> AsyncIterator[WorkflowNodeExecutionEvent]:
         """
         노드 실행 (구현 필수)
 
         Args:
-            node: 워크플로우 노드
-            edges: 엣지 목록
-            node_outputs: 이전 노드 출력 (node_id → output)
-            initial_input: 워크플로우 초기 입력
+            node: 실행할 노드
+            node_outputs: 이전 노드 출력들 (node_id → output)
+            initial_input: 초기 입력
             session_id: 세션 ID
+            edges: 엣지 목록
+            all_nodes: 모든 노드 목록
+            condition_evaluator: 조건 평가기 인스턴스
+            template_renderer: 템플릿 렌더러 인스턴스
 
-        Returns:
-            WorkflowNodeExecutionEvent: 실행 결과
-                - event_type: 'node_complete'
-                - output: 노드 출력
+        Yields:
+            WorkflowNodeExecutionEvent: 노드 실행 이벤트 (스트리밍)
+                - event_type: 'node_start', 'node_output', 'node_complete'
+                - output: 노드 출력 (node_complete 시)
                 - timestamp: 실행 시각
         """
         ...
@@ -878,7 +886,8 @@ class WorkerNodeExecutor(BaseNodeExecutor):
     - agent_name (str): Worker 이름 (예: 'backend_coder')
     - task_template (str): Jinja2 템플릿
         - {{input}}: 초기 입력
-        - {{node_1.output}}: 다른 노드의 출력
+        - {{node_<id>}}: 다른 노드의 출력 (예: {{node_1}})
+        - {{parent}}: 부모 노드의 출력 (부모가 1개인 경우만)
     - allowed_tools (List[str]): 도구 목록 (오버라이드)
     - thinking (bool): Thinking 모드 (오버라이드)
     - output_extraction (Dict, optional): 출력 추출 설정
@@ -1101,7 +1110,8 @@ class WorkflowTemplateRenderer:
 
     **변수 치환**:
     - {{input}}: 워크플로우 초기 입력
-    - {{node_id.output}}: 특정 노드의 출력
+    - {{node_<id>}}: 특정 노드의 출력 (예: {{node_reviewer}})
+    - {{parent}}: 부모 노드의 출력 (부모가 1개인 경우만)
 
     **예시**:
     ```
@@ -1109,7 +1119,7 @@ class WorkflowTemplateRenderer:
     {{input}}
 
     이전 코드 리뷰 결과:
-    {{review_worker.output}}
+    {{node_reviewer}}
 
     위의 피드백을 반영하여 코드를 개선해주세요.
     ```

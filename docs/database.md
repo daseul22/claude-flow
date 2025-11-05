@@ -378,8 +378,11 @@ erDiagram
 ```json
 {
   "session_id": "uuid-v4",
+  "project_path": "/Users/user/project",
+  "workflow_id": "workflow-uuid",
   "workflow_snapshot": { /* Workflow */ },
   "initial_input": "User input",
+  "start_node_id": "node_1",
   "status": "completed",
   "node_sessions": {
     "node_1": "claude-sdk-session-id-1",
@@ -395,8 +398,11 @@ erDiagram
     "output_tokens": 500,
     "total_tokens": 1500
   },
+  "error_message": null,
   "created_at": "2025-11-05T10:00:00Z",
-  "completed_at": "2025-11-05T10:05:30Z"
+  "started_at": "2025-11-05T10:00:01Z",
+  "completed_at": "2025-11-05T10:05:30Z",
+  "updated_at": "2025-11-05T10:05:30Z"
 }
 ```
 

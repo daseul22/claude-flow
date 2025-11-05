@@ -139,7 +139,7 @@ Claude Flow는 다음 아키텍처 스타일을 혼합하여 사용합니다:
 │  │  ┌─────────────────────────────────────────────────┐  │  │
 │  │  │  claude/                                        │  │  │
 │  │  │  - WorkerAgent (Claude SDK 래퍼)               │  │  │
-│  │  │  - SDKExecutor (Template Method)               │  │  │
+│  │  │  - SDKResponseHandler (Template Method)        │  │  │
 │  │  │  - AgentHooks (Human-in-the-Loop)              │  │  │
 │  │  └─────────────────────────────────────────────────┘  │  │
 │  │  ┌─────────────────────────────────────────────────┐  │  │
@@ -217,7 +217,7 @@ Infrastructure ─────────────────────�
    ```python
    @dataclass
    class Message:
-       role: Role       # user, assistant, system
+       role: Role       # user, agent, manager, system
        content: str     # 메시지 내용
        timestamp: str   # 생성 시각
    ```
@@ -226,7 +226,8 @@ Infrastructure ─────────────────────�
    ```python
    class Role(str, Enum):
        USER = "user"
-       ASSISTANT = "assistant"
+       AGENT = "agent"
+       MANAGER = "manager"
        SYSTEM = "system"
    ```
 
@@ -294,9 +295,9 @@ class WorkerAgent:
         # Thinking 모드 지원 (ultrathink 프롬프트 추가)
 ```
 
-**SDKExecutor** (`sdk_executor.py`):
-- Template Method Pattern
-- `WorkerSDKExecutor`: 스트리밍 응답 처리
+**SDKResponseHandler** (`sdk_executor.py`):
+- Template Method Pattern (추상 베이스 클래스)
+- `WorkerSDKExecutor`: 스트리밍 응답 처리 (구체 구현)
 - `WorkerResponseHandler`: 응답 파싱 및 토큰 사용량 추출
 
 #### 3.3.2 설정 관리 (`infrastructure/config/`)
@@ -507,8 +508,9 @@ app.mount("/", StaticFiles(directory="static-react", html=True))
            # 순환 참조 감지
            # 실행 순서 결정
 
-       def calculate_execution_groups(self, ...):
+       def get_execution_groups(self, sorted_nodes: List[WorkflowNode]):
            """병렬 실행 가능한 노드 그룹 계산"""
+           # topological_sort 결과를 바탕으로 병렬 그룹 구성
            # 같은 그룹 내 노드는 병렬 실행
    ```
 
@@ -681,17 +683,23 @@ class WorkflowGraphManager:
             노드 ID 리스트 (실행 순서)
         """
 
-    def calculate_execution_groups(self, sorted_node_ids, edges) -> List[List[str]]:
+    def get_execution_groups(self, sorted_nodes) -> List[List[WorkflowNode]]:
         """
         병렬 실행 가능한 노드 그룹 계산
 
+        topological_sort() 결과를 바탕으로 병렬 실행 가능한 노드들을 그룹화합니다.
+
         알고리즘:
         1. 각 노드의 최대 깊이 계산 (루트부터 거리)
-        2. 같은 깊이의 노드들을 그룹화
+        2. 같은 깊이이면서 서로 의존하지 않는 노드들을 그룹화
         3. 그룹 내 노드는 병렬 실행 가능
 
         Returns:
-            [[node_1, node_2], [node_3], ...] (그룹별 노드 ID)
+            [[node_1, node_2], [node_3], ...] (그룹별 노드 리스트)
+
+        Note: 실제 구현에서는 topological_sort()의 결과로
+              노드 실행 순서가 결정되며, 병렬 실행은 각 노드의
+              parallel_execution 플래그로 제어됩니다.
         """
 ```
 
@@ -835,53 +843,37 @@ class WorkflowNodeExecutor:
 
 ### 5.2 Template Method Pattern (템플릿 메서드 패턴)
 
-**적용 위치**: `SDKExecutor`
+**적용 위치**: `SDKResponseHandler` (`src/infrastructure/claude/sdk_executor.py`)
 
-**목적**: 실행 흐름은 고정하고 특정 단계만 서브클래스에서 커스터마이즈
+**목적**: SDK 응답 처리 흐름을 추상화하고, 특정 처리 로직만 서브클래스에서 구현
 
 **구조**:
 ```python
-class SDKExecutor(ABC):
-    """템플릿 메서드 패턴 - 실행 흐름 정의"""
-
-    async def query(self, task: str, stream: bool = True):
-        """템플릿 메서드 (실행 흐름 고정)"""
-        # 1. 사전 처리
-        config = self.prepare_config(task)
-
-        # 2. SDK 실행 (서브클래스에서 구현)
-        async for response in self.execute_sdk(config):
-            # 3. 응답 처리 (서브클래스에서 구현)
-            processed = self.process_response(response)
-            yield processed
-
-        # 4. 사후 처리
-        self.cleanup()
+class SDKResponseHandler(ABC):
+    """SDK 응답 핸들러 - Template Method Pattern"""
 
     @abstractmethod
-    def prepare_config(self, task: str) -> SDKExecutionConfig:
-        """서브클래스에서 구현"""
+    async def process_response(self, response: Any) -> AsyncIterator[str]:
+        """응답 처리 및 텍스트 추출 (서브클래스에서 구현)
+
+        Args:
+            response: SDK 응답 객체
+
+        Yields:
+            str: 추출된 텍스트 청크
+        """
         pass
 
-    @abstractmethod
-    async def execute_sdk(self, config: SDKExecutionConfig):
-        """서브클래스에서 구현"""
-        pass
+class WorkerSDKExecutor(SDKResponseHandler):
+    """구체 구현 - Claude SDK 응답 처리"""
 
-class WorkerSDKExecutor(SDKExecutor):
-    """구체 구현 - Claude SDK 실행"""
-
-    def prepare_config(self, task: str) -> SDKExecutionConfig:
-        return SDKExecutionConfig(
-            system_prompt=self.system_prompt,
-            allowed_tools=self.allowed_tools,
-            model=self.model,
-        )
-
-    async def execute_sdk(self, config: SDKExecutionConfig):
-        # Claude SDK 호출
-        async for chunk in claude_sdk.run(config):
-            yield chunk
+    async def process_response(self, response: Any) -> AsyncIterator[str]:
+        """Claude SDK 응답에서 텍스트 청크 추출"""
+        # AssistantMessage, ResultMessage 등에서 텍스트 추출
+        if hasattr(response, 'content'):
+            for block in response.content:
+                if hasattr(block, 'text'):
+                    yield block.text
 ```
 
 ### 5.3 Facade Pattern (파사드 패턴)
@@ -1234,7 +1226,7 @@ eventSource.onmessage = (event) => {
 │  ┌────────────────────────────────────────────────────┐ │
 │  │  claude/                                           │ │
 │  │  - WorkerAgent (SDK 래퍼)                          │ │
-│  │  - SDKExecutor (Template Method)                   │ │
+│  │  - SDKResponseHandler (Template Method)            │ │
 │  │  - AgentHooks (Human-in-the-Loop)                  │ │
 │  └────────────────────────────────────────────────────┘ │
 │  ┌────────────────────────────────────────────────────┐ │
