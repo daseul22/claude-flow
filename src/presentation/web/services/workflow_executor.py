@@ -184,6 +184,61 @@ class WorkflowExecutor:
         """
         return [edge.source for edge in edges if edge.target == node_id]
 
+    def _find_input_node(
+        self, workflow: Workflow, start_node_id: Optional[str] = None
+    ) -> str:
+        """
+        워크플로우의 시작 노드(Input 노드) 찾기
+
+        Args:
+            workflow: 워크플로우 객체
+            start_node_id: 지정된 시작 노드 ID (옵션)
+
+        Returns:
+            str: Input 노드 ID
+
+        Raises:
+            ValueError: Input 노드를 찾을 수 없는 경우
+        """
+        if start_node_id:
+            # 지정된 시작 노드 확인
+            start_node = next((n for n in workflow.nodes if n.id == start_node_id), None)
+            if not start_node:
+                raise ValueError(f"지정된 시작 노드를 찾을 수 없습니다: {start_node_id}")
+            if start_node.type != "input":
+                raise ValueError(
+                    f"시작 노드는 Input 노드여야 합니다: {start_node_id} (타입: {start_node.type})"
+                )
+            return start_node_id
+
+        # Input 노드 찾기
+        input_nodes = [node for node in workflow.nodes if node.type == "input"]
+        if not input_nodes:
+            raise ValueError("워크플로우에 Input 노드가 없습니다. Input 노드에서 시작해야 합니다.")
+
+        # 첫 번째 Input 노드 사용
+        return input_nodes[0].id
+
+    def _can_execute_merge_node(
+        self,
+        node_id: str,
+        executed_nodes: Set[str],
+        graph_manager: WorkflowGraphManager,
+    ) -> bool:
+        """
+        Merge 노드 실행 가능 여부 확인 (모든 부모 노드 완료 확인)
+
+        Args:
+            node_id: Merge 노드 ID
+            executed_nodes: 이미 실행된 노드 ID 집합
+            graph_manager: 그래프 관리자
+
+        Returns:
+            bool: 실행 가능 여부 (모든 부모 노드가 완료되었으면 True)
+        """
+        parent_nodes = graph_manager.get_parent_nodes(node_id)
+        return all(parent_id in executed_nodes for parent_id in parent_nodes)
+
     async def execute_single_node_continue(
         self,
         node_id: str,
@@ -221,7 +276,12 @@ class WorkflowExecutor:
         start_node_id: Optional[str] = None,
     ) -> AsyncIterator[WorkflowNodeExecutionEvent]:
         """
-        워크플로우 실행 (스트리밍, 병렬 실행 지원)
+        워크플로우 실행 (동적 노드 선택, Condition 분기 지원)
+
+        **v4.1.0 변경사항**: 위상 정렬 대신 동적 노드 선택 방식으로 전환
+        - Condition 노드의 next_node_id를 정확히 반영
+        - Merge 노드의 대기 로직 개선
+        - 중복 실행 방지 (executed_nodes Set)
 
         Args:
             workflow: 실행할 워크플로우
@@ -248,50 +308,70 @@ class WorkflowExecutor:
         self.user_input_queues[session_id] = user_input_queue
         logger.info(f"[{session_id}] 사용자 입력 Queue 생성 (Human-in-the-Loop 지원)")
 
-        # 실행 중인 병렬 태스크 추적 (취소 시 정리용)
-        running_tasks: List[asyncio.Task] = []
-
         try:
             logger.info(
-                f"[{session_id}] 워크플로우 실행 시작: {workflow.name} "
+                f"[{session_id}] 워크플로우 실행 시작 (동적 실행): {workflow.name} "
                 f"(노드: {len(workflow.nodes)}, 엣지: {len(workflow.edges)})"
             )
 
             # WorkflowGraphManager 생성
             graph_manager = WorkflowGraphManager(workflow.nodes, workflow.edges)
 
-            # 위상 정렬
-            try:
-                sorted_nodes = graph_manager.topological_sort(start_node_id)
-            except ValueError as e:
-                logger.error(f"[{session_id}] 워크플로우 정렬 실패: {e}")
-                raise
+            # 노드 맵 생성 (빠른 조회)
+            node_map = {node.id: node for node in workflow.nodes}
 
-            logger.info(f"[{session_id}] 실행 순서: " f"{[node.id for node in sorted_nodes]}")
+            # 시작 노드 찾기 (Input 노드)
+            current_node_id = self._find_input_node(workflow, start_node_id)
+            logger.info(f"[{session_id}] 시작 노드: {current_node_id}")
 
-            # 실행 그룹 계산 (병렬 실행 그룹 포함)
-            execution_groups = graph_manager.compute_execution_groups(sorted_nodes)
-
-            logger.info(
-                f"[{session_id}] 실행 그룹: {len(execution_groups)}개 "
-                f"(병렬 그룹: {sum(1 for g in execution_groups if len(g) > 1)}개)"
-            )
-
-            # 노드 출력 저장 (노드 ID → 출력)
+            # 실행 추적
+            executed_nodes: Set[str] = set()
+            pending_merge_nodes: Set[str] = set()
             node_outputs: Dict[str, str] = {}
+            max_iterations = len(workflow.nodes) * 10  # 무한 루프 방지
+            iteration_count = 0
 
-            # 실행 그룹별로 처리 (병렬 실행 지원)
-            for group_idx, group in enumerate(execution_groups):
-                group_node_ids = [node.id for node in group]
-
-                if len(group) == 1:
-                    # 단독 실행
-                    node = group[0]
-                    logger.info(
-                        f"[{session_id}] 그룹 {group_idx + 1}/{len(execution_groups)}: "
-                        f"노드 {node.id} 단독 실행"
+            # === 동적 노드 실행 루프 ===
+            while current_node_id or pending_merge_nodes:
+                iteration_count += 1
+                if iteration_count > max_iterations:
+                    raise ValueError(
+                        f"워크플로우 실행 중 무한 루프 감지 (반복: {iteration_count}회). "
+                        f"현재 노드: {current_node_id}, Pending: {pending_merge_nodes}"
                     )
 
+                # 취소 확인
+                self._check_cancellation(session_id)
+
+                # === 현재 노드 실행 ===
+                if current_node_id:
+                    # 노드 조회
+                    node = node_map.get(current_node_id)
+                    if not node:
+                        raise ValueError(f"노드를 찾을 수 없습니다: {current_node_id}")
+
+                    # 중복 실행 방지 (Condition 노드는 피드백 루프를 위해 재실행 허용)
+                    if current_node_id in executed_nodes:
+                        if node.type == "condition":
+                            logger.info(
+                                f"[{session_id}] Condition 노드 재실행 허용: {current_node_id} "
+                                f"(피드백 루프)"
+                            )
+                            executed_nodes.remove(current_node_id)
+                        else:
+                            logger.warning(
+                                f"[{session_id}] 노드 중복 실행 방지: {current_node_id}"
+                            )
+                            current_node_id = None
+                            continue
+
+                    logger.info(
+                        f"[{session_id}] 노드 실행: {current_node_id} "
+                        f"(타입: {node.type}, 반복: {iteration_count})"
+                    )
+
+                    # 노드 실행 및 next_node_id 추출
+                    next_node_id = None
                     async for event in self.node_executor.execute_single_node(
                         node=node,
                         node_outputs=node_outputs,
@@ -305,99 +385,100 @@ class WorkflowExecutor:
                     ):
                         yield event
 
-                else:
-                    # 병렬 실행 (실시간 이벤트 스트리밍)
-                    logger.info(
-                        f"[{session_id}] 그룹 {group_idx + 1}/{len(execution_groups)}: "
-                        f"{len(group)}개 노드 병렬 실행 ({group_node_ids})"
-                    )
-
-                    # 이벤트 큐 생성
-                    event_queue: asyncio.Queue = asyncio.Queue()
-
-                    # 병렬 실행 태스크 생성
-                    tasks = [
-                        asyncio.create_task(
-                            self.node_executor.execute_node_and_queue_events(
-                                node=node,
-                                node_outputs=node_outputs,
-                                initial_input=initial_input,
-                                session_id=session_id,
-                                edges=workflow.edges,
-                                all_nodes=workflow.nodes,
-                                event_queue=event_queue,
-                                condition_evaluator=self.condition_evaluator,
-                                template_renderer=self.template_renderer,
-                                project_path=project_path,
-                            )
-                        )
-                        for node in group
-                    ]
-
-                    # 실행 중인 태스크 추적에 추가
-                    running_tasks.extend(tasks)
-
-                    # 완료된 노드 수 추적
-                    completed_nodes = 0
-                    total_nodes = len(group)
-
-                    # 실시간으로 이벤트를 스트리밍
-                    while completed_nodes < total_nodes:
-                        # 큐에서 이벤트 가져오기 (타임아웃 1초)
-                        try:
-                            event_or_exception = await asyncio.wait_for(
-                                event_queue.get(), timeout=1.0
+                        # Condition 노드의 경우 next_node_id 추출
+                        if (
+                            event.event_type == "node_complete"
+                            and node.type == "condition"
+                        ):
+                            next_node_id = event.data.get("next_node")
+                            logger.info(
+                                f"[{session_id}] Condition 분기: {current_node_id} → {next_node_id}"
                             )
 
-                            # 예외인 경우
-                            if isinstance(event_or_exception, Exception):
-                                error_msg = f"병렬 실행 중 노드 실패: {str(event_or_exception)}"
-                                logger.error(
-                                    f"[{session_id}] {error_msg}", exc_info=event_or_exception
-                                )
+                    # 실행 완료 표시
+                    executed_nodes.add(current_node_id)
 
-                                # 에러 이벤트 생성
-                                yield WorkflowNodeExecutionEvent(
-                                    event_type="node_error",
-                                    node_id="unknown",
-                                    data={"error": error_msg},
-                                    timestamp=datetime.now().isoformat(),
-                                )
+                    # === 다음 노드 결정 ===
+                    if next_node_id:
+                        # Case 1: Condition 노드가 지정한 경로 (피드백 루프 허용)
+                        # Condition 분기는 이전에 실행된 노드로도 돌아갈 수 있음
+                        if next_node_id in executed_nodes:
+                            logger.info(
+                                f"[{session_id}] 피드백 루프: {current_node_id} → {next_node_id} "
+                                f"(이미 실행된 노드로 재진입)"
+                            )
+                            # executed_nodes에서 제거하여 재실행 가능하게 함
+                            executed_nodes.remove(next_node_id)
+                        current_node_id = next_node_id
+                        logger.info(f"[{session_id}] 다음 노드 (Condition): {next_node_id}")
 
-                                # 모든 태스크 취소
-                                for task in tasks:
-                                    task.cancel()
+                    else:
+                        # Case 2: 일반 노드 → 자식 노드로
+                        children = graph_manager.get_child_nodes(current_node_id)
 
-                                raise event_or_exception
+                        if len(children) == 0:
+                            # 자식 없음: 종료
+                            current_node_id = None
+                            logger.info(f"[{session_id}] 자식 노드 없음, 종료 대기")
 
-                            # 정상 이벤트인 경우
-                            event = event_or_exception
-                            yield event
+                        elif len(children) == 1:
+                            # 단일 자식
+                            child_id = children[0]
+                            child_node = node_map.get(child_id)
 
-                            # 노드 완료/에러 이벤트 카운팅
-                            if event.event_type in ["node_complete", "node_error"]:
-                                completed_nodes += 1
-                                logger.info(
-                                    f"[{session_id}] 병렬 노드 완료: {event.node_id} "
-                                    f"({completed_nodes}/{total_nodes})"
-                                )
-
-                        except asyncio.TimeoutError:
-                            # 타임아웃 시 태스크 상태 확인
-                            done_tasks = [t for t in tasks if t.done()]
-                            if done_tasks:
-                                # 완료된 태스크가 있으면 다시 시도
-                                continue
+                            if child_node and child_node.type == "merge":
+                                # Merge 노드: 모든 부모 완료 확인
+                                if self._can_execute_merge_node(
+                                    child_id, executed_nodes, graph_manager
+                                ):
+                                    # 모든 부모 완료: 즉시 실행
+                                    current_node_id = child_id
+                                    logger.info(
+                                        f"[{session_id}] Merge 노드 준비 완료: {child_id}"
+                                    )
+                                else:
+                                    # 아직 미완료 부모가 있으면 대기
+                                    pending_merge_nodes.add(child_id)
+                                    current_node_id = None
+                                    logger.info(
+                                        f"[{session_id}] Merge 노드 대기 등록: {child_id}"
+                                    )
                             else:
-                                # 모든 태스크가 아직 실행 중
-                                continue
+                                # 일반 노드: 즉시 실행
+                                current_node_id = child_id
+                                logger.info(f"[{session_id}] 다음 노드 (단일): {child_id}")
 
-                    # 모든 태스크 완료 대기 (정리 작업)
-                    await asyncio.gather(*tasks, return_exceptions=True)
+                        else:
+                            # 여러 자식: 첫 번째만 실행 (병렬 실행은 나중에 구현)
+                            current_node_id = children[0]
+                            logger.warning(
+                                f"[{session_id}] 여러 자식 노드 발견, 첫 번째만 실행: "
+                                f"{children[0]} (전체: {children})"
+                            )
 
-                    logger.info(f"[{session_id}] 병렬 그룹 완료: {group_node_ids}")
+                # === Pending Merge 노드 확인 ===
+                if not current_node_id and pending_merge_nodes:
+                    for pending_id in list(pending_merge_nodes):
+                        if self._can_execute_merge_node(
+                            pending_id, executed_nodes, graph_manager
+                        ):
+                            # 모든 부모 완료: 실행
+                            current_node_id = pending_id
+                            pending_merge_nodes.remove(pending_id)
+                            logger.info(
+                                f"[{session_id}] Pending Merge 노드 실행: {pending_id}"
+                            )
+                            break
 
-            logger.info(f"[{session_id}] 워크플로우 실행 완료: {workflow.name}")
+                # === 종료 조건 ===
+                if not current_node_id and not pending_merge_nodes:
+                    logger.info(f"[{session_id}] 모든 노드 실행 완료")
+                    break
+
+            logger.info(
+                f"[{session_id}] 워크플로우 실행 완료: {workflow.name} "
+                f"(실행 노드: {len(executed_nodes)}/{len(workflow.nodes)})"
+            )
 
             # 워크플로우 완료 이벤트
             workflow_complete_event = WorkflowNodeExecutionEvent(
@@ -411,20 +492,7 @@ class WorkflowExecutor:
 
         except asyncio.CancelledError:
             # 워크플로우 취소 요청 시
-            logger.warning(
-                f"[{session_id}] 워크플로우 취소 요청 받음. " f"실행 중인 태스크 {len(running_tasks)}개 정리 중..."
-            )
-
-            # 모든 실행 중인 병렬 태스크 취소
-            for task in running_tasks:
-                if not task.done():
-                    task.cancel()
-
-            # 취소된 태스크 대기 (정리)
-            if running_tasks:
-                await asyncio.gather(*running_tasks, return_exceptions=True)
-
-            logger.info(f"[{session_id}] 모든 태스크 정리 완료")
+            logger.warning(f"[{session_id}] 워크플로우 취소 요청 받음")
 
             # 취소 이벤트 생성
             cancel_event = WorkflowNodeExecutionEvent(
