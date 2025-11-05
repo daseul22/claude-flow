@@ -704,7 +704,8 @@ class WorkerSDKExecutor:
                     await client.query(prompt=current_prompt)
 
                     # 응답 수집을 위한 버퍼
-                    collected_texts = []
+                    collected_texts = []  # 모든 출력 (JSON, Thinking 등 포함)
+                    text_only_chunks = []  # TextBlock만 (사용자 입력 요청 패턴 검사용)
 
                     # receive_response()로 응답 스트리밍 수신
                     async for response in client.receive_response():
@@ -738,19 +739,32 @@ class WorkerSDKExecutor:
                                             f"[{self.worker_name}] ⚠️  세션 ID 콜백 호출 실패: {e}"
                                         )
 
-                        # 응답 처리하면서 텍스트 수집
+                        # TextBlock만 추출 (사용자 입력 요청 패턴 검사용)
+                        # JSON, Thinking, Tool 결과는 제외
+                        final_text = self.response_handler.extract_final_output_from_response(response)
+                        if final_text:
+                            text_only_chunks.append(final_text)
+
+                        # 응답 처리하면서 텍스트 수집 (모든 출력)
                         async for text in self.response_handler.process_response(response):
                             collected_texts.append(text)
                             yield text
 
-                    # 전체 응답 확인
-                    full_response = "".join(collected_texts)
+                    # TextBlock만 추출한 응답 (사용자 입력 요청 패턴 검사용)
+                    text_only_response = "".join(text_only_chunks)
 
-                    # 사용자 입력 요청 패턴 확인
-                    if "@ASK_USER:" in full_response and user_input_callback:
-                        question = self._extract_question_from_response(full_response)
+                    # 디버깅: 응답 길이 로깅
+                    self.logger.debug(
+                        f"[{self.worker_name}] 응답 수집 완료: "
+                        f"전체 출력={len(''.join(collected_texts))}자, "
+                        f"TextBlock만={len(text_only_response)}자"
+                    )
+
+                    # 사용자 입력 요청 패턴 확인 (TextBlock만 검사)
+                    if "@ASK_USER:" in text_only_response and user_input_callback:
+                        question = self._extract_question_from_response(text_only_response)
                         self.logger.info(
-                            f"[{self.worker_name}] 사용자 입력 요청 감지: {question[:50]}..."
+                            f"[{self.worker_name}] 사용자 입력 요청 감지 (TextBlock에서): {question[:50]}..."
                         )
 
                         try:
