@@ -17,12 +17,14 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { useWorkflowStore } from '@/stores/workflowStore'
-import { FileText, Clock, Zap, CheckCircle2, AlertCircle, Info, Filter, Eye, EyeOff, Maximize2 } from 'lucide-react'
+import { FileText, Clock, Zap, CheckCircle2, AlertCircle, Info, Filter, Eye, EyeOff, Maximize2, RotateCcw } from 'lucide-react'
 import { ParsedContent } from './ParsedContent'
 import { LogDetailModal } from './LogDetailModal'
+import { useToast } from '@/hooks/use-toast'
 
 export const ExecutionLogsPanel: React.FC = () => {
   const { execution, nodes, selectedNodeId: canvasSelectedNodeId } = useWorkflowStore()
+  const { toast } = useToast()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // 필터 상태
@@ -259,6 +261,64 @@ export const ExecutionLogsPanel: React.FC = () => {
     setIsDetailModalOpen(true)
   }
 
+  // 워크플로우 재시작 (특정 노드부터)
+  const handleRestartFromNode = async (nodeId: string) => {
+    try {
+      if (!execution.sessionId) {
+        toast({
+          title: "재시작 실패",
+          description: "세션 ID를 찾을 수 없습니다",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const nodeName = getNodeName(nodeId)
+
+      // 사용자 확인
+      if (!window.confirm(`'${nodeName}' 노드부터 워크플로우를 재시작하시겠습니까?\n\n이전 실행 상태가 복원되어 해당 노드부터 다시 실행됩니다.`)) {
+        return
+      }
+
+      toast({
+        title: "워크플로우 재시작",
+        description: `'${nodeName}' 노드부터 재시작 중...`
+      })
+
+      // API 호출
+      const response = await fetch(`/api/workflows/sessions/${execution.sessionId}/restart`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ restart_node_id: nodeId }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: '알 수 없는 오류' }))
+        throw new Error(errorData.detail || '재시작 실패')
+      }
+
+      // SSE 스트림 처리는 WorkflowCanvas나 상위 컴포넌트에서 처리
+      // 여기서는 성공 토스트만 표시
+      toast({
+        title: "재시작 성공",
+        description: `'${nodeName}' 노드부터 실행이 시작되었습니다`,
+      })
+
+      // 페이지 새로고침 또는 실행 로그 탭으로 전환
+      window.location.reload()
+
+    } catch (error) {
+      console.error('워크플로우 재시작 실패:', error)
+      toast({
+        title: "재시작 실패",
+        description: error instanceof Error ? error.message : "워크플로우 재시작에 실패했습니다",
+        variant: "destructive"
+      })
+    }
+  }
+
   // 모달에 전달할 섹션 데이터 생성
   const detailModalSections = useMemo(() => {
     if (!isDetailModalOpen) return []
@@ -452,6 +512,16 @@ export const ExecutionLogsPanel: React.FC = () => {
                             >
                               <Maximize2 className="h-3 w-3 mr-1" />
                               상세
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRestartFromNode(group.nodeId!)}
+                              className="h-5 px-2 text-xs hover:bg-blue-50 text-blue-600 hover:text-blue-700"
+                              title="이 노드부터 워크플로우 재시작"
+                            >
+                              <RotateCcw className="h-3 w-3 mr-1" />
+                              재시작
                             </Button>
                           </>
                         )}
