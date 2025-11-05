@@ -85,8 +85,9 @@ def get_workflow_executor(
     Returns:
         WorkflowExecutor: 워크플로우 실행 엔진
     """
-    # projects 라우터에서 현재 프로젝트 경로 가져오기
-    from src.presentation.web.routers.projects import _current_project_path
+    # projects 라우터에서 현재 프로젝트 경로 가져오기 (모듈 참조로 변경)
+    from src.presentation.web.routers.projects import dependencies as projects_deps
+    _current_project_path = projects_deps._current_project_path
 
     # 캐시 키 생성
     cache_key = _current_project_path or "~default"
@@ -111,7 +112,8 @@ def get_background_manager(
     Returns:
         BackgroundWorkflowManager: 백그라운드 워크플로우 관리자
     """
-    # projects 라우터에서 현재 프로젝트 경로 가져오기
-    from src.presentation.web.routers.projects import _current_project_path
+    # projects 라우터에서 현재 프로젝트 경로 가져오기 (모듈 참조로 변경)
+    from src.presentation.web.routers.projects import dependencies as projects_deps
+    _current_project_path = projects_deps._current_project_path
 
     return get_background_workflow_manager(executor, project_path=_current_project_path)

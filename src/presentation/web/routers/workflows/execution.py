@@ -83,10 +83,11 @@ async def execute_workflow(
     if not request.workflow.nodes:
         raise HTTPException(status_code=400, detail="워크플로우에 노드가 없습니다")
 
-    # 현재 프로젝트 경로 가져오기
-    from src.presentation.web.routers.projects import _current_project_path
+    # 현재 프로젝트 경로 가져오기 (모듈 참조로 변경 - import 시점 복사 문제 해결)
+    from src.presentation.web.routers.projects import dependencies as projects_deps
 
     # 프로젝트가 선택되지 않았으면 에러
+    _current_project_path = projects_deps._current_project_path
     logger.info(f"[{session_id}] 프로젝트 경로 확인: {_current_project_path}")
     if _current_project_path is None:
         logger.error(f"[{session_id}] 프로젝트 미선택 상태에서 워크플로우 실행 시도")
@@ -272,8 +273,9 @@ async def get_session(session_id: str) -> Dict[str, Any]:
         }
     """
     try:
-        # 먼저 현재 프로젝트 경로로 시도
-        from src.presentation.web.routers.projects import _current_project_path
+        # 먼저 현재 프로젝트 경로로 시도 (모듈 참조로 변경)
+        from src.presentation.web.routers.projects import dependencies as projects_deps
+        _current_project_path = projects_deps._current_project_path
 
         session_store = get_session_store(project_path=_current_project_path)
         session = await session_store.get_session(session_id)
@@ -744,8 +746,9 @@ async def delete_session(session_id: str) -> Dict[str, str]:
         }
     """
     try:
-        # 현재 프로젝트 경로 가져오기 (get_session과 동일)
-        from src.presentation.web.routers.projects import _current_project_path
+        # 현재 프로젝트 경로 가져오기 (모듈 참조로 변경)
+        from src.presentation.web.routers.projects import dependencies as projects_deps
+        _current_project_path = projects_deps._current_project_path
 
         # 프로젝트별 세션 저장소 사용
         session_store = get_session_store(project_path=_current_project_path)
@@ -800,8 +803,9 @@ async def clear_node_sessions() -> Dict[str, Any]:
         }
     """
     try:
-        # 현재 프로젝트 경로 가져오기
-        from src.presentation.web.routers.projects import _current_project_path
+        # 현재 프로젝트 경로 가져오기 (모듈 참조로 변경)
+        from src.presentation.web.routers.projects import dependencies as projects_deps
+        _current_project_path = projects_deps._current_project_path
 
         if not _current_project_path:
             raise HTTPException(status_code=400, detail="프로젝트가 선택되지 않았습니다")
