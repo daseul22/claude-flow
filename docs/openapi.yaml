@@ -1,0 +1,1365 @@
+openapi: 3.0.0
+info:
+  title: Claude Flow API
+  version: 4.0.1
+  description: AI 에이전트 오케스트레이션 시스템 - 그룹 챗을 통한 자동화된 소프트웨어 개발
+  contact:
+    name: Claude Flow Team
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:5173/api
+    description: 로컬 개발 서버
+  - url: http://localhost:8000/api
+    description: FastAPI 직접 접속
+
+tags:
+  - name: Workflows
+    description: 워크플로우 실행 및 관리
+  - name: Workflow Design
+    description: 워크플로우 자동 설계
+  - name: Agents
+    description: AI 에이전트 조회 및 실행
+  - name: Templates
+    description: 워크플로우 템플릿
+  - name: Custom Workers
+    description: 커스텀 워커 관리
+  - name: Projects
+    description: 프로젝트 관리
+  - name: Logs
+    description: 로그 파일 관리
+  - name: Filesystem
+    description: 파일 시스템 브라우저
+  - name: Health
+    description: 서비스 상태 확인
+
+paths:
+  /workflows/execute:
+    post:
+      tags:
+        - Workflows
+      summary: 워크플로우 실행 (SSE 스트리밍)
+      description: 워크플로우를 백그라운드에서 실행하고 Server-Sent Events로 실시간 진행 상황을 스트리밍합니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowExecuteRequest'
+      responses:
+        '200':
+          description: SSE 스트림 시작
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Server-Sent Events 형식:
+                  data: {"event_type": "workflow_start", "node_id": "", "data": {...}, "timestamp": "..."}
+                  data: {"event_type": "node_start", ...}
+                  data: [DONE]
+        '400':
+          description: 워크플로우 검증 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 서버 에러
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/sessions/{session_id}:
+    get:
+      tags:
+        - Workflows
+      summary: 세션 조회
+      description: 이전 워크플로우 세션의 상태를 조회합니다.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 세션 ID
+      responses:
+        '200':
+          description: 세션 정보
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowSession'
+        '404':
+          description: 세션을 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 서버 에러
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - Workflows
+      summary: 세션 삭제
+      description: 완료된 세션을 정리합니다.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 세션 삭제 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 세션이 삭제되었습니다
+        '404':
+          description: 세션을 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/sessions/{session_id}/cancel:
+    post:
+      tags:
+        - Workflows
+      summary: 워크플로우 취소
+      description: 실행 중인 워크플로우를 중단합니다.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 워크플로우 취소 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 워크플로우가 취소되었습니다
+                  session_id:
+                    type: string
+        '404':
+          description: 세션을 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/sessions/{session_id}/user-input:
+    post:
+      tags:
+        - Workflows
+      summary: 사용자 입력 전달 (Human-in-the-Loop)
+      description: Worker가 질문했을 때 사용자 답변을 전달합니다.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                answer:
+                  type: string
+                  example: 네, 진행해주세요
+      responses:
+        '200':
+          description: 입력 전달 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  session_id:
+                    type: string
+
+  /workflows/sessions/{session_id}/stream:
+    get:
+      tags:
+        - Workflows
+      summary: 세션 이벤트 스트리밍
+      description: 추가 프롬프트 실행 결과를 실시간으로 수신합니다.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE 스트림
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /workflows/nodes/{node_id}/sessions:
+    get:
+      tags:
+        - Workflows
+      summary: 노드의 세션 목록 조회
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 세션 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  node_id:
+                    type: string
+                  agent_name:
+                    type: string
+                  current_session_id:
+                    type: string
+                  session_history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SessionInfo'
+
+  /workflows/nodes/{node_id}/continue:
+    post:
+      tags:
+        - Workflows
+      summary: 노드에 추가 프롬프트 전송
+      description: 로그 상세 모달에서 추가 질문을 전송합니다.
+      parameters:
+        - name: node_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                  example: 테스트 코드도 작성해줘
+      responses:
+        '200':
+          description: 실행 시작
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  node_id:
+                    type: string
+                  session_id:
+                    type: string
+
+  /workflows/clear-node-sessions:
+    post:
+      tags:
+        - Workflows
+      summary: 모든 노드 SDK 세션 초기화
+      description: Claude Code SDK 세션 파일을 삭제하여 노드 컨텍스트를 초기화합니다.
+      responses:
+        '200':
+          description: 초기화 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  deleted_sessions:
+                    type: integer
+
+  /workflows:
+    post:
+      tags:
+        - Workflows
+      summary: 워크플로우 저장
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workflow:
+                  $ref: '#/components/schemas/Workflow'
+      responses:
+        '200':
+          description: 저장 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflow_id:
+                    type: string
+                  message:
+                    type: string
+    get:
+      tags:
+        - Workflows
+      summary: 워크플로우 목록 조회
+      responses:
+        '200':
+          description: 워크플로우 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflows:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkflowMetadata'
+
+  /workflows/{workflow_id}:
+    get:
+      tags:
+        - Workflows
+      summary: 워크플로우 조회
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 워크플로우 데이터
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+    delete:
+      tags:
+        - Workflows
+      summary: 워크플로우 삭제
+      parameters:
+        - name: workflow_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 삭제 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+
+  /workflows/validate:
+    post:
+      tags:
+        - Workflows
+      summary: 워크플로우 검증
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Workflow'
+      responses:
+        '200':
+          description: 검증 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowValidateResponse'
+
+  /workflows/design:
+    post:
+      tags:
+        - Workflow Design
+      summary: 워크플로우 자동 설계 (SSE)
+      description: workflow_designer Worker를 사용하여 요구사항으로부터 워크플로우를 자동 설계합니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requirements:
+                  type: string
+                  example: 코드 리뷰 후 테스트 실행하는 워크플로우
+                session_id:
+                  type: string
+                  description: 선택적 세션 ID
+      responses:
+        '200':
+          description: SSE 스트림
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /agents:
+    get:
+      tags:
+        - Agents
+      summary: 에이전트 목록 조회
+      description: 사용 가능한 Worker Agent 목록을 조회합니다 (기본 + 커스텀).
+      responses:
+        '200':
+          description: 에이전트 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgentInfo'
+
+  /tools:
+    get:
+      tags:
+        - Agents
+      summary: 사용 가능한 도구 목록
+      responses:
+        '200':
+          description: 도구 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tools:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Tool'
+
+  /execute:
+    post:
+      tags:
+        - Agents
+      summary: 에이전트 실행 (SSE)
+      description: Worker Agent를 직접 실행하고 결과를 스트리밍합니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agent_name:
+                  type: string
+                  example: backend_coder
+                task_description:
+                  type: string
+                  example: Python 함수를 작성해주세요
+                session_id:
+                  type: string
+      responses:
+        '200':
+          description: SSE 스트림
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /templates:
+    get:
+      tags:
+        - Templates
+      summary: 템플릿 목록 조회
+      responses:
+        '200':
+          description: 템플릿 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  templates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TemplateMetadata'
+    post:
+      tags:
+        - Templates
+      summary: 템플릿 저장
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateSaveRequest'
+      responses:
+        '200':
+          description: 저장 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  template_id:
+                    type: string
+                  message:
+                    type: string
+
+  /templates/{template_id}:
+    get:
+      tags:
+        - Templates
+      summary: 템플릿 조회
+      parameters:
+        - name: template_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 템플릿 데이터
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Template'
+    delete:
+      tags:
+        - Templates
+      summary: 템플릿 삭제
+      parameters:
+        - name: template_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 삭제 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  template_id:
+                    type: string
+
+  /templates/validate:
+    post:
+      tags:
+        - Templates
+      summary: 템플릿 검증
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nodes:
+                  type: array
+                edges:
+                  type: array
+      responses:
+        '200':
+          description: 검증 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  errors:
+                    type: array
+                    items:
+                      type: string
+
+  /custom-workers/generate:
+    post:
+      tags:
+        - Custom Workers
+      summary: 커스텀 워커 프롬프트 생성 (SSE)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                worker_requirements:
+                  type: string
+                  example: 데이터 분석 및 시각화를 수행하는 워커
+                session_id:
+                  type: string
+      responses:
+        '200':
+          description: SSE 스트림
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /custom-workers/save:
+    post:
+      tags:
+        - Custom Workers
+      summary: 커스텀 워커 저장
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_path:
+                  type: string
+                worker_name:
+                  type: string
+                role:
+                  type: string
+                prompt_content:
+                  type: string
+                allowed_tools:
+                  type: array
+                  items:
+                    type: string
+                model:
+                  type: string
+                thinking:
+                  type: boolean
+      responses:
+        '200':
+          description: 저장 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  prompt_path:
+                    type: string
+
+  /custom-workers:
+    get:
+      tags:
+        - Custom Workers
+      summary: 커스텀 워커 목록 조회
+      parameters:
+        - name: project_path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 커스텀 워커 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CustomWorkerInfo'
+
+  /custom-workers/{worker_name}:
+    delete:
+      tags:
+        - Custom Workers
+      summary: 커스텀 워커 삭제
+      parameters:
+        - name: worker_name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project_path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 삭제 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+
+  /projects/select:
+    post:
+      tags:
+        - Projects
+      summary: 프로젝트 선택
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_path:
+                  type: string
+      responses:
+        '200':
+          description: 프로젝트 선택 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project_path:
+                    type: string
+                  message:
+                    type: string
+                  has_existing_config:
+                    type: boolean
+
+  /projects/current:
+    get:
+      tags:
+        - Projects
+      summary: 현재 프로젝트 정보 조회
+      responses:
+        '200':
+          description: 프로젝트 정보
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project_path:
+                    type: string
+                  has_existing_config:
+                    type: boolean
+
+  /projects/workflows/list:
+    get:
+      tags:
+        - Projects
+      summary: 워크플로우 목록 조회 (프로젝트별)
+      responses:
+        '200':
+          description: 워크플로우 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflows:
+                    type: array
+
+  /projects/display-config:
+    get:
+      tags:
+        - Projects
+      summary: Display 설정 로드
+      responses:
+        '200':
+          description: Display 설정
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Projects
+      summary: Display 설정 저장
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 저장 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+
+  /projects/workflows/{workflow_name}:
+    get:
+      tags:
+        - Projects
+      summary: 워크플로우 로드
+      parameters:
+        - name: workflow_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 워크플로우 데이터
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Projects
+      summary: 워크플로우 저장 (프로젝트별)
+      parameters:
+        - name: workflow_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 저장 완료
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      tags:
+        - Projects
+      summary: 워크플로우 삭제
+      parameters:
+        - name: workflow_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 삭제 완료
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /projects/logs/list:
+    get:
+      tags:
+        - Logs
+      summary: 로그 파일 목록 조회
+      responses:
+        '200':
+          description: 로그 파일 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LogFileInfo'
+                  total_count:
+                    type: integer
+                  total_size:
+                    type: integer
+
+  /projects/logs/content:
+    get:
+      tags:
+        - Logs
+      summary: 로그 파일 내용 조회
+      parameters:
+        - name: file_path
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: max_lines
+          in: query
+          schema:
+            type: integer
+            default: 1000
+      responses:
+        '200':
+          description: 로그 파일 내용
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  file_info:
+                    $ref: '#/components/schemas/LogFileInfo'
+
+  /projects/logs:
+    delete:
+      tags:
+        - Logs
+      summary: 로그 파일 비우기
+      responses:
+        '200':
+          description: 삭제 완료
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  deleted_files:
+                    type: integer
+                  freed_space_mb:
+                    type: number
+
+  /filesystem/home:
+    get:
+      tags:
+        - Filesystem
+      summary: 홈 디렉토리 조회
+      responses:
+        '200':
+          description: 홈 디렉토리 경로
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  home_path:
+                    type: string
+
+  /filesystem/browse:
+    get:
+      tags:
+        - Filesystem
+      summary: 디렉토리 브라우징
+      parameters:
+        - name: path
+          in: query
+          schema:
+            type: string
+          description: 탐색할 디렉토리 경로 (미제공 시 홈 디렉토리)
+      responses:
+        '200':
+          description: 디렉토리 엔트리 목록
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectoryBrowseResponse'
+        '403':
+          description: 접근 권한 없음 (Path Traversal 방어)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 디렉토리를 찾을 수 없음
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: 서비스 상태 확인
+      responses:
+        '200':
+          description: 서비스 정상 작동
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  message:
+                    type: string
+                    example: Service is running
+
+components:
+  schemas:
+    # ============ Workflow ============
+    WorkflowExecuteRequest:
+      type: object
+      required:
+        - workflow
+        - initial_input
+      properties:
+        workflow:
+          $ref: '#/components/schemas/Workflow'
+        initial_input:
+          type: string
+          description: 워크플로우 시작 입력
+        session_id:
+          type: string
+          description: 선택적 세션 ID
+        start_node_id:
+          type: string
+          description: 선택적 시작 노드 ID
+        last_event_index:
+          type: integer
+          description: 재접속 시 마지막 이벤트 인덱스
+
+    Workflow:
+      type: object
+      required:
+        - name
+        - nodes
+        - edges
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: 코드 리뷰 워크플로우
+        description:
+          type: string
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowNode'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowEdge'
+
+    WorkflowNode:
+      type: object
+      required:
+        - id
+        - type
+        - label
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [Input, Worker, Condition, Merge]
+        label:
+          type: string
+        data:
+          type: object
+          description: 노드 타입별 설정
+
+    WorkflowEdge:
+      type: object
+      required:
+        - id
+        - source
+        - target
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+        target:
+          type: string
+
+    WorkflowSession:
+      type: object
+      properties:
+        session_id:
+          type: string
+        workflow:
+          $ref: '#/components/schemas/Workflow'
+        initial_input:
+          type: string
+        status:
+          type: string
+          enum: [running, completed, error, cancelled]
+        current_node_id:
+          type: string
+        node_outputs:
+          type: object
+          additionalProperties: true
+        logs:
+          type: array
+          items:
+            type: object
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        error:
+          type: string
+
+    WorkflowMetadata:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        node_count:
+          type: integer
+        edge_count:
+          type: integer
+
+    WorkflowValidateResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationError'
+
+    ValidationError:
+      type: object
+      properties:
+        severity:
+          type: string
+          enum: [error, warning]
+        node_id:
+          type: string
+        message:
+          type: string
+        suggestion:
+          type: string
+
+    # ============ Agent ============
+    AgentInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        role:
+          type: string
+        description:
+          type: string
+        system_prompt:
+          type: string
+        allowed_tools:
+          type: array
+          items:
+            type: string
+        model:
+          type: string
+        is_custom:
+          type: boolean
+
+    Tool:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        readonly:
+          type: boolean
+
+    # ============ Template ============
+    Template:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        workflow:
+          $ref: '#/components/schemas/Workflow'
+        tags:
+          type: array
+          items:
+            type: string
+        is_builtin:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TemplateMetadata:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        node_count:
+          type: integer
+        edge_count:
+          type: integer
+        tags:
+          type: array
+          items:
+            type: string
+        is_builtin:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TemplateSaveRequest:
+      type: object
+      required:
+        - name
+        - workflow
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        workflow:
+          $ref: '#/components/schemas/Workflow'
+        tags:
+          type: array
+          items:
+            type: string
+
+    # ============ Custom Worker ============
+    CustomWorkerInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        role:
+          type: string
+        allowed_tools:
+          type: array
+          items:
+            type: string
+        model:
+          type: string
+        thinking:
+          type: boolean
+        prompt_preview:
+          type: string
+
+    # ============ Session ============
+    SessionInfo:
+      type: object
+      properties:
+        session_id:
+          type: string
+        agent_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        is_current:
+          type: boolean
+
+    # ============ Log ============
+    LogFileInfo:
+      type: object
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+        size:
+          type: integer
+        modified:
+          type: string
+          format: date-time
+        type:
+          type: string
+
+    # ============ Filesystem ============
+    DirectoryEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        is_directory:
+          type: boolean
+        is_readable:
+          type: boolean
+
+    DirectoryBrowseResponse:
+      type: object
+      properties:
+        current_path:
+          type: string
+        parent_path:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/DirectoryEntry'
+
+    # ============ Error ============
+    ErrorResponse:
+      type: object
+      properties:
+        detail:
+          type: string
