@@ -240,31 +240,47 @@ export const NodePanel: React.FC = () => {
     return () => clearTimeout(timer)
   }, [expandedSections, projectPath])
 
-  // 워커 분류
-  const generalWorkers = ['planner', 'coder', 'reviewer', 'tester', 'committer', 'ideator', 'product_manager', 'documenter', 'local']
-  const specializedWorkers = [
-    // 계획 특화
-    'feature_planner', 'refactoring_planner', 'bug_fix_planner', 'api_planner', 'database_planner',
-    // 코드 작성 특화
-    'frontend_coder', 'backend_coder', 'test_coder', 'infrastructure_coder', 'database_coder',
-    // 리뷰 특화
-    'style_reviewer', 'security_reviewer', 'architecture_reviewer',
-    // 테스트 실행 특화
-    'unit_tester', 'integration_tester', 'e2e_tester', 'performance_tester',
-    // 기타 특화
-    'bug_fixer', 'log_analyzer', 'summarizer',
-  ]
-
   // 제외 워커 (UI에 표시하지 않음)
   const excludedWorkers = ['worker_prompt_engineer', 'workflow_designer']
 
-  // 범용/특화 워커 분리 (제외 워커 필터링)
-  const filteredGeneralWorkers = agents.filter(
-    (agent) => generalWorkers.includes(agent.name) && !excludedWorkers.includes(agent.name)
-  )
-  const filteredSpecializedWorkers = agents.filter(
-    (agent) => specializedWorkers.includes(agent.name) && !excludedWorkers.includes(agent.name)
-  )
+  // 워커 자동 분류 (하드코딩 제거)
+  const filteredAgents = agents.filter((agent) => !excludedWorkers.includes(agent.name))
+
+  // 범용 워커: _planner, _coder, _tester, _reviewer 등의 접미사가 없는 워커
+  const generalWorkers = filteredAgents.filter((agent) => {
+    const name = agent.name
+    return !name.includes('_planner') &&
+           !name.includes('_coder') &&
+           !name.includes('_tester') &&
+           !name.includes('_reviewer') &&
+           !name.includes('_documenter') &&
+           !name.includes('_manager') &&
+           !name.includes('_creator') &&
+           !name.includes('_writer') &&
+           !name.includes('_handler') &&
+           !name.includes('_migrator') &&
+           !name.includes('_migration')
+  })
+
+  // 특화 워커: _planner, _coder 등의 접미사가 있는 워커
+  const specializedWorkers = filteredAgents.filter((agent) => {
+    const name = agent.name
+    return name.includes('_planner') ||
+           name.includes('_coder') ||
+           name.includes('_tester') ||
+           name.includes('_reviewer') ||
+           name.includes('_documenter') ||
+           name.includes('_manager') ||
+           name.includes('_creator') ||
+           name.includes('_writer') ||
+           name.includes('_handler') ||
+           name.includes('_migrator') ||
+           name.includes('_migration')
+  })
+
+  // 레거시 호환을 위한 별칭
+  const filteredGeneralWorkers = generalWorkers
+  const filteredSpecializedWorkers = specializedWorkers
 
   // 프로젝트 경로 및 Agent 목록 로드
   useEffect(() => {

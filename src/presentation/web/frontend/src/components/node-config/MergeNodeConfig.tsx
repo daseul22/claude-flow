@@ -129,12 +129,12 @@ export const MergeNodeConfig: React.FC<MergeNodeConfigProps> = ({ node }) => {
               value={data.custom_template}
               onChange={(e) => setData({ ...data, custom_template: e.target.value })}
               onKeyDown={handleInputKeyDown}
-              placeholder="예: 입력1: {input1}\n입력2: {input2}"
+              placeholder="예: 입력1: {{branch_1}}\n입력2: {{branch_2}}"
               rows={4}
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm resize-none"
             />
             <p className="text-xs text-gray-500 mt-1">
-              {'{input1}'}, {'{input2}'} 등의 변수로 입력을 참조
+              {'{{branch_1}}'}, {'{{branch_2}}'} 등의 변수로 입력을 참조 (순서대로 부모 노드 출력)
             </p>
           </div>
         )}
@@ -152,12 +152,21 @@ export const MergeNodeConfig: React.FC<MergeNodeConfigProps> = ({ node }) => {
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-2 text-xs space-y-2 bg-gray-50 border rounded p-2">
             <div>
-              <strong>연결 (Concatenate):</strong>
-              <code className="block mt-1 text-xs">입력1의 결과\n---\n입력2의 결과</code>
+              <strong>연결 (Concatenate) 예시:</strong>
+              <code className="block mt-1 text-xs bg-white p-1 rounded border">입력1의 결과\n---\n입력2의 결과</code>
+              <p className="text-gray-500 mt-1">모든 부모 노드 출력을 구분자로 연결</p>
             </div>
             <div>
-              <strong>커스텀 템플릿:</strong>
-              <code className="block mt-1 text-xs">## True 경로\n{'{input1}'}\n\n## False 경로\n{'{input2}'}</code>
+              <strong>커스텀 템플릿 예시:</strong>
+              <code className="block mt-1 text-xs bg-white p-1 rounded border whitespace-pre">
+                ## True 경로
+                {'{{branch_1}}'}{'\n\n'}
+                ## False 경로
+                {'{{branch_2}}'}
+              </code>
+              <p className="text-gray-500 mt-1">
+                branch_1 = 첫 번째 부모 노드, branch_2 = 두 번째 부모 노드 (노드 ID 순서)
+              </p>
             </div>
           </CollapsibleContent>
         </Collapsible>

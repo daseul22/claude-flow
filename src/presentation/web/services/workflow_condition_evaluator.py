@@ -67,7 +67,7 @@ class WorkflowConditionEvaluator:
         Returns:
             Tuple[bool, str]: (조건 결과, LLM 응답 이유)
         """
-        from claude_agent_sdk import query
+        from claude_agent_sdk import query, AssistantMessage, TextBlock
         from claude_agent_sdk.types import ClaudeAgentOptions
 
         logger.info(f"[{session_id}] LLM 조건 평가 시작 (Haiku 모델)")
@@ -79,6 +79,14 @@ class WorkflowConditionEvaluator:
             permission_mode="bypassPermissions",  # 자동 실행을 위해 승인 우회
         )
 
+        # 입력 텍스트 길이 제한
+        truncated_input = input_text[:WorkflowConfig.LLM_INPUT_LIMIT]
+        if len(input_text) > WorkflowConfig.LLM_INPUT_LIMIT:
+            logger.warning(
+                f"[{session_id}] 입력 텍스트 길이 제한: "
+                f"{len(input_text)} → {WorkflowConfig.LLM_INPUT_LIMIT} 문자"
+            )
+
         # LLM에게 전달할 전체 프롬프트
         full_prompt = f"""다음 출력을 분석하여 조건을 평가해주세요.
 
@@ -87,7 +95,7 @@ class WorkflowConditionEvaluator:
 </조건>
 
 <평가 대상 출력>
-{input_text[:WorkflowConfig.LLM_INPUT_LIMIT]}
+{truncated_input}
 </평가 대상 출력>
 
 위 출력이 조건을 만족하는지 판단하여, 다음 형식으로 응답해주세요:
@@ -101,17 +109,30 @@ class WorkflowConditionEvaluator:
 """
 
         try:
-            # LLM 호출
+            # LLM 호출 (SDK 표준 방식)
             response_text = ""
             async for response in query(prompt=full_prompt, options=options):
-                if hasattr(response, "content") and isinstance(response.content, list):
-                    for block in response.content:
-                        if hasattr(block, "type") and block.type == "text":
-                            response_text += block.text
+                # AssistantMessage 처리 (SDK 표준 응답 타입)
+                if isinstance(response, AssistantMessage):
+                    if response.content:
+                        for content_block in response.content:
+                            # TextBlock에서 텍스트 추출
+                            if isinstance(content_block, TextBlock):
+                                response_text += content_block.text
+                                logger.debug(
+                                    f"[{session_id}] LLM 응답 수신 (TextBlock): "
+                                    f"{len(content_block.text)} 문자"
+                                )
 
             logger.debug(
-                f"[{session_id}] LLM 응답: {response_text[:WorkflowConfig.CONDITION_OUTPUT_LIMIT]}"
+                f"[{session_id}] LLM 전체 응답 ({len(response_text)} 문자): "
+                f"{response_text[:WorkflowConfig.CONDITION_OUTPUT_LIMIT]}"
             )
+
+            # 응답이 비어있는 경우
+            if not response_text.strip():
+                logger.warning(f"[{session_id}] LLM 응답이 비어있습니다")
+                return False, "LLM 응답이 비어있습니다"
 
             # 응답 파싱
             lines = response_text.strip().split("\n")
@@ -119,16 +140,23 @@ class WorkflowConditionEvaluator:
             reason = ""
 
             for line in lines:
+                line = line.strip()
                 if line.startswith("판단:"):
                     decision = line.replace("판단:", "").strip().upper()
-                    result = decision in ["YES", "Y", "TRUE", "예"]
+                    result = decision in ["YES", "Y", "TRUE", "예", "네"]
+                    logger.debug(f"[{session_id}] 판단 파싱: '{decision}' → {result}")
                 elif line.startswith("이유:"):
                     reason = line.replace("이유:", "").strip()
+                    logger.debug(f"[{session_id}] 이유 파싱: '{reason}'")
 
+            # 파싱 실패 시 전체 응답 사용
             if not reason:
-                reason = response_text[: WorkflowConfig.CONDITION_OUTPUT_LIMIT]  # 파싱 실패 시 전체 응답 사용
+                reason = response_text[: WorkflowConfig.CONDITION_OUTPUT_LIMIT]
+                logger.warning(f"[{session_id}] 응답 파싱 실패, 전체 응답 사용")
 
-            logger.info(f"[{session_id}] LLM 조건 평가 완료: {result} (이유: {reason[:100]})")
+            logger.info(
+                f"[{session_id}] LLM 조건 평가 완료: {result} (이유: {reason[:100]})"
+            )
 
             return result, reason
 
@@ -340,18 +368,49 @@ class WorkflowConditionEvaluator:
 
         logger.info(f"[{session_id}] 병합 노드 실행: {node_id} (전략: {node_data.merge_strategy})")
 
-        # 부모 노드 출력들 수집
+        # 부모 노드 출력들 수집 (순서 보장)
         parent_nodes = self._get_parent_nodes(node_id, edges)
         if not parent_nodes:
             raise ValueError(f"병합 노드 {node_id}에 부모 노드가 없습니다")
 
+        # 부모 노드를 targetHandle 순서로 정렬 (input-1, input-2, ...)
+        # targetHandle이 없으면 노드 ID 순서로 정렬
+        parent_edges = [(edge, edge.source) for edge in edges if edge.target == node_id]
+
+        # targetHandle에서 숫자 추출하여 정렬 (예: "input-1" → 1)
+        def get_sort_key(edge_tuple):
+            edge, source_id = edge_tuple
+            if hasattr(edge, 'targetHandle') and edge.targetHandle:
+                try:
+                    # "input-N" 형식에서 N 추출
+                    parts = edge.targetHandle.split('-')
+                    if len(parts) >= 2 and parts[-1].isdigit():
+                        return int(parts[-1])
+                except (ValueError, AttributeError):
+                    pass
+            # targetHandle이 없거나 파싱 실패 시 source_id로 정렬
+            return source_id
+
+        sorted_edges = sorted(parent_edges, key=get_sort_key)
+        parent_nodes = [source_id for _, source_id in sorted_edges]
+
+        logger.debug(
+            f"[{session_id}] 병합 노드 {node_id}: "
+            f"부모 노드 순서 (정렬됨): {parent_nodes}"
+        )
+
         parent_outputs = []
-        for pid in parent_nodes:
+        for i, pid in enumerate(parent_nodes):
             if pid not in node_outputs:
                 logger.warning(
-                    f"[{session_id}] 병합 노드 {node_id}: " f"부모 노드 '{pid}'의 출력이 없습니다. 빈 문자열을 사용합니다."
+                    f"[{session_id}] 병합 노드 {node_id}: "
+                    f"부모 노드 '{pid}'의 출력이 없습니다. 빈 문자열을 사용합니다."
                 )
-            parent_outputs.append(node_outputs.get(pid, ""))
+            output = node_outputs.get(pid, "")
+            parent_outputs.append(output)
+            logger.debug(
+                f"[{session_id}] branch_{i+1} (node: {pid}): {len(output)} 문자"
+            )
 
         # 병합 전략에 따라 출력 생성
         if node_data.merge_strategy == "concatenate":
@@ -370,10 +429,30 @@ class WorkflowConditionEvaluator:
             # 커스텀 템플릿 사용
             if node_data.custom_template:
                 merged_output = node_data.custom_template
+
+                # 템플릿 변수 치환 ({{branch_1}}, {{branch_2}}, ...)
                 for i, output in enumerate(parent_outputs):
-                    merged_output = merged_output.replace(f"{{{{branch_{i+1}}}}}", output)
+                    placeholder = f"{{{{branch_{i+1}}}}}"
+                    merged_output = merged_output.replace(placeholder, output)
+                    logger.debug(
+                        f"[{session_id}] 템플릿 치환: {placeholder} → {len(output)} 문자"
+                    )
+
+                # 치환되지 않은 변수 확인 (디버깅용)
+                import re
+                unused_vars = re.findall(r'\{\{branch_\d+\}\}', merged_output)
+                if unused_vars:
+                    logger.warning(
+                        f"[{session_id}] 병합 노드 {node_id}: "
+                        f"사용되지 않은 템플릿 변수: {unused_vars} "
+                        f"(부모 노드 개수: {len(parent_outputs)})"
+                    )
             else:
                 # 템플릿이 없으면 concatenate로 폴백
+                logger.warning(
+                    f"[{session_id}] 병합 노드 {node_id}: "
+                    f"custom 전략이지만 템플릿이 없습니다. concatenate로 폴백합니다."
+                )
                 merged_output = node_data.separator.join(parent_outputs)
 
         else:

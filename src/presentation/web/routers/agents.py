@@ -5,10 +5,9 @@ Worker Agent 목록 조회 및 실행을 위한 엔드포인트를 제공합니�
 """
 
 import uuid
-from functools import lru_cache
 from typing import AsyncIterator
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
 from src.domain.models import AgentConfig
@@ -25,13 +24,12 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["agents"])
 
 
-@lru_cache()
 def get_config_loader() -> JsonConfigLoader:
     """
-    JsonConfigLoader 싱글톤 인스턴스 반환 (FastAPI Depends + lru_cache)
+    JsonConfigLoader 인스턴스 반환 (캐싱 제거 - 동적 프롬프트 로딩 지원)
 
     Returns:
-        JsonConfigLoader: 스레드 안전한 싱글톤 인스턴스
+        JsonConfigLoader: 새 인스턴스 (prompts/ 디렉토리를 매번 스캔하여 최신 상태 반영)
     """
     project_root = get_project_root()
     return JsonConfigLoader(project_root)
@@ -82,14 +80,11 @@ def _load_agent_system_prompt(config: AgentConfig) -> str:
 
 
 @router.get("/agents", response_model=AgentListResponse)
-async def list_agents(
-    config_loader: JsonConfigLoader = Depends(get_config_loader),
-) -> AgentListResponse:
+async def list_agents() -> AgentListResponse:
     """
     사용 가능한 Worker Agent 목록 조회 (기본 워커 + 커스텀 워커)
 
-    Args:
-        config_loader: ConfigLoader 의존성 주입 (Depends)
+    **동적 로딩**: prompts/ 디렉토리를 매번 스캔하여 새로 추가된 프롬프트 즉시 반영
 
     Returns:
         AgentListResponse: Agent 목록 (name, role, description, system_prompt, allowed_tools)
@@ -110,8 +105,9 @@ async def list_agents(
         }
     """
     try:
-        # 1. 기본 워커 로드
-        agent_configs = config_loader.load_agent_configs()
+        # 1. 기본 워커 로드 (매번 동적 로딩 - 새 프롬프트 즉시 반영)
+        config_loader = get_config_loader()
+        agent_configs = config_loader.load_agent_configs(auto_scan=True)
 
         # 2. 커스텀 워커 로드 (프로젝트가 선택된 경우만)
         from src.presentation.web.routers.projects import _current_project_path
@@ -248,15 +244,12 @@ async def _execute_worker_stream(
 
 
 @router.post("/execute")
-async def execute_agent(
-    request: AgentExecuteRequest, config_loader: JsonConfigLoader = Depends(get_config_loader)
-):
+async def execute_agent(request: AgentExecuteRequest):
     """
     Worker Agent 실행 (Server-Sent Events)
 
     Args:
         request: Agent 실행 요청 (agent_name, task_description, session_id)
-        config_loader: ConfigLoader 의존성 주입 (Depends)
 
     Returns:
         EventSourceResponse: SSE 스트리밍 응답
@@ -279,8 +272,9 @@ async def execute_agent(
     session_id = request.session_id or str(uuid.uuid4())
 
     try:
-        # Agent 설정 로드
-        agent_configs = config_loader.load_agent_configs()
+        # Agent 설정 로드 (동적 로딩)
+        config_loader = get_config_loader()
+        agent_configs = config_loader.load_agent_configs(auto_scan=True)
 
         agent_config = next(
             (cfg for cfg in agent_configs if cfg.name == request.agent_name),
