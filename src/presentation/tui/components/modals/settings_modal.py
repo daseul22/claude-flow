@@ -118,7 +118,7 @@ class SettingsModal(ModalScreen[SettingsResult]):
                 yield Select(
                     options=[
                         ("Claude 4.5 Sonnet (기본)", "claude-sonnet-4.5"),
-                        ("Claude 4.1 Opus", "claude-opus-4.1"),
+                        ("Claude Opus 4", "claude-opus-4"),
                         ("Claude 4.5 Haiku", "claude-haiku-4.5"),
                     ],
                     value=self.settings.get("model", "claude-sonnet-4.5"),
