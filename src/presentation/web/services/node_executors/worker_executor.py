@@ -380,8 +380,13 @@ class WorkerNodeExecutor(BaseNodeExecutor):
                     f"⚡ SDK 세션 ID 조기 획득 (추가 프롬프트): {sdk_session_id[:8]}... "
                     f"(노드 {node_id})"
                 )
-                # 즉시 업데이트
+                # 즉시 업데이트 (메모리)
                 self.node_sessions[node_id] = sdk_session_id
+
+                # 디스크 동기화 (콜백 호출)
+                if self.on_node_session_update:
+                    self.on_node_session_update(node_id, sdk_session_id)
+
                 if node_id in self.node_session_history:
                     existing_session = next(
                         (
@@ -424,7 +429,12 @@ class WorkerNodeExecutor(BaseNodeExecutor):
 
             # SDK 세션 ID 업데이트
             if worker.last_session_id:
+                # 메모리 업데이트
                 self.node_sessions[node_id] = worker.last_session_id
+
+                # 디스크 동기화 (콜백 호출)
+                if self.on_node_session_update:
+                    self.on_node_session_update(node_id, worker.last_session_id)
 
                 if node_id in self.node_session_history:
                     existing_session = next(
@@ -597,8 +607,13 @@ class WorkerNodeExecutor(BaseNodeExecutor):
             worker_session_id: Worker SDK 세션 ID
             session_id: 워크플로우 세션 ID
         """
+        # 메모리 업데이트
         self.node_sessions[node_id] = worker_session_id
         self.node_agent_names[node_id] = agent_name
+
+        # 디스크 동기화 (콜백 호출)
+        if self.on_node_session_update:
+            self.on_node_session_update(node_id, worker_session_id)
 
         if node_id not in self.node_session_history:
             self.node_session_history[node_id] = []

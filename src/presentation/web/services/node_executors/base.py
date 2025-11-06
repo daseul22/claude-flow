@@ -82,6 +82,7 @@ class BaseNodeExecutor(ABC):
         node_agent_names: dict[str, str],
         user_input_queues: dict[str, asyncio.Queue[str]],
         cancelled_sessions: set[str],
+        on_node_session_update: callable | None = None,
     ) -> None:
         """
         BaseNodeExecutor 초기화
@@ -96,6 +97,7 @@ class BaseNodeExecutor(ABC):
             node_agent_names: 노드 에이전트 이름 매핑 (참조)
             user_input_queues: 사용자 입력 Queue (참조)
             cancelled_sessions: 취소된 세션 집합 (참조)
+            on_node_session_update: 노드 세션 업데이트 콜백 (node_id, session_id)
         """
         self.config_loader = config_loader
         self.agent_config_map = agent_config_map
@@ -108,6 +110,7 @@ class BaseNodeExecutor(ABC):
         self.node_agent_names = node_agent_names
         self.user_input_queues = user_input_queues
         self.cancelled_sessions = cancelled_sessions
+        self.on_node_session_update = on_node_session_update
 
     @abstractmethod
     async def execute(

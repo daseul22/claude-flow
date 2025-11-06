@@ -98,6 +98,12 @@ class WorkflowExecutor:
 
         self.agent_config_map = {config.name: config for config in self.agent_configs}
 
+        # 노드 세션 파일 경로 설정
+        self._node_sessions_file = self._get_node_sessions_file_path()
+
+        # 디스크에서 노드 세션 매핑 로드
+        self._load_node_sessions_from_disk()
+
         # 컴포넌트 초기화
         self.template_renderer = WorkflowTemplateRenderer()
         self.condition_evaluator = WorkflowConditionEvaluator(self._condition_iterations)
@@ -111,6 +117,7 @@ class WorkflowExecutor:
             node_agent_names=self._node_agent_names,
             user_input_queues=self.user_input_queues,
             cancelled_sessions=self.cancelled_sessions,
+            on_node_session_update=self.update_node_session,
         )
 
     def _get_agent_config(self, agent_name: str) -> AgentConfig:
@@ -145,6 +152,84 @@ class WorkflowExecutor:
             logger.error(error_msg)
             raise ValueError(error_msg)
         return config
+
+    def _get_node_sessions_file_path(self) -> Optional[Path]:
+        """
+        노드 세션 매핑 파일 경로 반환
+
+        Returns:
+            Optional[Path]: 세션 파일 경로 (프로젝트 경로가 없으면 None)
+        """
+        if not self.project_path:
+            return None
+
+        # ~/.claude-flow/{project-name}/node-sessions.json
+        project_dir = Path(self.project_path)
+        project_name = project_dir.name
+        sessions_dir = Path.home() / ".claude-flow" / project_name
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+
+        return sessions_dir / "node-sessions.json"
+
+    def _load_node_sessions_from_disk(self) -> None:
+        """
+        디스크에서 노드 세션 매핑 로드
+
+        파일이 없거나 읽기 실패 시 빈 딕셔너리 사용
+        """
+        if not self._node_sessions_file:
+            logger.debug("프로젝트 경로가 없어 노드 세션 로드 건너뜀")
+            return
+
+        if not self._node_sessions_file.exists():
+            logger.debug(f"노드 세션 파일 없음: {self._node_sessions_file}")
+            return
+
+        try:
+            import json
+            with open(self._node_sessions_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                self._node_sessions = data.get("node_sessions", {})
+                logger.info(
+                    f"노드 세션 매핑 로드 완료: {len(self._node_sessions)}개 "
+                    f"(파일: {self._node_sessions_file})"
+                )
+        except Exception as e:
+            logger.warning(f"노드 세션 파일 로드 실패: {e}", exc_info=True)
+            self._node_sessions = {}
+
+    def _save_node_sessions_to_disk(self) -> None:
+        """
+        노드 세션 매핑을 디스크에 저장
+
+        실패 시 로그만 출력 (치명적 에러 아님)
+        """
+        if not self._node_sessions_file:
+            return
+
+        try:
+            import json
+            data = {
+                "node_sessions": self._node_sessions,
+                "updated_at": datetime.now().isoformat(),
+            }
+            with open(self._node_sessions_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            logger.debug(f"노드 세션 매핑 저장 완료: {self._node_sessions_file}")
+        except Exception as e:
+            logger.error(f"노드 세션 파일 저장 실패: {e}", exc_info=True)
+
+    def update_node_session(self, node_id: str, session_id: str) -> None:
+        """
+        노드 세션 업데이트 및 디스크 동기화
+
+        Args:
+            node_id: 노드 ID
+            session_id: SDK 세션 ID
+        """
+        self._node_sessions[node_id] = session_id
+        self._save_node_sessions_to_disk()
+        logger.debug(f"노드 세션 업데이트: {node_id} → {session_id}")
 
     def cancel_session(self, session_id: str) -> None:
         """
