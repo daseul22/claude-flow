@@ -310,8 +310,18 @@ export function useSessionRestore({
           // 세션 복원 성공 시 워크플로우 로드 스킵
           return
         } catch (err) {
-          console.warn('세션 복원 실패 (세션 삭제됨 또는 만료):', err)
+          const errorMsg = err instanceof Error ? err.message : String(err)
+          console.warn('세션 복원 실패 (세션 삭제됨 또는 만료):', errorMsg)
+
+          // localStorage에서 만료된 세션 ID 제거
           localStorage.removeItem(STORAGE_KEY_SESSION_ID)
+
+          // 타임아웃이나 404 에러 시 사용자에게 알림
+          if (errorMsg.includes('타임아웃') || errorMsg.includes('404')) {
+            addToast('warning', '이전 세션이 만료되어 새로 시작합니다')
+          } else {
+            console.error('세션 복원 중 예상치 못한 에러:', err)
+          }
         }
       }
 

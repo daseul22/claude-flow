@@ -836,14 +836,30 @@ export interface WorkflowSession {
  * 워크플로우 세션 조회
  */
 export async function getWorkflowSession(sessionId: string): Promise<WorkflowSession> {
-  const response = await fetch(`${API_BASE}/workflows/sessions/${sessionId}`)
+  // 타임아웃 설정 (5초)
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 5000)
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`)
+  try {
+    const response = await fetch(`${API_BASE}/workflows/sessions/${sessionId}`, {
+      signal: controller.signal
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`)
+    }
+
+    return await response.json()
+  } catch (error) {
+    clearTimeout(timeoutId)
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('세션 조회 타임아웃 (5초 초과) - 세션이 만료되었거나 서버 응답 없음')
+    }
+    throw error
   }
-
-  return await response.json()
 }
 
 /**
