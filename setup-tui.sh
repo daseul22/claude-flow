@@ -15,23 +15,37 @@ cd "$SCRIPT_DIR"
 
 # Python 버전 확인
 echo "🔍 Python 버전 확인..."
-if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3가 설치되어 있지 않습니다."
-    echo "   Python 3.10 이상을 설치해주세요."
+
+# Python 3.10 이상 버전 찾기 (우선순위: python3.14 > python3.13 > python3.12 > python3.11 > python3.10)
+PYTHON_CMD=""
+for py_cmd in python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
+    if command -v "$py_cmd" &> /dev/null; then
+        # 버전 체크
+        if $py_cmd -c "import sys; exit(0 if sys.version_info >= (3, 10) else 1)" 2>/dev/null; then
+            PYTHON_CMD="$py_cmd"
+            break
+        fi
+    fi
+done
+
+if [ -z "$PYTHON_CMD" ]; then
+    echo "❌ Python 3.10 이상을 찾을 수 없습니다."
+    echo ""
+    echo "현재 설치된 Python 버전:"
+    for py_cmd in python3.9 python3.10 python3.11 python3.12 python3.13 python3.14 python3; do
+        if command -v "$py_cmd" &> /dev/null; then
+            version=$($py_cmd --version 2>&1)
+            echo "  - $py_cmd: $version"
+        fi
+    done
+    echo ""
+    echo "Python 3.10 이상을 설치해주세요:"
+    echo "  https://www.python.org/downloads/"
     exit 1
 fi
 
-PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
-echo "   ✓ Python $PYTHON_VERSION 발견"
-
-# Python 3.10 이상 확인
-MAJOR=$(python3 -c 'import sys; print(sys.version_info[0])')
-MINOR=$(python3 -c 'import sys; print(sys.version_info[1])')
-
-if [ "$MAJOR" -lt 3 ] || ([ "$MAJOR" -eq 3 ] && [ "$MINOR" -lt 10 ]); then
-    echo "❌ Python 3.10 이상이 필요합니다. (현재: $PYTHON_VERSION)"
-    exit 1
-fi
+PYTHON_VERSION=$($PYTHON_CMD -c 'import sys; print(".".join(map(str, sys.version_info[:3])))')
+echo "   ✓ Python $PYTHON_VERSION ($PYTHON_CMD) 발견"
 
 echo ""
 
@@ -40,7 +54,7 @@ if [ -d "venv" ]; then
     echo "📦 기존 가상환경 발견"
 else
     echo "📦 가상환경 생성 중..."
-    python3 -m venv venv
+    $PYTHON_CMD -m venv venv
     echo "   ✓ 가상환경 생성 완료"
 fi
 
