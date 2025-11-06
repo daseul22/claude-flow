@@ -33,15 +33,14 @@ class ChatView(RichLog):
         if timestamp is None:
             timestamp = datetime.now().strftime("%H:%M:%S")
 
-        # 타임스탬프
+        # 타임스탬프와 사용자 레이블을 한 줄로
         if self.show_timestamps:
-            time_text = Text(f"[{timestamp}] ", style="dim")
-            self.write(time_text, end="")
-
-        # 사용자 레이블
-        user_label = Text("You", style="bold cyan")
-        self.write(user_label)
-        self.write("")  # 줄바꿈
+            header = Text(f"[{timestamp}] ", style="dim")
+            header.append("You", style="bold cyan")
+            self.write(header)
+        else:
+            user_label = Text("You", style="bold cyan")
+            self.write(user_label)
 
         # 메시지 내용
         self.write(f"  {content}")
@@ -52,15 +51,14 @@ class ChatView(RichLog):
         if timestamp is None:
             timestamp = datetime.now().strftime("%H:%M:%S")
 
-        # 타임스탬프
+        # 타임스탬프와 어시스턴트 레이블을 한 줄로
         if self.show_timestamps:
-            time_text = Text(f"[{timestamp}] ", style="dim")
-            self.write(time_text, end="")
-
-        # 어시스턴트 레이블
-        assistant_label = Text("Claude", style="bold green")
-        self.write(assistant_label)
-        self.write("")  # 줄바꿈
+            header = Text(f"[{timestamp}] ", style="dim")
+            header.append("Claude", style="bold green")
+            self.write(header)
+        else:
+            assistant_label = Text("Claude", style="bold green")
+            self.write(assistant_label)
 
         # 메시지 내용 (마크다운 렌더링)
         try:
