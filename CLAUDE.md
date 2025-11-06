@@ -589,6 +589,27 @@ npm run build
 - Path Traversal (CWE-22) 수정: 디렉토리 탐색 시 경로 검증 추가
 - Remote Code Execution (CWE-94) 수정: `eval()` 제거, AST 기반 화이트리스트 파싱 구현
 
+### 2025-11-06
+
+#### feat. TUI 기능명세서 준수 및 핵심 기능 개선
+- 날짜: 2025-11-06 (Asia/Seoul)
+- 커밋: c5be969
+- 컨텍스트: TUI 기능명세서(`docs/TUI_기능명세서.md`)에 따른 전수 점검 및 개선
+- 변경사항:
+  - `src/presentation/tui/components/input_box.py`: Enter로 전송, Shift+Enter로 줄바꿈 지원
+  - `src/presentation/tui/components/status_bar.py`: 피드백 루프 활성화 상태를 상태바에 실시간 표시 (🔁 Feedback)
+  - `src/presentation/tui/components/modals/session_list.py`: 세션 삭제 기능 추가
+  - `src/presentation/tui/app.py`: cd 명령 시 디렉토리 권한 검증, 종료 시 세션 통계 로깅, 상태바 토글
+  - `src/presentation/tui/services/logger.py`: 메시지 로그 시 자동 로테이션 호출
+  - `src/presentation/tui/components/modals/settings_modal.py`: 상태바 표시/숨김 옵션, 기본값 복원 버튼
+  - `src/presentation/tui/components/modals/help_modal.py`: Shift+Enter 단축키 안내 추가
+- 영향범위: 기능 개선, UX 향상, 문서 준수도 95% 달성
+- 테스트: TUI 기능명세서 8개 섹션 전수 점검 완료
+- 후속 조치: 
+  - 환경변수 관리 UI 구현 (향후)
+  - 설정 내보내기/가져오기 기능 추가 (향후)
+  - 커스텀 테마 지원 (향후)
+
 **자세한 변경 이력은 [CHANGELOG.md](CHANGELOG.md)를 참조하세요.**
 
 ---
