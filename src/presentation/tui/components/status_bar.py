@@ -53,25 +53,25 @@ class StatusBar(Widget):
             yield Static("", classes="session-info", id="session-info")
             yield Static("", classes="token-info", id="token-info")
 
-    def update_project(self, name: str, git_branch: str = ""):
+    def update_project(self, name: str, git_branch: str = "") -> None:
         """프로젝트 정보 업데이트"""
         self.project_name = name
         self.git_branch = git_branch
         self._refresh_display()
 
-    def update_session(self, session_id: str):
+    def update_session(self, session_id: str) -> None:
         """세션 정보 업데이트"""
         self.session_id = session_id[:8]  # 앞 8자만 표시
         self._refresh_display()
 
-    def update_tokens(self, input_tokens: int, output_tokens: int, cost: float = 0.0):
+    def update_tokens(self, input_tokens: int, output_tokens: int, cost: float = 0.0) -> None:
         """토큰 사용량 업데이트"""
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
         self.estimated_cost = cost
         self._refresh_display()
 
-    def _refresh_display(self):
+    def _refresh_display(self) -> None:
         """화면 갱신"""
         # 프로젝트 정보
         project_text = f"📁 {self.project_name}"

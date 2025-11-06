@@ -69,7 +69,7 @@ class InputBox(TextArea):
                 self.text = ""
             event.prevent_default()
 
-    async def submit_message(self):
+    async def submit_message(self) -> None:
         """메시지 전송"""
         text = self.text.strip()
 
@@ -84,15 +84,8 @@ class InputBox(TextArea):
             # 입력창 초기화
             self.text = ""
 
-    def clear_input(self):
+    def clear_input(self) -> None:
         """입력창 초기화"""
         self.text = ""
         self.history_index = -1
-
-    def set_placeholder(self, text: str):
-        """플레이스홀더 설정"""
-        # Textual TextArea는 플레이스홀더를 직접 지원하지 않으므로
-        # 비어있을 때만 임시로 표시
-        if not self.text:
-            self.text = text
 

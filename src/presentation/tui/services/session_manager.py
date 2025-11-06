@@ -85,7 +85,7 @@ class SessionManager:
         content: str,
         tokens: Optional[Dict[str, int]] = None,
         tool_calls: Optional[List[Dict[str, Any]]] = None,
-    ):
+    ) -> None:
         """메시지 추가"""
         if not self.current_session:
             raise ValueError("활성 세션이 없습니다")
@@ -108,35 +108,38 @@ class SessionManager:
         # 자동 저장
         self.save_session(self.current_session)
 
-    def save_session(self, session: Session):
+    def save_session(self, session: Session) -> None:
         """세션 저장"""
-        session_file = self.sessions_dir / f"{session.session_id}.json"
+        try:
+            session_file = self.sessions_dir / f"{session.session_id}.json"
 
-        session_dict = {
-            "session_id": session.session_id,
-            "project_name": session.project_name,
-            "project_path": session.project_path,
-            "working_directory": session.working_directory,
-            "model": session.model,
-            "created_at": session.created_at,
-            "updated_at": session.updated_at,
-            "claude_md_loaded": session.claude_md_loaded,
-            "messages": [
-                {
-                    "role": msg.role,
-                    "content": msg.content,
-                    "timestamp": msg.timestamp,
-                    "tokens": msg.tokens,
-                    "tool_calls": msg.tool_calls,
-                }
-                for msg in session.messages
-            ],
-            "feedback_loop": asdict(session.feedback_loop),
-            "total_tokens": session.total_tokens,
-        }
+            session_dict = {
+                "session_id": session.session_id,
+                "project_name": session.project_name,
+                "project_path": session.project_path,
+                "working_directory": session.working_directory,
+                "model": session.model,
+                "created_at": session.created_at,
+                "updated_at": session.updated_at,
+                "claude_md_loaded": session.claude_md_loaded,
+                "messages": [
+                    {
+                        "role": msg.role,
+                        "content": msg.content,
+                        "timestamp": msg.timestamp,
+                        "tokens": msg.tokens,
+                        "tool_calls": msg.tool_calls,
+                    }
+                    for msg in session.messages
+                ],
+                "feedback_loop": asdict(session.feedback_loop),
+                "total_tokens": session.total_tokens,
+            }
 
-        with open(session_file, "w", encoding="utf-8") as f:
-            json.dump(session_dict, f, indent=2, ensure_ascii=False)
+            with open(session_file, "w", encoding="utf-8") as f:
+                json.dump(session_dict, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"세션 저장 실패: {e}")  # 로거가 없으므로 print 사용
 
     def load_session(self, session_id: str) -> Session:
         """세션 불러오기"""
@@ -196,12 +199,14 @@ class SessionManager:
         sessions.sort(key=lambda x: x["updated_at"], reverse=True)
         return sessions
 
-    def delete_session(self, session_id: str):
+    def delete_session(self, session_id: str) -> None:
         """세션 삭제"""
-        session_file = self.sessions_dir / f"{session_id}.json"
-
-        if session_file.exists():
-            session_file.unlink()
+        try:
+            session_file = self.sessions_dir / f"{session_id}.json"
+            if session_file.exists():
+                session_file.unlink()
+        except Exception as e:
+            print(f"세션 삭제 실패: {e}")
 
     def get_session_stats(self) -> Dict[str, Any]:
         """세션 통계"""

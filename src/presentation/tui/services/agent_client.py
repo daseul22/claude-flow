@@ -66,19 +66,14 @@ class AgentClient:
         self,
         message: str,
         on_token: Optional[Callable[[str], None]] = None,
-        on_tool_use: Optional[Callable[[str, dict], None]] = None,
-        on_thinking: Optional[Callable[[str], None]] = None,
     ) -> AsyncIterator[str]:
         """메시지 전송 및 스트리밍 응답"""
-
         try:
             # WorkerAgent의 execute_task는 깔끔한 텍스트를 반환
-            # 특별한 파싱 없이 그대로 전달
             async for chunk in self.worker.execute_task(
                 task_description=message,
-                resume_session_id=None,  # TUI에서는 세션 재사용 안 함 (일단)
+                resume_session_id=None,
             ):
-                # 일반 텍스트 그대로 yield
                 if on_token:
                     on_token(chunk)
                 yield chunk

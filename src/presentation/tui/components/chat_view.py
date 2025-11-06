@@ -1,11 +1,11 @@
 """대화 뷰 컴포넌트"""
 
-from textual.widgets import RichLog
-from textual.widget import Widget
-from rich.text import Text
-from rich.panel import Panel
-from rich.markdown import Markdown
+from typing import Optional
 from datetime import datetime
+
+from textual.widgets import RichLog
+from rich.text import Text
+from rich.markdown import Markdown
 
 
 class ChatView(RichLog):
@@ -30,7 +30,7 @@ class ChatView(RichLog):
         )
         self.show_timestamps = show_timestamps
 
-    def add_user_message(self, content: str, timestamp: str = None):
+    def add_user_message(self, content: str, timestamp: Optional[str] = None) -> None:
         """사용자 메시지 추가"""
         if timestamp is None:
             timestamp = datetime.now().strftime("%H:%M:%S")
@@ -48,7 +48,7 @@ class ChatView(RichLog):
         self.write(f"  {content}")
         self.write("")  # 구분선
 
-    def add_assistant_message(self, content: str, timestamp: str = None):
+    def add_assistant_message(self, content: str, timestamp: Optional[str] = None) -> None:
         """어시스턴트 메시지 추가"""
         if timestamp is None:
             timestamp = datetime.now().strftime("%H:%M:%S")
@@ -72,19 +72,19 @@ class ChatView(RichLog):
 
         self.write("")  # 구분선
 
-    def add_system_message(self, message: str, style: str = "yellow"):
+    def add_system_message(self, message: str, style: str = "yellow") -> None:
         """시스템 메시지 추가"""
         system_text = Text(f"ℹ️  {message}", style=style)
         self.write(system_text)
         self.write("")
 
-    def add_error_message(self, error: str):
+    def add_error_message(self, error: str) -> None:
         """에러 메시지 추가"""
         error_text = Text(f"❌ Error: {error}", style="bold red")
         self.write(error_text)
         self.write("")
 
-    def add_tool_call(self, tool_name: str, args: dict):
+    def add_tool_call(self, tool_name: str, args: dict) -> None:
         """도구 호출 표시"""
         tool_text = Text(f"🔧 Tool: {tool_name}", style="magenta")
         self.write(tool_text)
@@ -98,11 +98,11 @@ class ChatView(RichLog):
 
         self.write("")
 
-    def clear_messages(self):
+    def clear_messages(self) -> None:
         """모든 메시지 삭제"""
         self.clear()
 
-    def toggle_timestamps(self):
+    def toggle_timestamps(self) -> None:
         """타임스탬프 표시 토글"""
         self.show_timestamps = not self.show_timestamps
 

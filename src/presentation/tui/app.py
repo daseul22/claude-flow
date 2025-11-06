@@ -1,12 +1,14 @@
 """Claude Flow TUI 메인 앱"""
 
 import asyncio
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
+from rich.text import Text
 
 from .components.status_bar import StatusBar
 from .components.chat_view import ChatView
@@ -185,10 +187,11 @@ class ClaudeFlowApp(App):
         status_bar.update_project(self.project_name, git_branch)
         status_bar.update_session(session.session_id)
 
-        self.logger.log_event("new_session", {
-            "session_id": session.session_id,
-            "project": self.project_name,
-        })
+        if self.logger:
+            self.logger.log_event("new_session", {
+                "session_id": session.session_id,
+                "project": self.project_name,
+            })
 
     async def on_input_box_submitted(self, message: InputBox.Submitted) -> None:
         """메시지 전송 처리"""
@@ -211,7 +214,8 @@ class ClaudeFlowApp(App):
         )
 
         # 로그
-        self.logger.log_message("user", user_message)
+        if self.logger:
+            self.logger.log_message("user", user_message)
 
         # 에이전트 응답
         await self.get_agent_response(user_message)
@@ -293,28 +297,19 @@ class ClaudeFlowApp(App):
             )
 
             # 로그
-            self.logger.log_event("cd", {"from": str(old_path), "to": str(self.project_path)})
+            if self.logger:
+                self.logger.log_event("cd", {"from": str(old_path), "to": str(self.project_path)})
 
         except Exception as e:
             chat_view.add_error_message(f"디렉토리 변경 실패: {str(e)}")
 
-    async def get_agent_response(self, user_message: str):
+    async def get_agent_response(self, user_message: str) -> None:
         """에이전트 응답 받기 (실시간 스트리밍)"""
         chat_view = self.query_one(ChatView)
 
         try:
-            # 응답 헤더 추가 (타임스탬프 포함)
-            from datetime import datetime
-            from rich.text import Text
-            
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            if self.config.config.display.show_timestamps:
-                header = Text(f"[{timestamp}] ", style="dim")
-                header.append("Claude", style="bold green")
-                chat_view.write(header)
-            else:
-                assistant_label = Text("Claude", style="bold green")
-                chat_view.write(assistant_label)
+            # 응답 헤더 추가
+            self._add_response_header(chat_view)
 
             # 피드백 루프 활성화 확인
             session = self.session_manager.current_session
@@ -370,21 +365,16 @@ class ClaudeFlowApp(App):
             )
 
             # 로그
-            self.logger.log_message("assistant", response_text)
+            if self.logger:
+                self.logger.log_message("assistant", response_text)
 
             # 상태바 업데이트 (토큰)
-            session = self.session_manager.current_session
-            if session:
-                total_input = session.total_tokens["input"]
-                total_output = session.total_tokens["output"]
-                cost = self.agent.estimate_cost(total_input, total_output)
-
-                status_bar = self.query_one(StatusBar)
-                status_bar.update_tokens(total_input, total_output, cost)
+            self._update_token_display(len(response_text))
 
         except Exception as e:
             chat_view.add_error_message(str(e))
-            self.logger.log_error(e)
+            if self.logger:
+                self.logger.log_error(e)
 
     async def action_new_session(self) -> None:
         """새 세션 생성"""
@@ -413,22 +403,21 @@ class ClaudeFlowApp(App):
         if result:
             self.load_selected_session(result)
 
-    def load_selected_session(self, session_id: str):
+    def load_selected_session(self, session_id: str) -> None:
         """선택된 세션 불러오기"""
+        chat_view = self.query_one(ChatView)
+        
         try:
             # 세션 로드
             session = self.session_manager.load_session(session_id)
 
             # 대화 기록 복원
-            chat_view = self.query_one(ChatView)
             chat_view.clear_messages()
-
             chat_view.add_system_message(f"세션 {session_id[:8]} 불러옴", style="green")
 
             # 메시지 복원
             for msg in session.messages:
-                # timestamp를 HH:MM:SS 포맷으로 변환
-                timestamp = msg.timestamp.split("T")[1][:8] if "T" in msg.timestamp else msg.timestamp[:8]
+                timestamp = self._format_timestamp(msg.timestamp)
                 
                 if msg.role == "user":
                     chat_view.add_user_message(msg.content, timestamp)
@@ -436,20 +425,20 @@ class ClaudeFlowApp(App):
                     chat_view.add_assistant_message(msg.content, timestamp)
 
             # 상태바 업데이트
-            status_bar = self.query_one(StatusBar)
-            status_bar.update_session(session.session_id)
-            cost = self.agent.estimate_cost(
-                session.total_tokens["input"],
-                session.total_tokens["output"]
-            )
-            status_bar.update_tokens(
-                session.total_tokens["input"],
-                session.total_tokens["output"],
-                cost
-            )
+            if self.agent:
+                status_bar = self.query_one(StatusBar)
+                status_bar.update_session(session.session_id)
+                cost = self.agent.estimate_cost(
+                    session.total_tokens["input"],
+                    session.total_tokens["output"]
+                )
+                status_bar.update_tokens(
+                    session.total_tokens["input"],
+                    session.total_tokens["output"],
+                    cost
+                )
 
         except Exception as e:
-            chat_view = self.query_one(ChatView)
             chat_view.add_error_message(f"세션 불러오기 실패: {str(e)}")
 
     async def action_project_info(self) -> None:
@@ -561,4 +550,39 @@ class ClaudeFlowApp(App):
     def action_quit(self) -> None:
         """앱 종료"""
         self.exit()
+
+    # ========== Helper Methods ==========
+
+    def _add_response_header(self, chat_view: ChatView) -> None:
+        """응답 헤더 추가 (타임스탬프 + 레이블)"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        if self.config.config.display.show_timestamps:
+            header = Text(f"[{timestamp}] ", style="dim")
+            header.append("Claude", style="bold green")
+            chat_view.write(header)
+        else:
+            assistant_label = Text("Claude", style="bold green")
+            chat_view.write(assistant_label)
+
+    def _update_token_display(self, response_length: int) -> None:
+        """토큰 사용량 표시 업데이트"""
+        session = self.session_manager.current_session
+        if not session or not self.agent:
+            return
+
+        total_input = session.total_tokens["input"]
+        total_output = session.total_tokens["output"]
+        cost = self.agent.estimate_cost(total_input, total_output)
+
+        status_bar = self.query_one(StatusBar)
+        status_bar.update_tokens(total_input, total_output, cost)
+
+    @staticmethod
+    def _format_timestamp(timestamp: str) -> str:
+        """ISO 타임스탬프를 HH:MM:SS로 변환"""
+        # 2024-01-01T12:34:56.789 → 12:34:56
+        if "T" in timestamp:
+            return timestamp.split("T")[1][:8]
+        # 이미 HH:MM:SS 형식이면 그대로
+        return timestamp[:8]
 
