@@ -27,9 +27,17 @@ class FeedbackLoop:
     ) -> bool:
         """조건 평가 (LLM 사용)"""
         # 조건 평가용 에이전트 생성
+        # condition_model은 SDK 형식이므로 그대로 사용하되
+        # AgentClient는 사용자 친화적 이름도 받을 수 있도록 처리
+        model_name = self.condition_model
+        
+        # SDK 형식이 아니면 변환 (안전장치)
+        if not model_name.startswith("claude-"):
+            model_name = "claude-haiku-4-5-20251001"
+        
         evaluator = AgentClient(
             project_path=self.project_path,
-            model=self.condition_model,
+            model=model_name,
         )
 
         # 평가 프롬프트

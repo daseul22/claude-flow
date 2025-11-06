@@ -50,9 +50,15 @@ class AgentClient:
 
     def _normalize_model_name(self, model: str) -> str:
         """모델명을 SDK 형식으로 변환"""
+        # 이미 SDK 형식이면 그대로 반환
+        if model.startswith("claude-") and "-20" in model:
+            return model
+        
+        # 사용자 친화적 이름을 SDK 형식으로 변환
         model_mapping = {
             "claude-sonnet-4.5": "claude-sonnet-4-5-20250929",
-            "claude-haiku-4.5": "claude-haiku-4-5-20251001",  # 수정됨
+            "claude-haiku-4.5": "claude-haiku-4-5-20251001",
+            "claude-opus-4.1": "claude-opus-4-20241022",
         }
         return model_mapping.get(model, "claude-sonnet-4-5-20250929")
 

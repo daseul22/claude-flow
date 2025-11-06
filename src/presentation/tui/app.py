@@ -58,6 +58,7 @@ class ClaudeFlowApp(App):
     def __init__(self, project_path: Path, **kwargs):
         super().__init__(**kwargs)
         self.project_path = project_path.absolute()
+        self.initial_project_path = self.project_path  # 초기 프로젝트 경로 저장
 
         # 설정
         self.config = ConfigManager()
@@ -269,6 +270,17 @@ class ClaudeFlowApp(App):
             
             self.project_path = new_path.absolute()
 
+            # 프로젝트 루트 외부 이동 경고
+            try:
+                new_path.relative_to(self.initial_project_path)
+            except ValueError:
+                # 프로젝트 루트 외부
+                chat_view.add_system_message(
+                    "⚠️  프로젝트 루트 외부로 이동했습니다.\n"
+                    f"초기 프로젝트: {self.initial_project_path}",
+                    style="yellow"
+                )
+
             # 세션 업데이트
             if self.session_manager.current_session:
                 self.session_manager.current_session.working_directory = str(self.project_path)
@@ -310,8 +322,15 @@ class ClaudeFlowApp(App):
                 self.feedback_loop is not None 
                 and session 
                 and session.feedback_loop.enabled
-                and session.feedback_loop.condition_prompt.strip()
             )
+
+            # 피드백 루프 활성화했지만 조건 프롬프트 없음
+            if use_feedback_loop and not session.feedback_loop.condition_prompt.strip():
+                chat_view.add_error_message(
+                    "⚠️  피드백 루프가 활성화되었지만 조건 프롬프트가 없습니다.\n"
+                    "Ctrl+,로 설정에서 '조건 프롬프트'를 입력하세요."
+                )
+                use_feedback_loop = False
 
             # 실시간 스트리밍 응답
             response_text = ""

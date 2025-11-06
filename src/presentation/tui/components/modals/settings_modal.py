@@ -137,12 +137,20 @@ class SettingsModal(ModalScreen[Dict[str, Any]]):
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         """버튼 클릭 처리"""
         if event.button.id == "save":
+            # 최대 반복 횟수 검증
+            try:
+                max_iter = int(self.query_one("#max-iterations", Input).value or "3")
+                if not (1 <= max_iter <= 30):
+                    max_iter = 3
+            except ValueError:
+                max_iter = 3
+
             # 설정 수집
             settings = {
                 "model": self.query_one("#model-select", Select).value,
                 "feedback_loop_enabled": self.query_one("#feedback-enabled", Checkbox).value,
-                "condition_prompt": self.query_one("#condition-prompt", Input).value,
-                "max_iterations": int(self.query_one("#max-iterations", Input).value or "3"),
+                "condition_prompt": self.query_one("#condition-prompt", Input).value.strip(),
+                "max_iterations": max_iter,
                 "condition_model": self.query_one("#condition-model", Select).value,
                 "show_timestamps": self.query_one("#show-timestamps", Checkbox).value,
                 "show_token_counts": self.query_one("#show-token-counts", Checkbox).value,
