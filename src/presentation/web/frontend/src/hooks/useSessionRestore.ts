@@ -63,11 +63,49 @@ export function useSessionRestore({
 
     const loadLastProject = async () => {
       // 1. 세션 복원 시도 (우선순위 높음 - 세션에 프로젝트 경로 포함)
-      const lastSessionId = localStorage.getItem(STORAGE_KEY_SESSION_ID)
-      if (lastSessionId) {
+      // ✅ BUG-004 수정: 세션 유효성 검증 추가
+      const lastSessionData = localStorage.getItem(STORAGE_KEY_SESSION_ID)
+      if (lastSessionData) {
+        let lastSessionId: string | null = null
+
         try {
-          console.log('🔄 세션 복원 시도:', lastSessionId)
-          const session = await getWorkflowSession(lastSessionId)
+          // 1-1. localStorage에서 세션 데이터 파싱
+          const sessionObj = JSON.parse(lastSessionData)
+
+          // 새 형식: {session_id, timestamp}
+          if (sessionObj && typeof sessionObj === 'object' && sessionObj.session_id) {
+            const { session_id, timestamp } = sessionObj
+            const now = Date.now()
+            const SESSION_TTL = 24 * 60 * 60 * 1000  // 24시간 (밀리초)
+
+            // 타임스탬프 검증 (24시간 이내)
+            if (timestamp && (now - timestamp) < SESSION_TTL) {
+              lastSessionId = session_id
+              console.log(`✅ 세션 타임스탬프 검증 통과: ${session_id} (${Math.floor((now - timestamp) / 1000 / 60)}분 전)`)
+            } else {
+              console.warn('⚠️  세션 TTL 만료 (24시간 경과) - 세션 삭제')
+              localStorage.removeItem(STORAGE_KEY_SESSION_ID)
+            }
+          } else {
+            // 구 형식 (이전 버전 호환성): 문자열만 저장됨
+            console.warn('⚠️  구 형식 세션 ID 감지 (타임스탬프 없음) - 유효성 검증 후 마이그레이션')
+            // 일단 API로 유효성 검증 시도
+            lastSessionId = lastSessionData
+          }
+        } catch (e) {
+          // JSON 파싱 실패 → 구 형식 (문자열)
+          console.warn('⚠️  JSON 파싱 실패 - 구 형식 세션 ID로 간주')
+          lastSessionId = lastSessionData
+        }
+
+        if (!lastSessionId) {
+          console.log('ℹ️  유효한 세션 ID 없음 - 세션 복원 스킵')
+          // 다음 단계(localStorage에서 프로젝트 경로 복원)로 진행
+        } else {
+          // 1-2. API로 세션 존재 여부 확인
+          try {
+            console.log('🔄 세션 복원 시도:', lastSessionId)
+            const session = await getWorkflowSession(lastSessionId)
 
           // 1️⃣ 프로젝트 경로 복원 (세션 → localStorage 순서)
           let restoredProjectPath: string | null = null
@@ -323,7 +361,8 @@ export function useSessionRestore({
             console.error('세션 복원 중 예상치 못한 에러:', err)
           }
         }
-      }
+        }  // else 블록 닫기 (lastSessionId 유효성 검증)
+      }  // if (lastSessionData) 블록 닫기
 
       // 2. 세션 복원 실패 시 localStorage에서 프로젝트 경로 복원
       const lastProjectPath = localStorage.getItem(STORAGE_KEY_PROJECT_PATH)

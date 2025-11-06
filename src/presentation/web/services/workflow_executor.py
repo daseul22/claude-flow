@@ -26,6 +26,7 @@ from src.presentation.web.services.workflow_graph_manager import WorkflowGraphMa
 from src.presentation.web.services.workflow_template_renderer import WorkflowTemplateRenderer
 from src.presentation.web.services.workflow_condition_evaluator import WorkflowConditionEvaluator
 from src.presentation.web.services.workflow_node_executor import WorkflowNodeExecutor
+from src.presentation.web.services.workflow_session_store import get_session_store
 
 logger = get_logger(__name__)
 
@@ -87,6 +88,11 @@ class WorkflowExecutor:
         # {session_id}
         # 워크플로우 실행 중 취소 요청이 들어오면 즉시 중단
         self.cancelled_sessions: Set[str] = set()
+
+        # 노드 → 워크플로우 세션 매핑 (노드별 소속 워크플로우 세션 추적)
+        # {node_id: workflow_session_id}
+        # update_node_session에서 워크플로우 세션에 노드 SDK 세션을 저장하기 위해 사용
+        self._node_to_workflow_session: Dict[str, str] = {}
 
         # 커스텀 워커 로드 (프로젝트 경로가 주어진 경우)
         self.custom_worker_names = set()
@@ -294,6 +300,8 @@ class WorkflowExecutor:
         """
         노드 세션 업데이트 및 디스크 동기화
 
+        ✅ BUG-002 수정: 워크플로우 세션에도 노드 SDK 세션 ID 저장
+
         Args:
             node_id: 노드 ID
             session_id: SDK 세션 ID (None이면 세션 삭제)
@@ -310,6 +318,53 @@ class WorkflowExecutor:
 
         self._save_node_sessions_to_disk()
         logger.debug(f"노드 세션 업데이트: {node_id} → {session_id or '(삭제)'}")
+
+        # 워크플로우 세션에도 노드 SDK 세션 저장
+        workflow_session_id = self._node_to_workflow_session.get(node_id)
+        if workflow_session_id:
+            try:
+                # 세션 저장소 조회
+                session_store = get_session_store(self.project_path)
+
+                # 워크플로우 세션을 동기적으로 조회하고 업데이트 (asyncio.run 사용)
+                import asyncio
+
+                async def update_workflow_session():
+                    """워크플로우 세션 업데이트 (비동기)"""
+                    session = await session_store.get_session(workflow_session_id)
+                    if session:
+                        # node_sdk_sessions 업데이트
+                        if session_id:
+                            session.node_sdk_sessions[node_id] = session_id
+                        else:
+                            # 세션 삭제
+                            session.node_sdk_sessions.pop(node_id, None)
+
+                        # 세션 저장
+                        await session_store.save_session(session)
+                        logger.info(
+                            f"[{workflow_session_id}] 워크플로우 세션에 노드 SDK 세션 저장: "
+                            f"{node_id} → {session_id or '(삭제)'}"
+                        )
+
+                # 이벤트 루프에서 실행 (동기 함수에서 비동기 호출)
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # 이미 이벤트 루프가 실행 중이면 task 생성 (백그라운드 저장)
+                        asyncio.create_task(update_workflow_session())
+                    else:
+                        # 이벤트 루프가 없으면 새로 실행
+                        asyncio.run(update_workflow_session())
+                except RuntimeError:
+                    # 이벤트 루프가 없으면 새로 실행
+                    asyncio.run(update_workflow_session())
+
+            except Exception as e:
+                logger.error(
+                    f"워크플로우 세션 업데이트 실패 (노드: {node_id}, 세션: {workflow_session_id}): {e}",
+                    exc_info=True
+                )
 
     def cancel_session(self, session_id: str) -> None:
         """
@@ -548,6 +603,7 @@ class WorkflowExecutor:
         restore_node_outputs: Optional[Dict[str, str]] = None,
         restore_node_inputs: Optional[Dict[str, str]] = None,
         restore_executed_nodes: Optional[Set[str]] = None,
+        restore_node_sdk_sessions: Optional[Dict[str, str]] = None,
     ) -> AsyncIterator[WorkflowNodeExecutionEvent]:
         """
         워크플로우 실행 (동적 노드 선택, Condition 분기 지원)
@@ -561,6 +617,10 @@ class WorkflowExecutor:
         - restore_node_outputs, restore_node_inputs로 이전 실행 상태 복원
         - start_node_id와 함께 사용하여 특정 노드부터 재시작
 
+        **v4.3.0 변경사항**: 노드 SDK 세션 복원 지원 (BUG-003 수정)
+        - restore_node_sdk_sessions로 노드별 SDK 세션 복원
+        - 세션 복원 시 컨텍스트 재활용 가능
+
         Args:
             workflow: 실행할 워크플로우
             initial_input: 초기 입력 데이터
@@ -570,6 +630,7 @@ class WorkflowExecutor:
             restore_node_outputs: 복원할 노드 출력 (재시작 시)
             restore_node_inputs: 복원할 노드 입력 (재시작 시)
             restore_executed_nodes: 복원할 실행 완료 노드 목록 (재시작 시)
+            restore_node_sdk_sessions: 복원할 노드별 SDK 세션 ID (재시작 시)
 
         Yields:
             WorkflowNodeExecutionEvent: 노드 실행 이벤트
@@ -582,6 +643,13 @@ class WorkflowExecutor:
         # project_path가 None이면 self.project_path 사용
         add_session_file_handlers(session_id, project_path or self.project_path)
 
+        # 모든 노드를 워크플로우 세션에 매핑 (노드 SDK 세션 저장용)
+        for node in workflow.nodes:
+            self._node_to_workflow_session[node.id] = session_id
+        logger.debug(
+            f"[{session_id}] 노드 → 워크플로우 세션 매핑 등록: {len(workflow.nodes)}개 노드"
+        )
+
         # 세션별 Condition 노드 반복 횟수 초기화
         self._condition_iterations[session_id] = {}
 
@@ -591,6 +659,33 @@ class WorkflowExecutor:
         logger.info(f"[{session_id}] 사용자 입력 Queue 생성 (Human-in-the-Loop 지원)")
 
         try:
+            # ✅ BUG-003 수정: 노드 SDK 세션 자동 복원 (워크플로우 세션에서 로드)
+            if not restore_node_sdk_sessions:
+                # restore_node_sdk_sessions가 제공되지 않은 경우, 워크플로우 세션에서 자동 로드
+                try:
+                    session_store = get_session_store(project_path or self.project_path)
+                    workflow_session = await session_store.get_session(session_id)
+                    if workflow_session and workflow_session.node_sdk_sessions:
+                        restore_node_sdk_sessions = workflow_session.node_sdk_sessions
+                        logger.info(
+                            f"[{session_id}] 워크플로우 세션에서 노드 SDK 세션 자동 로드: "
+                            f"{len(restore_node_sdk_sessions)}개 노드"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"[{session_id}] 워크플로우 세션에서 노드 SDK 세션 로드 실패 (무시): {e}"
+                    )
+
+            # 노드 SDK 세션 복원
+            if restore_node_sdk_sessions:
+                self._node_sessions.update(restore_node_sdk_sessions)
+                logger.info(
+                    f"[{session_id}] 노드 SDK 세션 복원: {len(restore_node_sdk_sessions)}개 노드"
+                )
+                # 복원된 세션에 타임스탬프 추가
+                for node_id in restore_node_sdk_sessions.keys():
+                    self._node_session_timestamps[node_id] = datetime.now().isoformat()
+
             # 재시작 모드 확인
             is_restart = restore_node_outputs is not None or restore_node_inputs is not None
             restart_info = f" (재시작: {start_node_id})" if is_restart else ""

@@ -88,6 +88,7 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
       const abortController = new AbortController()
       abortControllerRef.current = abortController
 
+      // ✅ BUG-001 수정: 워크플로우 세션 ID를 localStorage에 저장 (Input 노드별 저장 제거)
       // 재접속 로직 비활성화 (병렬 Input 실행 시 세션 충돌 방지)
       // 항상 새 세션으로 시작
       console.log(`[InputNode:${id}] 새 워크플로우 시작`)
@@ -204,11 +205,21 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
         undefined,
         // startNodeId (이 Input 노드에서만 시작)
         id,
-        // onSessionId (세션 ID를 즉시 받아서 로컬 상태 및 localStorage에 저장)
+        // onSessionId (세션 ID를 즉시 받아서 저장)
+        // ✅ BUG-001 수정: 워크플로우 세션 ID를 localStorage에 저장
+        // ✅ BUG-004 수정: 타임스탬프 추가 (세션 TTL 검증용)
+        // - localStorage: 워크플로우 세션 ID + 타임스탬프 (전체 워크플로우 공유)
+        // - setCurrentSessionId: Input 노드별 로컬 상태 (중지 버튼용)
         (sessionId) => {
-          setCurrentSessionId(sessionId)  // 로컬 상태 업데이트
-          localStorage.setItem('claude-flow-workflow-session-id', sessionId)  // localStorage에 저장 (새로고침 시 복원용)
-          console.log(`[InputNode:${id}] 세션 ID 저장 (로컬 + localStorage):`, sessionId)
+          setCurrentSessionId(sessionId)  // Input 노드별 로컬 상태 (중지 버튼용)
+
+          // 세션 ID와 타임스탬프를 함께 저장
+          const sessionData = {
+            session_id: sessionId,
+            timestamp: Date.now()  // 현재 시간 (밀리초)
+          }
+          localStorage.setItem('claude-flow-workflow-session-id', JSON.stringify(sessionData))
+          console.log(`[InputNode:${id}] 워크플로우 세션 ID 저장:`, sessionId, '| 타임스탬프:', new Date(sessionData.timestamp).toISOString())
         }
       )
 

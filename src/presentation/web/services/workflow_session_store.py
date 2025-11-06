@@ -28,13 +28,15 @@ class WorkflowSession:
     워크플로우 실행 세션
 
     Attributes:
-        session_id: 세션 ID
+        session_id: 세션 ID (워크플로우 전체 실행 세션)
         workflow: 워크플로우 정의
         initial_input: 초기 입력
         project_path: 프로젝트 디렉토리 경로 (세션 복원용)
         status: 실행 상태 (running, completed, error, cancelled)
         current_node_id: 현재 실행 중인 노드 ID
         node_outputs: 노드별 출력 (node_id → output)
+        node_inputs: 노드별 입력 (node_id → input, 디버깅용)
+        node_sdk_sessions: 노드별 SDK 세션 ID (node_id → Claude SDK session_id)
         logs: 실행 로그 (이벤트 목록)
         start_time: 시작 시각
         end_time: 종료 시각
@@ -49,6 +51,7 @@ class WorkflowSession:
     current_node_id: Optional[str] = None
     node_outputs: Dict[str, str] = field(default_factory=dict)
     node_inputs: Dict[str, str] = field(default_factory=dict)  # 노드별 입력 (디버깅용)
+    node_sdk_sessions: Dict[str, str] = field(default_factory=dict)  # 노드별 SDK 세션 ID (컨텍스트 재사용용)
     logs: List[Dict[str, Any]] = field(default_factory=list)
     start_time: str = field(default_factory=lambda: datetime.now().isoformat())
     end_time: Optional[str] = None
@@ -67,6 +70,7 @@ class WorkflowSession:
             "current_node_id": self.current_node_id,
             "node_outputs": self.node_outputs,
             "node_inputs": self.node_inputs,
+            "node_sdk_sessions": self.node_sdk_sessions,  # 노드별 SDK 세션 ID
             "logs": self.logs,
             "start_time": self.start_time,
             "end_time": self.end_time,
@@ -88,6 +92,7 @@ class WorkflowSession:
             current_node_id=data.get("current_node_id"),
             node_outputs=data.get("node_outputs", {}),
             node_inputs=data.get("node_inputs", {}),  # 노드별 입력 복원
+            node_sdk_sessions=data.get("node_sdk_sessions", {}),  # 노드별 SDK 세션 ID 복원
             logs=data.get("logs", []),
             start_time=data["start_time"],
             end_time=data.get("end_time"),
