@@ -60,7 +60,7 @@ class AgentClient:
         model_mapping = {
             "claude-sonnet-4.5": "claude-sonnet-4-5-20250929",
             "claude-haiku-4.5": "claude-haiku-4-5-20251001",
-            "claude-opus-4": "claude-opus-4-20241022",
+            "claude-opus-4.1": "claude-opus-4-1-20250805",
         }
         return model_mapping.get(model, "claude-sonnet-4-5-20250929")
 
@@ -151,7 +151,7 @@ class AgentClient:
         # Claude 4.5 Sonnet 기준 (예시 단가)
         prices = {
             "claude-sonnet-4.5": {"input": 3.0, "output": 15.0},  # per 1M tokens
-            "claude-opus-4": {"input": 15.0, "output": 75.0},
+            "claude-opus-4.1": {"input": 15.0, "output": 75.0},
             "claude-haiku-4.5": {"input": 0.8, "output": 4.0},
         }
 
