@@ -22,6 +22,7 @@ interface WorkflowDesignerModalProps {
   onClose: () => void
   onSuccess: () => void
   onDesigningStateChange?: (isDesigning: boolean) => void
+  projectPath?: string | null
 }
 
 export const WorkflowDesignerModal: React.FC<WorkflowDesignerModalProps> = ({
@@ -29,6 +30,7 @@ export const WorkflowDesignerModal: React.FC<WorkflowDesignerModalProps> = ({
   onClose,
   onSuccess,
   onDesigningStateChange,
+  projectPath,
 }) => {
   // 단계: 'input' | 'generating' | 'preview'
   const [step, setStep] = useState<'input' | 'generating' | 'preview'>('input')
@@ -149,7 +151,8 @@ export const WorkflowDesignerModal: React.FC<WorkflowDesignerModalProps> = ({
           controller.signal,
           sid,
           mode === 'improve' ? currentWorkflow : null,
-          mode
+          mode,
+          projectPath
         )
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)
@@ -277,7 +280,8 @@ export const WorkflowDesignerModal: React.FC<WorkflowDesignerModalProps> = ({
         controller.signal,
         newSessionId,
         mode === 'improve' ? currentWorkflow : null,
-        mode
+        mode,
+        projectPath
       )
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)

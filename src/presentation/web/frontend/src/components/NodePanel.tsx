@@ -789,6 +789,7 @@ export const NodePanel: React.FC = () => {
           console.log('워크플로우가 캔버스에 적용되었습니다')
         }}
         onDesigningStateChange={setIsWorkflowDesigning}
+        projectPath={projectPath}
       />
     </Card>
   )

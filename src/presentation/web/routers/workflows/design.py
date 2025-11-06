@@ -113,6 +113,7 @@ async def _execute_workflow_designer(
     session_id: str,
     current_workflow: Dict | None = None,
     mode: str = "create",
+    project_path: str | None = None,
 ) -> AsyncIterator[str]:
     """
     workflow_designer 실행 (스트리밍)
@@ -122,6 +123,7 @@ async def _execute_workflow_designer(
         session_id: 세션 ID
         current_workflow: 현재 워크플로우 (개선 모드일 때)
         mode: 워크플로우 설계 모드 (create | improve)
+        project_path: 프로젝트 경로 (워크플로우 설계 시 분석할 프로젝트 디렉토리)
 
     Yields:
         str: Worker 출력 청크
@@ -129,11 +131,19 @@ async def _execute_workflow_designer(
     try:
         config = get_workflow_designer_config()
 
-        # claude-flow 프로젝트를 working directory로 설정
-        # 기존 워커 정보 및 프롬프트를 참고하기 위함
-        claude_flow_project_dir = str(get_project_root())
+        # 프로젝트 디렉토리 결정
+        # 1. 사용자가 지정한 프로젝트 경로 (우선)
+        # 2. claude-flow 프로젝트 루트 (폴백)
+        if project_path:
+            working_dir = project_path
+            logger.info(f"[{session_id}] 사용자 프로젝트 디렉토리 사용: {working_dir}")
+        else:
+            working_dir = str(get_project_root())
+            logger.warning(
+                f"[{session_id}] project_path가 없어 claude-flow 프로젝트 디렉토리 사용: {working_dir}"
+            )
 
-        worker = WorkerAgent(config=config, project_dir=claude_flow_project_dir)
+        worker = WorkerAgent(config=config, project_dir=working_dir)
 
         # 개선 모드일 때 프롬프트에 현재 워크플로우 포함
         if mode == "improve" and current_workflow:
@@ -146,13 +156,13 @@ async def _execute_workflow_designer(
             logger.info(
                 f"[{session_id}] workflow_designer 실행 시작 (모드: improve, "
                 f"현재 노드 수: {len(current_workflow.get('nodes', []))}, "
-                f"working_dir: {claude_flow_project_dir})"
+                f"working_dir: {working_dir})"
             )
         else:
             task_prompt = requirements
             logger.info(
                 f"[{session_id}] workflow_designer 실행 시작 (모드: create, "
-                f"working_dir: {claude_flow_project_dir})"
+                f"working_dir: {working_dir})"
             )
 
         async for chunk in worker.execute_task(task_prompt):
@@ -258,7 +268,11 @@ async def design_workflow(request: WorkflowDesignRequest):
             accumulated_output = ""
 
             async for chunk in _execute_workflow_designer(
-                request.requirements, session_id, request.current_workflow, request.mode
+                request.requirements,
+                session_id,
+                request.current_workflow,
+                request.mode,
+                request.project_path,
             ):
                 chunk_count += 1
                 accumulated_output += chunk

@@ -201,6 +201,10 @@ class WorkflowDesignRequest(BaseModel):
         default="create",
         description="워크플로우 설계 모드 (create: 새로 만들기, improve: 개선하기)",
     )
+    project_path: Optional[str] = Field(
+        None,
+        description="프로젝트 경로 (워크플로우 설계 시 분석할 프로젝트 디렉토리)",
+    )
 
     @field_validator("requirements")
     @classmethod

@@ -1301,6 +1301,7 @@ export interface WorkflowDesignRequest {
   session_id?: string
   current_workflow?: Workflow | null
   mode?: 'create' | 'improve'
+  project_path?: string | null
 }
 
 /**
@@ -1316,6 +1317,7 @@ export interface WorkflowDesignRequest {
  * @param sessionId 세션 ID (선택적)
  * @param currentWorkflow 현재 워크플로우 (개선 모드일 때)
  * @param mode 워크플로우 설계 모드 (create | improve)
+ * @param projectPath 프로젝트 경로 (워크플로우 설계 시 분석할 프로젝트 디렉토리)
  * @returns 세션 ID
  */
 export async function designWorkflow(
@@ -1326,13 +1328,15 @@ export async function designWorkflow(
   signal?: AbortSignal,
   sessionId?: string,
   currentWorkflow?: Workflow | null,
-  mode: 'create' | 'improve' = 'create'
+  mode: 'create' | 'improve' = 'create',
+  projectPath?: string | null
 ): Promise<string | null> {
   const requestBody: WorkflowDesignRequest = {
     requirements,
     session_id: sessionId,
     current_workflow: currentWorkflow,
     mode,
+    project_path: projectPath,
   }
 
   const response = await fetch(`${API_BASE}/workflows/design`, {
