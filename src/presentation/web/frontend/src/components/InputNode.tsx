@@ -88,19 +88,9 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
       const abortController = new AbortController()
       abortControllerRef.current = abortController
 
-      // 재접속 로직: localStorage에서 세션 ID 확인 (노드별 키)
-      const STORAGE_KEY_SESSION_ID = `claude-flow-workflow-session-id-${id}`
-      const savedSessionId = localStorage.getItem(STORAGE_KEY_SESSION_ID)
-
-      // Zustand store에서 현재 로그 개수 확인 (중복 방지용)
-      const currentLogs = useWorkflowStore.getState().execution.logs
-      const lastEventIndex = currentLogs.length > 0 ? currentLogs.length - 1 : undefined
-
-      console.log(`[InputNode:${id}] 재접속 체크:`, {
-        savedSessionId,
-        lastEventIndex,
-        isReconnect: !!savedSessionId && lastEventIndex !== undefined
-      })
+      // 재접속 로직 비활성화 (병렬 Input 실행 시 세션 충돌 방지)
+      // 항상 새 세션으로 시작
+      console.log(`[InputNode:${id}] 새 워크플로우 시작`)
 
       const sessionId = await executeWorkflow(
         workflow,
@@ -198,9 +188,7 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
         () => {
           stopExecution(id)  // 이 노드 실행 완료
           setCurrentSessionId(null)  // 로컬 세션 ID 초기화
-          // 워크플로우 완료 시 세션 ID 제거 (다음 새로고침 시 복원하지 않도록)
-          localStorage.removeItem(STORAGE_KEY_SESSION_ID)
-          console.log(`[InputNode:${id}] 워크플로우 완료 - 세션 ID 제거`)
+          console.log(`[InputNode:${id}] 워크플로우 완료`)
         },
         // onError
         (error) => {
@@ -210,16 +198,15 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
         },
         // signal
         abortController.signal,
-        // sessionId (재접속용)
-        savedSessionId || undefined,
-        // lastEventIndex (중복 방지용)
-        lastEventIndex,
+        // sessionId (재접속용) - 비활성화
+        undefined,
+        // lastEventIndex (중복 방지용) - 비활성화
+        undefined,
         // startNodeId (이 Input 노드에서만 시작)
         id,
         // onSessionId (세션 ID를 즉시 받아서 로컬 상태에 저장)
         (sessionId) => {
-          setCurrentSessionId(sessionId)  // 로컬 상태 업데이트
-          localStorage.setItem(STORAGE_KEY_SESSION_ID, sessionId)  // 노드별 키로 저장
+          setCurrentSessionId(sessionId)  // 로컬 상태 업데이트 (localStorage에는 저장하지 않음)
           console.log(`[InputNode:${id}] 세션 ID 즉시 저장:`, sessionId)
         }
       )
