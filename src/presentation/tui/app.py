@@ -227,8 +227,16 @@ class ClaudeFlowApp(App):
         if self.logger:
             self.logger.log_message("user", user_message)
 
-        # 에이전트 응답
-        await self.get_agent_response(user_message)
+        # 에이전트 응답 (Task로 실행하여 중단 가능하게)
+        self.current_task = asyncio.create_task(self.get_agent_response(user_message))
+        
+        try:
+            await self.current_task
+        except asyncio.CancelledError:
+            # Ctrl+C로 중단됨
+            chat_view.add_system_message("작업이 중단되었습니다.", style="yellow")
+        finally:
+            self.current_task = None
 
     async def handle_cd_command(self, command: str):
         """cd 명령어 처리"""
@@ -402,6 +410,10 @@ class ClaudeFlowApp(App):
             # 상태바 업데이트 (토큰)
             self._update_token_display(len(response_text))
 
+        except asyncio.CancelledError:
+            # 작업 중단됨
+            chat_view.write("")  # 구분선
+            raise  # 상위로 전파
         except Exception as e:
             chat_view.add_error_message(str(e))
             if self.logger:
