@@ -29,7 +29,7 @@ class InputBox(TextArea):
             show_line_numbers=False,
             **kwargs
         )
-        self.history: list[str] = []
+        self.input_history: list[str] = []
         self.history_index = -1
 
     async def on_key(self, event) -> None:
@@ -41,16 +41,16 @@ class InputBox(TextArea):
 
         # 위/아래 화살표로 히스토리 탐색
         elif event.key == "up":
-            if self.history:
-                if self.history_index < len(self.history) - 1:
+            if self.input_history:
+                if self.history_index < len(self.input_history) - 1:
                     self.history_index += 1
-                    self.text = self.history[-(self.history_index + 1)]
+                    self.text = self.input_history[-(self.history_index + 1)]
             event.prevent_default()
 
         elif event.key == "down":
             if self.history_index > 0:
                 self.history_index -= 1
-                self.text = self.history[-(self.history_index + 1)]
+                self.text = self.input_history[-(self.history_index + 1)]
             elif self.history_index == 0:
                 self.history_index = -1
                 self.text = ""
@@ -62,7 +62,7 @@ class InputBox(TextArea):
 
         if text:
             # 히스토리에 추가
-            self.history.append(text)
+            self.input_history.append(text)
             self.history_index = -1
 
             # 이벤트 발생
