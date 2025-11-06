@@ -29,9 +29,14 @@ class AgentClient:
                 "Claude Code에서 OAuth 토큰을 발급받아 설정해주세요."
             )
 
+        # 시스템 프롬프트 구성
+        system_prompt = self._build_system_prompt()
+
         # AgentConfig 생성 (기존 도메인 모델 사용)
         agent_config = AgentConfig(
             name="claude-tui",
+            role="TUI 대화형 AI 에이전트",
+            system_prompt=system_prompt,
             model=self._normalize_model_name(model),
             allowed_tools=["Read", "Write", "Edit", "Bash"],
             thinking=False,  # TUI에서는 thinking 비활성화
@@ -74,6 +79,24 @@ class AgentClient:
                 on_token(error_msg)
             yield error_msg
 
+    def _build_system_prompt(self) -> str:
+        """시스템 프롬프트 구성"""
+        prompts = []
+
+        # CLAUDE.md 내용 추가
+        if self.claude_md_content:
+            prompts.append("# 프로젝트 컨텍스트 (CLAUDE.md)")
+            prompts.append(self.claude_md_content)
+            prompts.append("")
+
+        # 기본 시스템 프롬프트
+        prompts.append(
+            "당신은 소프트웨어 개발을 돕는 AI 에이전트입니다.\n"
+            "사용자의 요청을 정확히 이해하고, 필요한 작업을 수행하세요.\n"
+            "파일을 읽고 쓸 수 있으며, 터미널 명령어를 실행할 수 있습니다."
+        )
+
+        return "\n".join(prompts)
 
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
         """비용 추정 (USD)"""
