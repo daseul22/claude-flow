@@ -27,7 +27,8 @@ from src.presentation.web.services.background_workflow_manager import (
     BackgroundWorkflowManager,
     BackgroundWorkflowTask,
 )
-from .dependencies import get_background_manager
+from src.presentation.web.services.workflow_executor import WorkflowExecutor
+from .dependencies import get_background_manager, get_workflow_executor
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -840,6 +841,11 @@ async def clear_node_sessions() -> Dict[str, Any]:
 
         logger.info(f"노드 세션 초기화 완료: {deleted_count}개 파일 삭제")
 
+        # WorkflowExecutor 캐시의 node_sessions도 초기화
+        from . import dependencies
+        dependencies.clear_executor_cache(_current_project_path)
+        logger.info("WorkflowExecutor 캐시 무효화 완료 (node_sessions 초기화)")
+
         return {
             "message": "모든 노드 세션이 초기화되었습니다",
             "deleted_sessions": deleted_count,
@@ -853,6 +859,120 @@ async def clear_node_sessions() -> Dict[str, Any]:
             status_code=500,
             detail=f"노드 세션 초기화 실패: {str(e)}",
         )
+
+
+@router.get("/node-sessions")
+async def get_node_sessions(
+    executor: WorkflowExecutor = Depends(get_workflow_executor),
+) -> Dict[str, Any]:
+    """
+    노드별 세션 정보 조회
+
+    각 노드의 현재 세션 ID와 이력을 반환합니다.
+
+    Returns:
+        Dict[str, Any]: 노드별 세션 정보
+        {
+            "node_sessions": {
+                "worker-1": "session-abc123",
+                "worker-2": "session-def456",
+                ...
+            },
+            "node_session_history": {
+                "worker-1": [
+                    {"session_id": "session-abc123", "created_at": "2025-11-06T12:00:00"},
+                    ...
+                ],
+                ...
+            }
+        }
+
+    Example:
+        GET /api/workflows/node-sessions
+
+        Response:
+        {
+            "node_sessions": {"worker-1": "session-abc123"},
+            "node_session_history": {"worker-1": [...]}
+        }
+    """
+    return {
+        "node_sessions": executor._node_sessions,
+        "node_session_history": executor._node_session_history,
+    }
+
+
+@router.delete("/node-sessions/{node_id}")
+async def clear_single_node_session(
+    node_id: str,
+    executor: WorkflowExecutor = Depends(get_workflow_executor),
+) -> Dict[str, Any]:
+    """
+    특정 노드의 세션 초기화
+
+    Args:
+        node_id: 노드 ID (예: "worker-1")
+
+    Returns:
+        Dict[str, Any]: 초기화 결과
+
+    Example:
+        DELETE /api/workflows/node-sessions/worker-1
+
+        Response:
+        {
+            "message": "노드 세션이 초기화되었습니다",
+            "node_id": "worker-1",
+            "deleted_session_id": "session-abc123"
+        }
+    """
+    # 현재 프로젝트 경로 가져오기
+    from src.presentation.web.routers.projects import dependencies as projects_deps
+    _current_project_path = projects_deps._current_project_path
+
+    if not _current_project_path:
+        raise HTTPException(status_code=400, detail="프로젝트가 선택되지 않았습니다")
+
+    # 노드 세션 ID 가져오기
+    session_id = executor._node_sessions.get(node_id)
+
+    if not session_id:
+        return {
+            "message": "노드 세션이 없습니다",
+            "node_id": node_id,
+            "deleted_session_id": None,
+        }
+
+    # Claude 세션 파일 삭제
+    project_dir_name = str(Path(_current_project_path).resolve()).replace("/", "-")
+    if project_dir_name.startswith("-"):
+        project_dir_name = project_dir_name[1:]
+
+    claude_sessions_dir = Path.home() / ".claude" / "projects" / f"-{project_dir_name}"
+    session_file = claude_sessions_dir / f"{session_id}.jsonl"
+
+    deleted = False
+    if session_file.exists():
+        try:
+            session_file.unlink()
+            deleted = True
+            logger.info(f"노드 세션 파일 삭제: {node_id} → {session_id}")
+        except Exception as e:
+            logger.warning(f"노드 세션 파일 삭제 실패: {session_file.name} - {e}")
+
+    # 메모리에서 세션 ID 제거
+    del executor._node_sessions[node_id]
+
+    # 세션 이력도 제거 (선택 사항)
+    if node_id in executor._node_session_history:
+        del executor._node_session_history[node_id]
+
+    return {
+        "message": "노드 세션이 초기화되었습니다",
+        "node_id": node_id,
+        "deleted_session_id": session_id,
+        "file_deleted": deleted,
+    }
 
 
 @router.post("/sessions/{session_id}/restart")
