@@ -509,14 +509,16 @@ class ClaudeFlowApp(App):
 
     async def action_settings(self) -> None:
         """설정 열기"""
+        chat_view = self.query_one(ChatView)
+        
         # 현재 설정 수집
         session = self.session_manager.current_session
         current_settings = {
             "model": self.config.config.default_model,
-            "feedback_loop_enabled": self.config.config.feedback_loop_defaults.enabled,
+            "feedback_loop_enabled": session.feedback_loop.enabled if session else self.config.config.feedback_loop_defaults.enabled,
             "condition_prompt": session.feedback_loop.condition_prompt if session else "",
-            "max_iterations": self.config.config.feedback_loop_defaults.max_iterations,
-            "condition_model": self.config.config.feedback_loop_defaults.condition_model,
+            "max_iterations": session.feedback_loop.max_iterations if session else self.config.config.feedback_loop_defaults.max_iterations,
+            "condition_model": session.feedback_loop.condition_model if session else self.config.config.feedback_loop_defaults.condition_model,
             "show_timestamps": self.config.config.display.show_timestamps,
             "show_token_counts": self.config.config.display.show_token_counts,
         }
@@ -526,41 +528,56 @@ class ClaudeFlowApp(App):
         result = await self.push_screen(modal)
 
         if result:
-            # 설정 적용
-            self.config.config.default_model = result["model"]
-            self.config.config.feedback_loop_defaults.enabled = result["feedback_loop_enabled"]
-            self.config.config.feedback_loop_defaults.max_iterations = result["max_iterations"]
-            self.config.config.feedback_loop_defaults.condition_model = result["condition_model"]
-            self.config.config.display.show_timestamps = result["show_timestamps"]
-            self.config.config.display.show_token_counts = result["show_token_counts"]
+            try:
+                # 설정 적용
+                self.config.config.default_model = result["model"]
+                self.config.config.feedback_loop_defaults.enabled = result["feedback_loop_enabled"]
+                self.config.config.feedback_loop_defaults.max_iterations = result["max_iterations"]
+                self.config.config.feedback_loop_defaults.condition_model = result["condition_model"]
+                self.config.config.display.show_timestamps = result["show_timestamps"]
+                self.config.config.display.show_token_counts = result["show_token_counts"]
 
-            # 설정 저장
-            self.config.save()
+                # 설정 저장
+                self.config.save()
 
-            # 세션에도 피드백 루프 설정 저장
-            if self.session_manager.current_session:
-                self.session_manager.current_session.feedback_loop.enabled = result["feedback_loop_enabled"]
-                self.session_manager.current_session.feedback_loop.condition_prompt = result.get("condition_prompt", "")
-                self.session_manager.current_session.feedback_loop.max_iterations = result["max_iterations"]
-                self.session_manager.current_session.feedback_loop.condition_model = result["condition_model"]
-                self.session_manager.save_session(self.session_manager.current_session)
+                # 세션에도 피드백 루프 설정 저장
+                if self.session_manager.current_session:
+                    self.session_manager.current_session.feedback_loop.enabled = result["feedback_loop_enabled"]
+                    self.session_manager.current_session.feedback_loop.condition_prompt = result.get("condition_prompt", "")
+                    self.session_manager.current_session.feedback_loop.max_iterations = result["max_iterations"]
+                    self.session_manager.current_session.feedback_loop.condition_model = result["condition_model"]
+                    self.session_manager.save_session(self.session_manager.current_session)
 
-            # 피드백 루프 재생성 (설정 변경 시)
-            if result["feedback_loop_enabled"]:
-                self.feedback_loop = FeedbackLoop(
-                    project_path=self.project_path,
-                    condition_model=result["condition_model"],
-                    max_iterations=result["max_iterations"],
+                # 피드백 루프 재생성 (설정 변경 시)
+                if result["feedback_loop_enabled"]:
+                    self.feedback_loop = FeedbackLoop(
+                        project_path=self.project_path,
+                        condition_model=result["condition_model"],
+                        max_iterations=result["max_iterations"],
+                    )
+                else:
+                    self.feedback_loop = None
+
+                # 알림 (상세)
+                feedback_status = "활성화" if result['feedback_loop_enabled'] else "비활성화"
+                condition_info = ""
+                if result['feedback_loop_enabled'] and result.get('condition_prompt'):
+                    condition_info = f"\n  조건: {result['condition_prompt'][:40]}..."
+                
+                chat_view.add_system_message(
+                    f"✅ 설정이 저장되었습니다.\n"
+                    f"  파일: {self.config.config_path}\n"
+                    f"  모델: {result['model']}\n"
+                    f"  피드백 루프: {feedback_status}{condition_info}\n"
+                    f"  최대 반복: {result['max_iterations']}회",
+                    style="green"
                 )
-            else:
-                self.feedback_loop = None
 
-            # 알림
-            chat_view = self.query_one(ChatView)
-            chat_view.add_system_message("설정이 저장되었습니다.", style="green")
-
-            # 타임스탬프 표시 토글 적용
-            chat_view.show_timestamps = result["show_timestamps"]
+                # 타임스탬프 표시 토글 적용
+                chat_view.show_timestamps = result["show_timestamps"]
+                
+            except Exception as e:
+                chat_view.add_error_message(f"설정 저장 실패: {str(e)}")
 
     async def action_help(self) -> None:
         """도움말 표시"""
