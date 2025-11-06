@@ -771,3 +771,8 @@ class WorkflowExecutor:
             if session_id in self.user_input_queues:
                 del self.user_input_queues[session_id]
                 logger.info(f"[{session_id}] 사용자 입력 Queue 정리 완료")
+
+            # Condition 노드 반복 횟수 정리 (메모리 누수 방지)
+            if session_id in self._condition_iterations:
+                del self._condition_iterations[session_id]
+                logger.info(f"[{session_id}] Condition 반복 횟수 정리 완료")

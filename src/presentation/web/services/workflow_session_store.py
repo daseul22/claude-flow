@@ -313,13 +313,17 @@ class WorkflowSessionStore:
 
     async def delete_session(self, session_id: str) -> None:
         """
-        세션 삭제 (캐시 + 파일)
+        세션 삭제 (캐시 + 파일 + Lock)
 
         Args:
             session_id: 세션 ID
         """
         # 캐시에서 제거
         self._cache.pop(session_id, None)
+
+        # Lock 제거 (메모리 누수 방지)
+        if session_id in self._locks:
+            del self._locks[session_id]
 
         # 파일 삭제
         session_path = self._get_session_path(session_id)
