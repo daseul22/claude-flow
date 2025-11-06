@@ -26,6 +26,7 @@ dependencies = [
     "rich>=13.7.0",
     "sse-starlette>=2.0.0",
     "structlog>=23.1.0",
+    "textual>=0.47.0",
     "uvicorn[standard]>=0.30.0",
 ]
 
@@ -39,6 +40,7 @@ dev = [
 
 [project.scripts]
 claude-flow-web = "src.presentation.web.app:main"
+claude-flow = "src.presentation.tui.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
