@@ -22,6 +22,7 @@ from .services.agent_client import AgentClient
 from .services.logger import SessionLogger, LogManager
 from .services.project_utils import get_project_info
 from .services.feedback_loop import FeedbackLoop
+from .services.response_parser import ResponseParser
 
 
 class ClaudeFlowApp(App):
@@ -330,6 +331,25 @@ class ClaudeFlowApp(App):
             # 실시간 스트리밍 응답
             response_text = ""
 
+            # 블록 처리용 파서
+            parser = ResponseParser()
+
+            # 콜백 함수들
+            def on_thinking_callback(thinking: str):
+                formatted = parser.format_thinking_block(thinking)
+                chat_view.write(formatted)
+                chat_view.write("")
+
+            def on_tool_use_callback(tool_name: str, tool_input: dict):
+                formatted = parser.format_tool_use(tool_name, tool_input)
+                chat_view.write(formatted)
+                chat_view.write("")
+
+            def on_tool_result_callback(result: str):
+                formatted = parser.format_tool_result("", result)
+                chat_view.write(formatted)
+                chat_view.write("")
+
             if use_feedback_loop:
                 # 피드백 루프 사용
                 chat_view.add_system_message(
@@ -345,13 +365,20 @@ class ClaudeFlowApp(App):
                     on_iteration=lambda iter_num, status: chat_view.add_system_message(
                         f"🔄 반복 {iter_num}: {status}",
                         style="dim"
-                    )
+                    ),
+                    on_thinking=on_thinking_callback,
+                    on_tool_use=on_tool_use_callback,
                 ):
                     response_text += chunk
                     chat_view.write(chunk)
             else:
                 # 일반 응답
-                async for chunk in self.agent.send_message(user_message):
+                async for chunk in self.agent.send_message(
+                    user_message,
+                    on_thinking=on_thinking_callback,
+                    on_tool_use=on_tool_use_callback,
+                    on_tool_result=on_tool_result_callback,
+                ):
                     response_text += chunk
                     chat_view.write(chunk)
                     

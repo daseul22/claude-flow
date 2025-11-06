@@ -71,6 +71,8 @@ class FeedbackLoop:
         initial_message: str,
         condition_prompt: str,
         on_iteration: Optional[Callable[[int, str], None]] = None,
+        on_thinking: Optional[Callable[[str], None]] = None,
+        on_tool_use: Optional[Callable[[str, dict], None]] = None,
     ) -> AsyncIterator[str]:
         """피드백 루프 실행"""
         current_message = initial_message
@@ -82,9 +84,13 @@ class FeedbackLoop:
             if on_iteration:
                 on_iteration(self.current_iteration, "시작")
 
-            # 에이전트에게 메시지 전송
+            # 에이전트에게 메시지 전송 (콜백 전달)
             output = ""
-            async for chunk in agent.send_message(current_message):
+            async for chunk in agent.send_message(
+                current_message,
+                on_thinking=on_thinking,
+                on_tool_use=on_tool_use,
+            ):
                 output += chunk
                 yield chunk
 

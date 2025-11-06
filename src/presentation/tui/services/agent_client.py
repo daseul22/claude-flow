@@ -1,11 +1,13 @@
 """Claude Agent SDK 클라이언트"""
 
 import os
-from typing import Optional, Callable, AsyncIterator
+import json
+from typing import Optional, Callable, AsyncIterator, Dict, Any
 from pathlib import Path
 
 from src.domain.models import AgentConfig
 from src.infrastructure.claude.worker_client import WorkerAgent
+from .response_parser import ResponseParser
 
 
 class AgentClient:
@@ -66,14 +68,51 @@ class AgentClient:
         self,
         message: str,
         on_token: Optional[Callable[[str], None]] = None,
+        on_thinking: Optional[Callable[[str], None]] = None,
+        on_tool_use: Optional[Callable[[str, Dict], None]] = None,
+        on_tool_result: Optional[Callable[[str], None]] = None,
     ) -> AsyncIterator[str]:
-        """메시지 전송 및 스트리밍 응답"""
+        """메시지 전송 및 스트리밍 응답 (블록 파싱)"""
+        parser = ResponseParser()
+        
         try:
-            # WorkerAgent의 execute_task는 깔끔한 텍스트를 반환
             async for chunk in self.worker.execute_task(
                 task_description=message,
                 resume_session_id=None,
             ):
+                # 청크 파싱
+                parsed = parser.parse_chunk(chunk)
+
+                if parsed["type"] == "json":
+                    # JSON 형식 응답 (ThinkingBlock, ToolUse 등)
+                    data = parsed["data"]
+                    
+                    if "content" in data and isinstance(data["content"], list):
+                        for block in data["content"]:
+                            block_type = block.get("type")
+                            
+                            # ThinkingBlock 처리
+                            if block_type == "thinking":
+                                thinking_text = block.get("thinking", "")
+                                if on_thinking:
+                                    on_thinking(thinking_text)
+                                # JSON은 yield하지 않음
+                                continue
+                            
+                            # ToolUse 처리
+                            elif block_type == "tool_use":
+                                tool_name = block.get("name", "unknown")
+                                tool_input = block.get("input", {})
+                                if on_tool_use:
+                                    on_tool_use(tool_name, tool_input)
+                                # JSON은 yield하지 않음
+                                continue
+
+                    # JSON이지만 특수 블록이 아니면 그대로 표시
+                    # (하지만 대부분 특수 블록이므로 skip)
+                    continue
+
+                # 일반 텍스트는 그대로 yield
                 if on_token:
                     on_token(chunk)
                 yield chunk
