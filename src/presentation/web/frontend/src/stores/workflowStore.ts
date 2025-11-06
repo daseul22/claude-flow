@@ -333,6 +333,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   startExecution: (nodeId?: string) =>
     set((state) => {
       const newExecutingNodes = new Set(state.execution.executingNodes)
+      const isFirstExecution = newExecutingNodes.size === 0  // 첫 실행 확인
+
       if (nodeId) {
         newExecutingNodes.add(nodeId)
       }
@@ -343,8 +345,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           isExecuting: true,
           executingNodes: newExecutingNodes,
           currentNodeId: null,
-          nodeOutputs: {},
-          nodeInputs: {},  // 노드 입력 초기화
+          // 첫 실행에만 초기화, 이후에는 기존 데이터 유지 (병렬 Input 지원)
+          nodeOutputs: isFirstExecution ? {} : state.execution.nodeOutputs,
+          nodeInputs: isFirstExecution ? {} : state.execution.nodeInputs,
           logs: state.execution.logs.length === 0 ? [
             {
               nodeId: '',
@@ -352,7 +355,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               message: '🚀 워크플로우 실행 시작...',
               timestamp: Date.now(),
             }
-          ] : state.execution.logs,  // 이미 로그가 있으면 유지 (병렬 Input 지원)
+          ] : state.execution.logs,
         },
       }
     }),
