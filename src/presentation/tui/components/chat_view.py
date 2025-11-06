@@ -2,6 +2,7 @@
 
 from typing import Optional
 from datetime import datetime
+import textwrap
 
 from textual.widgets import RichLog
 from rich.text import Text
@@ -18,6 +19,7 @@ class ChatView(RichLog):
         width: 100%;
         padding: 1;
         overflow-y: auto;
+        overflow-x: hidden;
     }
     """
 
@@ -26,9 +28,39 @@ class ChatView(RichLog):
             highlight=True,
             markup=True,
             auto_scroll=True,
+            wrap=True,  # 자동 줄바꿈 활성화
+            max_width=None,  # 너비 제한 없음 (컨테이너에 맞춤)
             **kwargs
         )
         self.show_timestamps = show_timestamps
+
+    def write(self, content, **kwargs) -> None:
+        """텍스트 출력 (자동 줄바꿈 처리)"""
+        # 문자열인 경우 긴 줄을 자동으로 줄바꿈
+        if isinstance(content, str):
+            # 터미널 너비 가져오기 (패딩 고려)
+            max_width = max(self.size.width - 4, 40)  # 최소 40자
+            
+            # 긴 줄을 줄바꿈
+            lines = content.split('\n')
+            wrapped_lines = []
+            for line in lines:
+                if len(line) > max_width:
+                    # textwrap으로 줄바꿈
+                    wrapped = textwrap.fill(
+                        line,
+                        width=max_width,
+                        break_long_words=False,
+                        break_on_hyphens=False,
+                    )
+                    wrapped_lines.append(wrapped)
+                else:
+                    wrapped_lines.append(line)
+            
+            content = '\n'.join(wrapped_lines)
+
+        # 부모 클래스의 write 호출
+        super().write(content, **kwargs)
 
     def add_user_message(self, content: str, timestamp: Optional[str] = None) -> None:
         """사용자 메시지 추가"""
