@@ -8,10 +8,11 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { useWorkflowStore } from '@/stores/workflowStore'
-import { Search, ChevronDown } from 'lucide-react'
+import { Search, ChevronDown, Trash2, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { WorkflowNode, getAgents, Agent, getTools, Tool } from '@/lib/api'
+import { WorkflowNode, getAgents, Agent, getTools, Tool, getNodeSessions, clearSingleNodeSession } from '@/lib/api'
 import { useNodeConfig } from './hooks/useNodeConfig'
 import { useAutoSave } from './hooks/useAutoSave'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
@@ -49,6 +50,9 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
   const [useDefaultTools, setUseDefaultTools] = useState(true)
   const [canModifyTools, setCanModifyTools] = useState(true)
   const [systemPrompt, setSystemPrompt] = useState('')
+  const [nodeSessionId, setNodeSessionId] = useState<string | null>(null)
+  const [isLoadingSession, setIsLoadingSession] = useState(false)
+  const [sessionError, setSessionError] = useState<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const nodes = useWorkflowStore((state) => state.nodes)
 
@@ -116,6 +120,47 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
       setSystemPrompt(`❌ Agent '${node.data.agent_name}'의 시스템 프롬프트를 찾을 수 없습니다.`)
     }
   }, [agents, node.data.agent_name, node.data.system_prompt])
+
+  // 노드 세션 정보 로드
+  const loadNodeSession = async () => {
+    setIsLoadingSession(true)
+    setSessionError(null)
+    try {
+      const result = await getNodeSessions()
+      const sessionId = result.node_sessions[node.id] || null
+      setNodeSessionId(sessionId)
+    } catch (error) {
+      console.error('세션 정보 로드 실패:', error)
+      setSessionError(error instanceof Error ? error.message : '세션 정보 로드 실패')
+    } finally {
+      setIsLoadingSession(false)
+    }
+  }
+
+  // 노드 세션 초기화
+  const handleClearNodeSession = async () => {
+    if (!window.confirm('이 노드의 세션을 초기화하시겠습니까?\n\n대화 기록이 삭제됩니다.')) {
+      return
+    }
+
+    setIsLoadingSession(true)
+    setSessionError(null)
+    try {
+      await clearSingleNodeSession(node.id)
+      setNodeSessionId(null)
+      console.log(`[WorkerNodeConfig] 노드 세션 초기화 완료: ${node.id}`)
+    } catch (error) {
+      console.error('세션 초기화 실패:', error)
+      setSessionError(error instanceof Error ? error.message : '세션 초기화 실패')
+    } finally {
+      setIsLoadingSession(false)
+    }
+  }
+
+  // 컴포넌트 마운트 시 세션 정보 로드
+  useEffect(() => {
+    loadNodeSession()
+  }, [node.id])
 
   // 노드 설정 Hook
   const { data, setData, hasChanges, save, reset } = useNodeConfig<WorkerNodeData>({
@@ -342,6 +387,68 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
                   Thinking 모드 {data.thinking ? '✅' : '⚪'}
                 </label>
               </div>
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* 세션 관리 (Collapsible) */}
+          <Collapsible className="border rounded-md">
+            <CollapsibleTrigger className="flex items-center justify-between w-full p-2 hover:bg-gray-50 rounded-md">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">🔄 세션 관리</span>
+                {nodeSessionId ? (
+                  <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                    세션 활성
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs bg-gray-50 text-gray-600">
+                    세션 없음
+                  </Badge>
+                )}
+              </div>
+              <ChevronDown className="h-4 w-4 transition-transform" />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="px-3 pb-3 space-y-2 mt-2">
+              {sessionError && (
+                <div className="text-xs bg-red-50 border border-red-200 text-red-700 p-2 rounded">
+                  ⚠️ {sessionError}
+                </div>
+              )}
+
+              {nodeSessionId ? (
+                <div className="space-y-2">
+                  <div className="text-xs bg-blue-50 border border-blue-200 text-blue-900 p-2 rounded">
+                    <div className="font-medium mb-1">세션 ID</div>
+                    <div className="font-mono text-xs break-all">{nodeSessionId}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={loadNodeSession}
+                      disabled={isLoadingSession}
+                      className="flex-1"
+                    >
+                      <RefreshCw className={cn("h-3 w-3 mr-1", isLoadingSession && "animate-spin")} />
+                      새로고침
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleClearNodeSession}
+                      disabled={isLoadingSession}
+                      className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />
+                      세션 초기화
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-gray-500 p-2 bg-gray-50 rounded border border-gray-200">
+                  이 노드는 아직 실행되지 않았거나 세션이 없습니다.
+                  워크플로우를 실행하면 자동으로 세션이 생성됩니다.
+                </div>
+              )}
             </CollapsibleContent>
           </Collapsible>
 

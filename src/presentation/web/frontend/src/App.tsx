@@ -397,6 +397,11 @@ function App() {
 
     try {
       const result = await clearNodeSessions()
+
+      // 로컬 스토리지에 저장된 세션 ID 초기화
+      localStorage.removeItem('claude-flow-workflow-session-id')
+      console.log('[App] 로컬 스토리지 세션 ID 삭제 완료')
+
       addToast('success', `세션 초기화 완료! ${result.deleted_sessions}개의 세션이 삭제되었습니다.`)
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)

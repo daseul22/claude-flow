@@ -145,9 +145,23 @@ async def _execute_workflow_designer(
 
         worker = WorkerAgent(config=config, project_dir=working_dir)
 
+        # 프롬프트에 작업 디렉토리 정보 명시적으로 추가
+        working_dir_info = f"""
+---
+**현재 작업 디렉토리**: {working_dir}
+
+**중요**: 위 작업 디렉토리는 사용자가 워크플로우를 실행할 프로젝트 디렉토리입니다.
+- 워크플로우 설계 시 이 디렉토리의 구조와 파일을 분석하세요.
+- 코드 파일 탐색, CLAUDE.md 확인, 프로젝트 구조 파악에 read, glob, grep 도구를 적극 활용하세요.
+- claude-flow 프로젝트가 아닌, **이 작업 디렉토리**를 기준으로 워크플로우를 설계하세요.
+---
+"""
+
         # 개선 모드일 때 프롬프트에 현재 워크플로우 포함
         if mode == "improve" and current_workflow:
-            task_prompt = f"""---CURRENT_WORKFLOW_START---
+            task_prompt = f"""{working_dir_info}
+
+---CURRENT_WORKFLOW_START---
 {json.dumps(current_workflow, ensure_ascii=False, indent=2)}
 ---CURRENT_WORKFLOW_END---
 
@@ -159,7 +173,9 @@ async def _execute_workflow_designer(
                 f"working_dir: {working_dir})"
             )
         else:
-            task_prompt = requirements
+            task_prompt = f"""{working_dir_info}
+
+{requirements}"""
             logger.info(
                 f"[{session_id}] workflow_designer 실행 시작 (모드: create, "
                 f"working_dir: {working_dir})"

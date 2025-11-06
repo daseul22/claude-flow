@@ -967,6 +967,46 @@ export async function clearNodeSessions(): Promise<{
 }
 
 /**
+ * 노드별 세션 정보 조회
+ */
+export async function getNodeSessions(): Promise<{
+  node_sessions: Record<string, string>
+  node_session_history: Record<string, any[]>
+}> {
+  const response = await fetch(`${API_BASE}/workflows/node-sessions`, {
+    method: "GET",
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * 특정 노드의 세션 초기화
+ */
+export async function clearSingleNodeSession(nodeId: string): Promise<{
+  message: string
+  node_id: string
+  deleted_session_id: string | null
+  file_deleted: boolean
+}> {
+  const response = await fetch(`${API_BASE}/workflows/node-sessions/${encodeURIComponent(nodeId)}`, {
+    method: "DELETE",
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
  * 프로젝트 세션 데이터 비우기
  */
 export async function clearProjectSessions(): Promise<{
