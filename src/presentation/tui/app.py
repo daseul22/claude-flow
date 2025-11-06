@@ -346,18 +346,15 @@ class ClaudeFlowApp(App):
             # 콜백 함수들
             def on_thinking_callback(thinking: str):
                 formatted = parser.format_thinking_block(thinking)
-                chat_view.write(formatted)
-                chat_view.write("")
+                chat_view.write(formatted)  # Rich Text 객체는 그대로
 
             def on_tool_use_callback(tool_name: str, tool_input: dict):
                 formatted = parser.format_tool_use(tool_name, tool_input)
-                chat_view.write(formatted)
-                chat_view.write("")
+                chat_view.write(formatted)  # Rich Text 객체는 그대로
 
             def on_tool_result_callback(result: str):
                 formatted = parser.format_tool_result("", result)
-                chat_view.write(formatted)
-                chat_view.write("")
+                chat_view.write(formatted)  # Rich Text 객체는 그대로
 
             if use_feedback_loop:
                 # 피드백 루프 사용
@@ -379,7 +376,7 @@ class ClaudeFlowApp(App):
                     on_tool_use=on_tool_use_callback,
                 ):
                     response_text += chunk
-                    chat_view.write(chunk)
+                    chat_view.write_wrapped(chunk)  # 문자열은 줄바꿈 처리
             else:
                 # 일반 응답
                 async for chunk in self.agent.send_message(
@@ -389,9 +386,7 @@ class ClaudeFlowApp(App):
                     on_tool_result=on_tool_result_callback,
                 ):
                     response_text += chunk
-                    chat_view.write(chunk)
-                    
-            chat_view.write("")  # 구분선
+                    chat_view.write_wrapped(chunk)  # 문자열은 줄바꿈 처리
 
             # 세션에 저장
             self.session_manager.add_message(
