@@ -5,9 +5,36 @@ from textual.screen import ModalScreen
 from textual.containers import Container, Vertical, Horizontal
 from textual.widgets import Button, Label, Select, Checkbox, Input, Static
 from typing import Dict, Any
+from dataclasses import dataclass
 
 
-class SettingsModal(ModalScreen[Dict[str, Any]]):
+@dataclass
+class SettingsResult:
+    """설정 모달 결과"""
+    model: str
+    feedback_loop_enabled: bool
+    condition_prompt: str
+    max_iterations: int
+    condition_model: str
+    show_statusbar: bool
+    show_timestamps: bool
+    show_token_counts: bool
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Dict로 변환"""
+        return {
+            "model": self.model,
+            "feedback_loop_enabled": self.feedback_loop_enabled,
+            "condition_prompt": self.condition_prompt,
+            "max_iterations": self.max_iterations,
+            "condition_model": self.condition_model,
+            "show_statusbar": self.show_statusbar,
+            "show_timestamps": self.show_timestamps,
+            "show_token_counts": self.show_token_counts,
+        }
+
+
+class SettingsModal(ModalScreen[SettingsResult]):
     """설정 모달"""
 
     DEFAULT_CSS = """
@@ -175,7 +202,7 @@ class SettingsModal(ModalScreen[Dict[str, Any]]):
                 yield Button("기본값", variant="warning", id="reset")
                 yield Button("취소", variant="default", id="cancel")
 
-    def _collect_settings(self) -> Dict[str, Any]:
+    def _collect_settings(self) -> SettingsResult:
         """설정 수집"""
         # 최대 반복 횟수 검증
         try:
@@ -196,22 +223,22 @@ class SettingsModal(ModalScreen[Dict[str, Any]]):
         if condition_model_value == Select.BLANK:
             condition_model_value = "claude-haiku-4-5-20251001"
 
-        return {
-            "model": model_value,
-            "feedback_loop_enabled": self.query_one("#feedback-enabled", Checkbox).value,
-            "condition_prompt": self.query_one("#condition-prompt", Input).value.strip(),
-            "max_iterations": max_iter,
-            "condition_model": condition_model_value,
-            "show_statusbar": self.query_one("#show-statusbar", Checkbox).value,
-            "show_timestamps": self.query_one("#show-timestamps", Checkbox).value,
-            "show_token_counts": self.query_one("#show-token-counts", Checkbox).value,
-        }
+        return SettingsResult(
+            model=model_value,
+            feedback_loop_enabled=self.query_one("#feedback-enabled", Checkbox).value,
+            condition_prompt=self.query_one("#condition-prompt", Input).value.strip(),
+            max_iterations=max_iter,
+            condition_model=condition_model_value,
+            show_statusbar=self.query_one("#show-statusbar", Checkbox).value,
+            show_timestamps=self.query_one("#show-timestamps", Checkbox).value,
+            show_token_counts=self.query_one("#show-token-counts", Checkbox).value,
+        )
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         """버튼 클릭 처리"""
         if event.button.id == "save":
-            settings = self._collect_settings()
-            self.dismiss(settings)
+            settings_result = self._collect_settings()
+            self.dismiss(settings_result)
         elif event.button.id == "reset":
             # 기본값으로 리셋
             self.query_one("#model-select", Select).value = "claude-sonnet-4.5"
@@ -227,6 +254,6 @@ class SettingsModal(ModalScreen[Dict[str, Any]]):
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Input에서 엔터 누르면 저장"""
-        settings = self._collect_settings()
-        self.dismiss(settings)
+        settings_result = self._collect_settings()
+        self.dismiss(settings_result)
 

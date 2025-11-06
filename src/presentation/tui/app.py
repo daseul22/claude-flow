@@ -464,26 +464,25 @@ class ClaudeFlowApp(App):
             chat_view.add_system_message("저장된 세션이 없습니다.", style="yellow")
             return
 
-        # 세션 목록 모달 표시
-        def handle_session_selected(session_id: str):
-            """세션 선택 핸들러"""
-            self.load_selected_session(session_id)
-
-        modal = SessionListModal(sessions)
-        result = await self.push_screen(modal)
-        
-        # 모달에서 결과 처리
-        if result:
+        # 세션 목록 모달 표시 (callback 방식)
+        def on_session_selected(result):
+            """세션 선택 콜백"""
+            if result is None:
+                return
+            
             # 삭제 액션 처리
             if isinstance(result, str) and result.startswith("DELETE:"):
                 session_id = result[7:]  # "DELETE:" 제거
-                await self.delete_session_with_confirmation(session_id)
+                self._delete_session_sync(session_id)
             # 세션 선택
             else:
                 self.load_selected_session(result)
 
-    async def delete_session_with_confirmation(self, session_id: str) -> None:
-        """세션 삭제 (확인 후)"""
+        modal = SessionListModal(sessions)
+        self.push_screen(modal, callback=on_session_selected)
+
+    def _delete_session_sync(self, session_id: str) -> None:
+        """세션 삭제 (동기 버전, callback에서 호출)"""
         chat_view = self.query_one(ChatView)
         
         try:
@@ -577,117 +576,126 @@ class ClaudeFlowApp(App):
             "show_token_counts": self.config.config.display.show_token_counts,
         }
 
-        # 설정 모달 표시
-        modal = SettingsModal(current_settings)
-        result = await self.push_screen(modal)
+        # 설정 모달 표시 (callback 방식)
+        def on_settings_saved(settings_result):
+            """설정 저장 콜백"""
+            if settings_result is None:
+                chat_view.add_system_message("설정 변경이 취소되었습니다.", style="yellow")
+                return
+            
+            self._apply_settings(settings_result)
         
-        # 디버깅: 모달 결과 확인
-        if result is None:
-            chat_view.add_system_message("설정 변경이 취소되었습니다.", style="yellow")
-            return
+        modal = SettingsModal(current_settings)
+        self.push_screen(modal, callback=on_settings_saved)
+    
+    def _apply_settings(self, settings_result) -> None:
+        """설정 적용 (콜백에서 호출)"""
+        chat_view = self.query_one(ChatView)
+        
+        try:
+            # SettingsResult를 dict로 변환
+            result = settings_result.to_dict()
+            
+            # 설정 변경 전 값 기록 (비교용)
+            old_settings = {
+                "model": self.config.config.default_model,
+                "feedback_loop_enabled": self.config.config.feedback_loop_defaults.enabled,
+                "max_iterations": self.config.config.feedback_loop_defaults.max_iterations,
+            }
+            
+            # 설정 적용
+            self.config.config.default_model = result["model"]
+            self.config.config.feedback_loop_defaults.enabled = result["feedback_loop_enabled"]
+            self.config.config.feedback_loop_defaults.max_iterations = result["max_iterations"]
+            self.config.config.feedback_loop_defaults.condition_model = result["condition_model"]
+            self.config.config.display.show_statusbar = result["show_statusbar"]
+            self.config.config.display.show_timestamps = result["show_timestamps"]
+            self.config.config.display.show_token_counts = result["show_token_counts"]
 
-        if result:
+            # 설정 저장 (with 에러 처리)
             try:
-                # 설정 변경 전 값 기록 (비교용)
-                old_settings = {
-                    "model": self.config.config.default_model,
-                    "feedback_loop_enabled": self.config.config.feedback_loop_defaults.enabled,
-                    "max_iterations": self.config.config.feedback_loop_defaults.max_iterations,
-                }
+                self.config.save()
+                # 저장 성공 확인
+                if not self.config.config_path.exists():
+                    raise FileNotFoundError(f"설정 파일이 생성되지 않았습니다: {self.config.config_path}")
                 
-                # 설정 적용
-                self.config.config.default_model = result["model"]
-                self.config.config.feedback_loop_defaults.enabled = result["feedback_loop_enabled"]
-                self.config.config.feedback_loop_defaults.max_iterations = result["max_iterations"]
-                self.config.config.feedback_loop_defaults.condition_model = result["condition_model"]
-                self.config.config.display.show_statusbar = result["show_statusbar"]
-                self.config.config.display.show_timestamps = result["show_timestamps"]
-                self.config.config.display.show_token_counts = result["show_token_counts"]
-
-                # 설정 저장 (with 에러 처리)
-                try:
-                    self.config.save()
-                    # 저장 성공 확인
-                    if not self.config.config_path.exists():
-                        raise FileNotFoundError(f"설정 파일이 생성되지 않았습니다: {self.config.config_path}")
-                    
-                    # 세션 로그에 설정 변경 이벤트 기록
-                    if self.logger:
-                        changes = []
-                        if old_settings["model"] != result["model"]:
-                            changes.append(f"모델: {old_settings['model']} → {result['model']}")
-                        if old_settings["feedback_loop_enabled"] != result["feedback_loop_enabled"]:
-                            changes.append(f"피드백 루프: {old_settings['feedback_loop_enabled']} → {result['feedback_loop_enabled']}")
-                        if old_settings["max_iterations"] != result["max_iterations"]:
-                            changes.append(f"최대 반복: {old_settings['max_iterations']} → {result['max_iterations']}")
-                        
-                        self.logger.log_event("settings_changed", {
-                            "config_file": str(self.config.config_path),
-                            "changes": changes,
-                            "new_settings": {
-                                "model": result["model"],
-                                "feedback_loop_enabled": result["feedback_loop_enabled"],
-                                "max_iterations": result["max_iterations"],
-                                "condition_model": result["condition_model"],
-                            }
-                        })
-                        
-                except Exception as save_error:
-                    chat_view.add_error_message(f"❌ 설정 파일 저장 실패: {save_error}")
-                    if self.logger:
-                        self.logger.log_error(save_error)
-                    return
-
-                # 세션에도 피드백 루프 설정 저장
-                if self.session_manager.current_session:
-                    self.session_manager.current_session.feedback_loop.enabled = result["feedback_loop_enabled"]
-                    self.session_manager.current_session.feedback_loop.condition_prompt = result.get("condition_prompt", "")
-                    self.session_manager.current_session.feedback_loop.max_iterations = result["max_iterations"]
-                    self.session_manager.current_session.feedback_loop.condition_model = result["condition_model"]
-                    self.session_manager.save_session(self.session_manager.current_session)
-
-                # 피드백 루프 재생성 (설정 변경 시)
-                if result["feedback_loop_enabled"]:
-                    self.feedback_loop = FeedbackLoop(
-                        project_path=self.project_path,
-                        condition_model=result["condition_model"],
-                        max_iterations=result["max_iterations"],
-                    )
-                else:
-                    self.feedback_loop = None
-
-                # 알림 (상세)
-                feedback_status = "활성화" if result['feedback_loop_enabled'] else "비활성화"
-                condition_info = ""
-                if result['feedback_loop_enabled'] and result.get('condition_prompt'):
-                    condition_info = f"\n  조건: {result['condition_prompt'][:40]}..."
-                
-                chat_view.add_system_message(
-                    f"✅ 설정이 저장되었습니다.\n"
-                    f"  파일: {self.config.config_path}\n"
-                    f"  모델: {result['model']}\n"
-                    f"  피드백 루프: {feedback_status}{condition_info}\n"
-                    f"  최대 반복: {result['max_iterations']}회",
-                    style="green"
-                )
-
-                # 타임스탬프 표시 토글 적용
-                chat_view.show_timestamps = result["show_timestamps"]
-                
-                # 상태바 표시/숨김
-                status_bar = self.query_one(StatusBar)
-                if self.config.config.display.show_statusbar:
-                    status_bar.styles.display = "block"
-                else:
-                    status_bar.styles.display = "none"
-                
-                # 상태바 업데이트 (피드백 루프 상태)
-                status_bar.update_feedback_loop(result["feedback_loop_enabled"])
-                
-            except Exception as e:
-                chat_view.add_error_message(f"설정 처리 실패: {str(e)}")
+                # 세션 로그에 설정 변경 이벤트 기록
                 if self.logger:
-                    self.logger.log_error(e)
+                    changes = []
+                    if old_settings["model"] != result["model"]:
+                        changes.append(f"모델: {old_settings['model']} → {result['model']}")
+                    if old_settings["feedback_loop_enabled"] != result["feedback_loop_enabled"]:
+                        changes.append(f"피드백 루프: {old_settings['feedback_loop_enabled']} → {result['feedback_loop_enabled']}")
+                    if old_settings["max_iterations"] != result["max_iterations"]:
+                        changes.append(f"최대 반복: {old_settings['max_iterations']} → {result['max_iterations']}")
+                    
+                    self.logger.log_event("settings_changed", {
+                        "config_file": str(self.config.config_path),
+                        "changes": changes,
+                        "new_settings": {
+                            "model": result["model"],
+                            "feedback_loop_enabled": result["feedback_loop_enabled"],
+                            "max_iterations": result["max_iterations"],
+                            "condition_model": result["condition_model"],
+                        }
+                    })
+                    
+            except Exception as save_error:
+                chat_view.add_error_message(f"❌ 설정 파일 저장 실패: {save_error}")
+                if self.logger:
+                    self.logger.log_error(save_error)
+                return
+
+            # 세션에도 피드백 루프 설정 저장
+            if self.session_manager.current_session:
+                self.session_manager.current_session.feedback_loop.enabled = result["feedback_loop_enabled"]
+                self.session_manager.current_session.feedback_loop.condition_prompt = result.get("condition_prompt", "")
+                self.session_manager.current_session.feedback_loop.max_iterations = result["max_iterations"]
+                self.session_manager.current_session.feedback_loop.condition_model = result["condition_model"]
+                self.session_manager.save_session(self.session_manager.current_session)
+
+            # 피드백 루프 재생성 (설정 변경 시)
+            if result["feedback_loop_enabled"]:
+                self.feedback_loop = FeedbackLoop(
+                    project_path=self.project_path,
+                    condition_model=result["condition_model"],
+                    max_iterations=result["max_iterations"],
+                )
+            else:
+                self.feedback_loop = None
+
+            # 알림 (상세)
+            feedback_status = "활성화" if result['feedback_loop_enabled'] else "비활성화"
+            condition_info = ""
+            if result['feedback_loop_enabled'] and result.get('condition_prompt'):
+                condition_info = f"\n  조건: {result['condition_prompt'][:40]}..."
+            
+            chat_view.add_system_message(
+                f"✅ 설정이 저장되었습니다.\n"
+                f"  파일: {self.config.config_path}\n"
+                f"  모델: {result['model']}\n"
+                f"  피드백 루프: {feedback_status}{condition_info}\n"
+                f"  최대 반복: {result['max_iterations']}회",
+                style="green"
+            )
+
+            # 타임스탬프 표시 토글 적용
+            chat_view.show_timestamps = result["show_timestamps"]
+            
+            # 상태바 표시/숨김
+            status_bar = self.query_one(StatusBar)
+            if self.config.config.display.show_statusbar:
+                status_bar.styles.display = "block"
+            else:
+                status_bar.styles.display = "none"
+            
+            # 상태바 업데이트 (피드백 루프 상태)
+            status_bar.update_feedback_loop(result["feedback_loop_enabled"])
+            
+        except Exception as e:
+            chat_view.add_error_message(f"설정 처리 실패: {str(e)}")
+            if self.logger:
+                self.logger.log_error(e)
 
     async def action_help(self) -> None:
         """도움말 표시"""
