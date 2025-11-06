@@ -44,6 +44,15 @@ class ClaudeFlowApp(App):
         width: 100%;
         height: 100%;
     }
+    
+    ChatView {
+        height: 1fr;
+    }
+    
+    InputBox {
+        height: 5;
+        margin-bottom: 1;
+    }
     """
 
     BINDINGS = [

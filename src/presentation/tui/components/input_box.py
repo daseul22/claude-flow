@@ -9,12 +9,10 @@ class InputBox(TextArea):
 
     DEFAULT_CSS = """
     InputBox {
-        dock: bottom;
-        height: auto;
-        max-height: 10;
-        min-height: 3;
+        height: 5;
         width: 100%;
         border: solid $accent;
+        margin-bottom: 1;
     }
     """
 
