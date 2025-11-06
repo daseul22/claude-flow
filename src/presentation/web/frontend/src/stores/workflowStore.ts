@@ -641,9 +641,17 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       edges: session.workflow.edges,
     })
 
+    // 실행 중인 노드 Set 복원
+    const executingNodes = new Set<string>()
+    if (isStillRunning && session.current_node_id) {
+      // 현재 실행 중인 노드 추가
+      executingNodes.add(session.current_node_id)
+    }
+
     // 실행 상태 복원
     const execution: WorkflowExecutionState = {
       isExecuting: isStillRunning,
+      executingNodes,  // 실행 중인 노드 Set 복원
       currentNodeId: isStillRunning ? session.current_node_id : null,
       currentSessionId: isStillRunning ? session.session_id : null,
       nodeOutputs: session.node_outputs,

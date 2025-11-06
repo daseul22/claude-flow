@@ -204,10 +204,11 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
         undefined,
         // startNodeId (이 Input 노드에서만 시작)
         id,
-        // onSessionId (세션 ID를 즉시 받아서 로컬 상태에 저장)
+        // onSessionId (세션 ID를 즉시 받아서 로컬 상태 및 localStorage에 저장)
         (sessionId) => {
-          setCurrentSessionId(sessionId)  // 로컬 상태 업데이트 (localStorage에는 저장하지 않음)
-          console.log(`[InputNode:${id}] 세션 ID 즉시 저장:`, sessionId)
+          setCurrentSessionId(sessionId)  // 로컬 상태 업데이트
+          localStorage.setItem('claude-flow-workflow-session-id', sessionId)  // localStorage에 저장 (새로고침 시 복원용)
+          console.log(`[InputNode:${id}] 세션 ID 저장 (로컬 + localStorage):`, sessionId)
         }
       )
 

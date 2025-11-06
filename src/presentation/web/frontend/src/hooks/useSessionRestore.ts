@@ -144,8 +144,10 @@ export function useSessionRestore({
           if (isActuallyRunning) {
             console.log('🔌 실행 중인 세션 감지 - 스트림 자동 재접속 시작')
 
-            // 재접속 시 즉시 세션 ID를 store에 설정 (중지 버튼이 작동하도록)
-            useWorkflowStore.getState().setCurrentSessionId(lastSessionId)
+            // 실행 상태 활성화 (UI 표시 및 중지 버튼 활성화)
+            const store = useWorkflowStore.getState()
+            store.startExecution(session.current_node_id)  // 실행 중인 노드로 startExecution 호출
+            store.setCurrentSessionId(lastSessionId)
 
             // 현재 로그 개수 확인 (중복 방지용)
             const lastEventIndex = session.logs.length > 0 ? session.logs.length - 1 : undefined
