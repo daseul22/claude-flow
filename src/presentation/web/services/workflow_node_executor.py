@@ -116,6 +116,7 @@ class WorkflowNodeExecutor:
         condition_evaluator: Any,  # WorkflowConditionEvaluator (circular import 방지)
         template_renderer: Any,  # WorkflowTemplateRenderer (circular import 방지)
         project_path: Optional[str] = None,
+        executed_nodes: set[str] | None = None,
     ) -> AsyncIterator[WorkflowNodeExecutionEvent]:
         """
         단일 노드 실행 (모든 노드 타입 지원)
@@ -133,6 +134,7 @@ class WorkflowNodeExecutor:
             condition_evaluator: 조건 평가기 인스턴스
             template_renderer: 템플릿 렌더러 인스턴스
             project_path: 프로젝트 디렉토리 경로
+            executed_nodes: 실행 완료된 노드 집합 (회귀 판단용, 옵션)
 
         Yields:
             WorkflowNodeExecutionEvent: 노드 실행 이벤트
@@ -163,6 +165,7 @@ class WorkflowNodeExecutor:
             all_nodes=all_nodes,
             condition_evaluator=condition_evaluator,
             template_renderer=template_renderer,
+            executed_nodes=executed_nodes,
         ):
             yield event
 

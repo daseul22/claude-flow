@@ -521,6 +521,7 @@ class WorkflowExecutor:
                         condition_evaluator=self.condition_evaluator,
                         template_renderer=self.template_renderer,
                         project_path=project_path,
+                        executed_nodes=executed_nodes,
                     ):
                         yield event
 
@@ -559,6 +560,13 @@ class WorkflowExecutor:
                             executed_nodes.remove(next_node_id)
                         current_node_id = next_node_id
                         logger.info(f"[{session_id}] 다음 노드 (Condition): {next_node_id}")
+
+                    elif node.type == "condition":
+                        # Condition 노드에서 분기 경로가 없으면 워크플로우 종료
+                        logger.info(
+                            f"[{session_id}] Condition 노드 {current_node_id}의 분기 경로가 없습니다 → 워크플로우 정상 종료"
+                        )
+                        current_node_id = None
 
                     else:
                         # Case 2: 일반 노드 → 자식 노드로

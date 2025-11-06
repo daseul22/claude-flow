@@ -44,6 +44,7 @@ class WorkerNodeExecutor(BaseNodeExecutor):
         all_nodes: List[WorkflowNode],
         condition_evaluator: Any,
         template_renderer: Any,
+        executed_nodes: set[str] | None = None,
     ) -> AsyncIterator[WorkflowNodeExecutionEvent]:
         """
         Worker 노드 실행
@@ -58,6 +59,7 @@ class WorkerNodeExecutor(BaseNodeExecutor):
             all_nodes: 모든 노드 목록
             condition_evaluator: 조건 평가기 (사용 안 함)
             template_renderer: 템플릿 렌더러
+            executed_nodes: 실행 완료된 노드 집합 (사용 안 함)
 
         Yields:
             WorkflowNodeExecutionEvent: 노드 실행 이벤트

@@ -395,11 +395,21 @@ async def get_node_sessions(
     try:
         executor = bg_manager.executor
 
+        # 디버깅 로그: 모든 노드 세션 출력
+        logger.info(
+            f"노드 세션 조회 요청: {node_id}\n"
+            f"  - 전체 노드 세션: {list(executor._node_sessions.keys())}\n"
+            f"  - 노드 세션 이력 키: {list(executor._node_session_history.keys())}\n"
+            f"  - 노드 에이전트 이름: {list(executor._node_agent_names.keys())}"
+        )
+
         # 현재 활성 세션 ID
         current_session_id = executor._node_sessions.get(node_id)
+        logger.info(f"노드 {node_id}의 현재 세션: {current_session_id}")
 
         # 세션 이력
         session_history = executor._node_session_history.get(node_id, [])
+        logger.info(f"노드 {node_id}의 세션 이력: {len(session_history)}개")
 
         # 세션 이력에 is_current 플래그 추가
         session_history_with_flag = [
@@ -413,12 +423,16 @@ async def get_node_sessions(
         # 에이전트 이름
         agent_name = executor._node_agent_names.get(node_id, "Unknown")
 
-        return {
+        result = {
             "node_id": node_id,
             "agent_name": agent_name,
             "current_session_id": current_session_id,
             "session_history": session_history_with_flag,
         }
+
+        logger.info(f"노드 세션 응답: {result}")
+
+        return result
 
     except Exception as e:
         logger.error(f"노드 세션 목록 조회 실패: {e}", exc_info=True)

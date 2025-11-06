@@ -121,6 +121,7 @@ class BaseNodeExecutor(ABC):
         all_nodes: list[WorkflowNode],
         condition_evaluator: ConditionEvaluatorProtocol,
         template_renderer: TemplateRendererProtocol,
+        executed_nodes: set[str] | None = None,
     ) -> AsyncIterator[WorkflowNodeExecutionEvent]:
         """
         노드 실행 (추상 메서드)
@@ -135,6 +136,7 @@ class BaseNodeExecutor(ABC):
             all_nodes: 모든 노드 목록
             condition_evaluator: 조건 평가기 인스턴스
             template_renderer: 템플릿 렌더러 인스턴스
+            executed_nodes: 실행 완료된 노드 집합 (회귀 판단용, 옵션)
 
         Yields:
             WorkflowNodeExecutionEvent: 노드 실행 이벤트

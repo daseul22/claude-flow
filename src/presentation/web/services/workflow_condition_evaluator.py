@@ -468,7 +468,7 @@ class WorkflowConditionEvaluator:
         Yields:
             tuple[Optional[str], Optional[tuple]]: (chunk, final_result)
             - chunk가 있으면 LLM 중간 출력 (UI 표시용)
-            - final_result가 있으면 최종 결과 (next_node_id, result_text)
+            - final_result가 있으면 최종 결과 (next_node_id, result_text, condition_result)
 
         Raises:
             ValueError: 부모 노드가 없거나 분기 경로가 없는 경우
@@ -584,30 +584,28 @@ class WorkflowConditionEvaluator:
                     )
                     break
 
-        if next_node_id is None:
-            branch_type = "true" if condition_result else "false"
-            logger.error(
-                f"[{session_id}] ❌ 조건 노드 {node_id}의 {branch_type} 분기 경로를 찾을 수 없습니다!\n"
-                f"  - 조건 평가 결과: {condition_result}\n"
-                f"  - 필요한 sourceHandle: {repr(branch_type)}\n"
-                f"  - 나가는 엣지 개수: {len(outgoing_edges)}\n"
-                f"  - 엣지 목록: {[(e.sourceHandle, e.target) for e in outgoing_edges]}"
-            )
-            raise ValueError(
-                f"조건 노드 {node_id}의 {branch_type} 분기 경로가 없습니다. "
-                f"sourceHandle이 '{branch_type}'인 엣지를 추가해주세요."
-            )
-
         # 조건 결과를 텍스트로 변환
         result_text = f"조건 평가 결과: {condition_result}\n"
         result_text += f"반복 횟수: {current_iteration}/{max_iterations}\n"  # 줄바꿈 추가
-        result_text += f"분기: {next_node_id}"
+
+        if next_node_id is None:
+            # 분기 경로가 없으면 정상 종료 (에러 아님)
+            branch_type = "true" if condition_result else "false"
+            logger.info(
+                f"[{session_id}] ℹ️ 조건 노드 {node_id}의 {branch_type} 분기 경로가 없습니다 → 워크플로우 종료\n"
+                f"  - 조건 평가 결과: {condition_result}\n"
+                f"  - 나가는 엣지 개수: {len(outgoing_edges)}"
+            )
+            result_text += f"\n분기: 없음 (워크플로우 종료)"
+        else:
+            result_text += f"\n분기: {next_node_id}"
 
         if llm_reason:
             result_text += f"\nLLM 판단 이유: {llm_reason}"
 
-        # 최종 결과 반환
-        yield (None, (next_node_id, result_text))
+        # 최종 결과 반환 (next_node_id, result_text, condition_result)
+        # next_node_id가 None이면 워크플로우가 자연스럽게 종료됨
+        yield (None, (next_node_id, result_text, condition_result))
 
     async def execute_merge_node(
         self,
