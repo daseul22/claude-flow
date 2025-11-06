@@ -21,6 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 문서 | 용도 | 위치 |
 |------|------|------|
+| **@docs/data-flow.md** | 📊 **데이터 흐름 상세 가이드** (필수 참조!) | docs/ |
 | **docs/api.md** | REST API 엔드포인트 (43개) 상세 설명 | docs/ |
 | **docs/openapi.yaml** | OpenAPI 3.0 스펙 (Swagger/Postman 호환) | docs/ |
 | **docs/code-reference.md** | 핵심 클래스, 함수, 패턴 상세 가이드 | docs/ |
@@ -30,6 +31,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 문서 | 용도 | 위치 |
 |------|------|------|
+| **@docs/data-flow.md** | 📊 **데이터 흐름 상세 가이드** (필수 참조!) | docs/ |
 | **docs/architecture.md** | Clean Architecture, 디자인 패턴, 데이터 흐름 | docs/ |
 | **docs/code-reference.md** | 아키텍처 개요, 계층별 설명 (섹션 1-2) | docs/ |
 | **docs/database.md** | 향후 RDBMS 마이그레이션 계획 | docs/ |
@@ -46,9 +48,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **코드 작업 시작 전 체크리스트**:
 1. ✅ README.md 읽기 (프로젝트 이해)
 2. ✅ docs/INDEX.md 확인 (문서 구조 파악)
-3. ✅ 해당 분야 문서 참고 (API, Architecture, Code Reference)
-4. ✅ docs/faq.md로 문제 해결
-5. ✅ 작업 완료 후 docs/에 문서 추가/수정
+3. ✅ **@docs/data-flow.md 필수 참조** (데이터 흐름 이해)
+4. ✅ 해당 분야 문서 참고 (API, Architecture, Code Reference)
+5. ✅ docs/faq.md로 문제 해결
+6. ✅ 작업 완료 후 docs/에 문서 추가/수정
 
 **문서 위치 참조**:
 - 🏠 **프로젝트 루트**: README.md, CLAUDE.md (이 파일)
@@ -421,6 +424,7 @@ Worker 노드 설정 시 `agent_name` 필드에 프롬프트 파일명 (확장�
 ### 📚 문서 파일 (Sources of Truth)
 - `README.md`: 프로젝트 메인 문서 (프로젝트 루트)
 - `CLAUDE.md`: Claude Code 가이드 (이 파일)
+- **`@docs/data-flow.md`**: 📊 **데이터 흐름 상세 가이드 (필수 참조!)**
 - `docs/INDEX.md`: 📚 문서 네비게이션 허브 (모든 문서의 진입점)
 - `docs/api.md`: REST API 레퍼런스 (43개 엔드포인트)
 - `docs/architecture.md`: 시스템 아키텍처 및 디자인 패턴
