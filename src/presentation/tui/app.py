@@ -13,6 +13,7 @@ from .components.chat_view import ChatView
 from .components.input_box import InputBox
 from .components.modals.session_list import SessionListModal
 from .components.modals.settings_modal import SettingsModal
+from .components.modals.help_modal import HelpModal
 from .config.settings import ConfigManager
 from .services.session_manager import SessionManager
 from .services.agent_client import AgentClient
@@ -47,6 +48,8 @@ class ClaudeFlowApp(App):
         Binding("ctrl+o", "open_session", "세션 불러오기"),
         Binding("ctrl+i", "project_info", "프로젝트 정보"),
         Binding("ctrl+comma", "settings", "설정"),
+        Binding("ctrl+slash", "help", "도움말"),
+        Binding("f1", "help", "도움말"),
         Binding("ctrl+l", "clear_screen", "화면 지우기"),
         Binding("ctrl+c", "interrupt", "중단"),
         Binding("ctrl+q", "quit", "종료"),
@@ -82,6 +85,9 @@ class ClaudeFlowApp(App):
 
         # 현재 작업
         self.current_task: Optional[asyncio.Task] = None
+
+        # 디렉토리 히스토리 (cd - 용)
+        self.directory_history: list[Path] = []
 
     def compose(self) -> ComposeResult:
         """UI 구성"""
@@ -222,8 +228,16 @@ class ClaudeFlowApp(App):
             return
 
         try:
+            # cd - (이전 디렉토리)
+            if path_str == "-":
+                if not self.directory_history:
+                    chat_view.add_system_message("이전 디렉토리가 없습니다.", style="yellow")
+                    return
+                
+                new_path = self.directory_history.pop()
+                
             # 경로 해석
-            if path_str == "~":
+            elif path_str == "~":
                 new_path = Path.home()
             elif path_str == "..":
                 new_path = self.project_path.parent
@@ -245,6 +259,14 @@ class ClaudeFlowApp(App):
 
             # 작업 디렉토리 변경
             old_path = self.project_path
+            
+            # cd - 가 아닌 경우에만 히스토리에 추가
+            if path_str != "-":
+                self.directory_history.append(old_path)
+                # 히스토리는 최대 10개만 유지
+                if len(self.directory_history) > 10:
+                    self.directory_history.pop(0)
+            
             self.project_path = new_path.absolute()
 
             # 세션 업데이트
@@ -282,13 +304,42 @@ class ClaudeFlowApp(App):
                 assistant_label = Text("Claude", style="bold green")
                 chat_view.write(assistant_label)
 
+            # 피드백 루프 활성화 확인
+            session = self.session_manager.current_session
+            use_feedback_loop = (
+                self.feedback_loop is not None 
+                and session 
+                and session.feedback_loop.enabled
+                and session.feedback_loop.condition_prompt.strip()
+            )
+
             # 실시간 스트리밍 응답
             response_text = ""
 
-            async for chunk in self.agent.send_message(user_message):
-                response_text += chunk
-                # 실시간으로 청크 출력
-                chat_view.write(chunk)
+            if use_feedback_loop:
+                # 피드백 루프 사용
+                chat_view.add_system_message(
+                    f"🔁 피드백 루프 활성화 (최대 {session.feedback_loop.max_iterations}회)",
+                    style="yellow"
+                )
+
+                iteration = 0
+                async for chunk in self.feedback_loop.run_with_feedback(
+                    agent=self.agent,
+                    initial_message=user_message,
+                    condition_prompt=session.feedback_loop.condition_prompt,
+                    on_iteration=lambda iter_num, status: chat_view.add_system_message(
+                        f"🔄 반복 {iter_num}: {status}",
+                        style="dim"
+                    )
+                ):
+                    response_text += chunk
+                    chat_view.write(chunk)
+            else:
+                # 일반 응답
+                async for chunk in self.agent.send_message(user_message):
+                    response_text += chunk
+                    chat_view.write(chunk)
                     
             chat_view.write("")  # 구분선
 
@@ -404,9 +455,11 @@ class ClaudeFlowApp(App):
     async def action_settings(self) -> None:
         """설정 열기"""
         # 현재 설정 수집
+        session = self.session_manager.current_session
         current_settings = {
             "model": self.config.config.default_model,
             "feedback_loop_enabled": self.config.config.feedback_loop_defaults.enabled,
+            "condition_prompt": session.feedback_loop.condition_prompt if session else "",
             "max_iterations": self.config.config.feedback_loop_defaults.max_iterations,
             "condition_model": self.config.config.feedback_loop_defaults.condition_model,
             "show_timestamps": self.config.config.display.show_timestamps,
@@ -429,12 +482,35 @@ class ClaudeFlowApp(App):
             # 설정 저장
             self.config.save()
 
+            # 세션에도 피드백 루프 설정 저장
+            if self.session_manager.current_session:
+                self.session_manager.current_session.feedback_loop.enabled = result["feedback_loop_enabled"]
+                self.session_manager.current_session.feedback_loop.condition_prompt = result.get("condition_prompt", "")
+                self.session_manager.current_session.feedback_loop.max_iterations = result["max_iterations"]
+                self.session_manager.current_session.feedback_loop.condition_model = result["condition_model"]
+                self.session_manager.save_session(self.session_manager.current_session)
+
+            # 피드백 루프 재생성 (설정 변경 시)
+            if result["feedback_loop_enabled"]:
+                self.feedback_loop = FeedbackLoop(
+                    project_path=self.project_path,
+                    condition_model=result["condition_model"],
+                    max_iterations=result["max_iterations"],
+                )
+            else:
+                self.feedback_loop = None
+
             # 알림
             chat_view = self.query_one(ChatView)
             chat_view.add_system_message("설정이 저장되었습니다.", style="green")
 
             # 타임스탬프 표시 토글 적용
             chat_view.show_timestamps = result["show_timestamps"]
+
+    async def action_help(self) -> None:
+        """도움말 표시"""
+        modal = HelpModal()
+        await self.push_screen(modal)
 
     async def action_clear_screen(self) -> None:
         """화면 지우기"""

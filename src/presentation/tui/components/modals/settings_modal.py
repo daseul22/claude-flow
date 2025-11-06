@@ -79,6 +79,15 @@ class SettingsModal(ModalScreen[Dict[str, Any]]):
                     id="feedback-enabled"
                 )
 
+            # 피드백 루프 조건 프롬프트
+            with Vertical(classes="setting-row"):
+                yield Label("조건 프롬프트:")
+                yield Input(
+                    value=self.settings.get("condition_prompt", "출력에 에러가 있는지 확인해주세요"),
+                    placeholder="예: 출력에 에러가 없고 완성도가 높은지 확인",
+                    id="condition-prompt"
+                )
+
             # 피드백 루프 최대 반복
             with Horizontal(classes="setting-row"):
                 yield Label("최대 반복 횟수:")
@@ -132,6 +141,7 @@ class SettingsModal(ModalScreen[Dict[str, Any]]):
             settings = {
                 "model": self.query_one("#model-select", Select).value,
                 "feedback_loop_enabled": self.query_one("#feedback-enabled", Checkbox).value,
+                "condition_prompt": self.query_one("#condition-prompt", Input).value,
                 "max_iterations": int(self.query_one("#max-iterations", Input).value or "3"),
                 "condition_model": self.query_one("#condition-model", Select).value,
                 "show_timestamps": self.query_one("#show-timestamps", Checkbox).value,
