@@ -180,22 +180,43 @@ class ClaudeFlowApp(App):
         await self.get_agent_response(user_message)
 
     async def get_agent_response(self, user_message: str):
-        """에이전트 응답 받기"""
+        """에이전트 응답 받기 (실시간 스트리밍)"""
         chat_view = self.query_one(ChatView)
 
         try:
-            # 응답 수집
+            # 응답 헤더 추가 (타임스탬프 포함)
+            from datetime import datetime
+            from rich.text import Text
+            
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            if self.config.config.display.show_timestamps:
+                header = Text(f"[{timestamp}] ", style="dim")
+                header.append("Claude", style="bold green")
+                chat_view.write(header)
+            else:
+                assistant_label = Text("Claude", style="bold green")
+                chat_view.write(assistant_label)
+
+            # 실시간 스트리밍 응답
             response_text = ""
+            current_line = ""
 
-            # 스트리밍 응답
-            async for chunk in self.agent.send_message(
-                user_message,
-                on_token=lambda token: None,  # 실시간 표시는 나중에
-            ):
+            async for chunk in self.agent.send_message(user_message):
                 response_text += chunk
+                current_line += chunk
 
-            # 어시스턴트 메시지 표시
-            chat_view.add_assistant_message(response_text)
+                # 줄바꿈이 있으면 출력
+                if "\n" in current_line:
+                    lines = current_line.split("\n")
+                    for line in lines[:-1]:
+                        chat_view.write(f"  {line}")
+                    current_line = lines[-1]
+                    
+            # 남은 텍스트 출력
+            if current_line.strip():
+                chat_view.write(f"  {current_line}")
+
+            chat_view.write("")  # 구분선
 
             # 세션에 저장
             self.session_manager.add_message(
