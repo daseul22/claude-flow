@@ -38,6 +38,7 @@ export interface PendingUserInput {
 
 interface WorkflowExecutionState {
   isExecuting: boolean
+  executingNodes: Set<string>  // 실행 중인 노드 ID 집합 (병렬 Input 실행 지원)
   currentNodeId: string | null
   currentSessionId: string | null  // 현재 실행 중인 세션 ID (중지 버튼용)
   nodeOutputs: Record<string, string>
@@ -102,8 +103,8 @@ interface WorkflowStore {
   clearWorkflow: () => void
 
   // 실행 상태 관리
-  startExecution: () => void
-  stopExecution: () => void
+  startExecution: (nodeId?: string) => void  // nodeId 옵션: Input 노드별 실행 상태 관리
+  stopExecution: (nodeId?: string) => void  // nodeId 옵션: 특정 노드만 중지
   setCurrentNode: (nodeId: string | null) => void
   setCurrentSessionId: (sessionId: string | null) => void
   setNodeInput: (nodeId: string, input: string) => void
@@ -134,6 +135,7 @@ interface WorkflowStore {
 
 const initialExecutionState: WorkflowExecutionState = {
   isExecuting: false,
+  executingNodes: new Set(),  // 실행 중인 노드 ID 집합
   currentNodeId: null,
   currentSessionId: null,
   nodeOutputs: {},
@@ -328,43 +330,62 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     }),
 
   // 실행 상태 관리
-  startExecution: () =>
-    set((state) => ({
-      execution: {
-        ...state.execution,
-        isExecuting: true,
-        currentNodeId: null,
-        nodeOutputs: {},
-        nodeInputs: {},  // 노드 입력 초기화
-        logs: [
-          {
-            nodeId: '',
-            type: 'start',
-            message: '🚀 워크플로우 실행 시작...',
-            timestamp: Date.now(),
-          }
-        ],
-      },
-    })),
+  startExecution: (nodeId?: string) =>
+    set((state) => {
+      const newExecutingNodes = new Set(state.execution.executingNodes)
+      if (nodeId) {
+        newExecutingNodes.add(nodeId)
+      }
 
-  stopExecution: () =>
-    set((state) => ({
-      execution: {
-        ...state.execution,
-        isExecuting: false,
-        currentNodeId: null,
-        currentSessionId: null,  // 세션 ID도 초기화
-        // 모든 노드 상태 초기화 (실행 중단 시)
-        nodeMeta: Object.keys(state.execution.nodeMeta).reduce((acc, nodeId) => {
-          acc[nodeId] = {
-            ...state.execution.nodeMeta[nodeId],
-            status: 'idle' as NodeExecutionStatus,
-          }
-          return acc
-        }, {} as Record<string, NodeExecutionMeta>),
-      },
-      // nodeMeta를 사용하므로 nodes.data 업데이트 불필요 (리렌더링 방지)
-    })),
+      return {
+        execution: {
+          ...state.execution,
+          isExecuting: true,
+          executingNodes: newExecutingNodes,
+          currentNodeId: null,
+          nodeOutputs: {},
+          nodeInputs: {},  // 노드 입력 초기화
+          logs: state.execution.logs.length === 0 ? [
+            {
+              nodeId: '',
+              type: 'start',
+              message: '🚀 워크플로우 실행 시작...',
+              timestamp: Date.now(),
+            }
+          ] : state.execution.logs,  // 이미 로그가 있으면 유지 (병렬 Input 지원)
+        },
+      }
+    }),
+
+  stopExecution: (nodeId?: string) =>
+    set((state) => {
+      const newExecutingNodes = new Set(state.execution.executingNodes)
+      if (nodeId) {
+        newExecutingNodes.delete(nodeId)
+      } else {
+        newExecutingNodes.clear()  // nodeId가 없으면 전체 중지
+      }
+
+      const isStillExecuting = newExecutingNodes.size > 0
+
+      return {
+        execution: {
+          ...state.execution,
+          isExecuting: isStillExecuting,
+          executingNodes: newExecutingNodes,
+          currentNodeId: isStillExecuting ? state.execution.currentNodeId : null,
+          currentSessionId: isStillExecuting ? state.execution.currentSessionId : null,
+          // 모든 노드 상태 초기화 (전체 중지 시만)
+          nodeMeta: isStillExecuting ? state.execution.nodeMeta : Object.keys(state.execution.nodeMeta).reduce((acc, nid) => {
+            acc[nid] = {
+              ...state.execution.nodeMeta[nid],
+              status: 'idle' as NodeExecutionStatus,
+            }
+            return acc
+          }, {} as Record<string, NodeExecutionMeta>),
+        },
+      }
+    }),
 
   setCurrentNode: (nodeId) =>
     set((state) => ({

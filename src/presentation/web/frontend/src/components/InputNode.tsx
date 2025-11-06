@@ -44,8 +44,8 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
     execution,
   } = useWorkflowStore()
 
-  // 워크플로우 진행 중 여부 확인 (전역 실행 상태)
-  const isWorkflowRunning = execution.isExecuting
+  // 이 Input 노드의 실행 상태 확인 (노드별 독립적인 상태)
+  const isThisNodeExecuting = execution.executingNodes.has(id)
 
   // 워크플로우 중지
   const handleStop = async () => {
@@ -70,17 +70,17 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
       console.warn('[InputNode] 현재 실행 중인 세션 ID를 찾을 수 없습니다')
     }
 
-    stopExecution()
+    stopExecution(id)  // 이 노드만 실행 중지
     setCurrentSessionId(null)
     addLog('', 'error', '⏹️ 사용자가 워크플로우 실행을 중지했습니다')
   }
 
   // 워크플로우 실행 (이 Input 노드에서 시작)
   const handleExecute = async () => {
-    if (isWorkflowRunning || !initial_input?.trim()) return
+    if (isThisNodeExecuting || !initial_input?.trim()) return
 
     try {
-      startExecution()
+      startExecution(id)  // 이 노드 ID를 실행 중 상태로 등록
 
       const workflow = getWorkflow()
 
@@ -196,14 +196,14 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
         },
         // onComplete
         () => {
-          stopExecution()
+          stopExecution(id)  // 이 노드 실행 완료
           // 워크플로우 완료 시 세션 ID 제거 (다음 새로고침 시 복원하지 않도록)
           localStorage.removeItem(STORAGE_KEY_SESSION_ID)
           console.log('[InputNode] 워크플로우 완료 - 세션 ID 제거')
         },
         // onError
         (error) => {
-          stopExecution()
+          stopExecution(id)  // 이 노드 실행 중지
           addLog('', 'error', `실행 실패: ${error}`)
         },
         // signal
@@ -228,7 +228,7 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
-      stopExecution()
+      stopExecution(id)  // 이 노드 실행 중지
       addLog('', 'error', `실행 실패: ${errorMsg}`)
     }
   }
@@ -259,8 +259,8 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
             {(initial_input?.length || 0) > 80 && '...'}
           </div>
 
-          {/* 실행/중지 버튼 */}
-          {isWorkflowRunning ? (
+          {/* 실행/중지 버튼 (노드별 독립적인 상태) */}
+          {isThisNodeExecuting ? (
             <Button
               onClick={handleStop}
               size="sm"
