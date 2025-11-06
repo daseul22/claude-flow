@@ -80,6 +80,10 @@ class AgentClient:
                 task_description=message,
                 resume_session_id=None,
             ):
+                # 워커 완료 메시지 필터링
+                if "└─ ✅" in chunk and "완료" in chunk:
+                    continue  # 완료 메시지는 표시하지 않음
+                
                 # 청크 파싱
                 parsed = parser.parse_chunk(chunk)
 
