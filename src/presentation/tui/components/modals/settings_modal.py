@@ -16,6 +16,7 @@ class SettingsResult:
     condition_prompt: str
     max_iterations: int
     condition_model: str
+    feedback_input: str  # 회귀 시 전달할 입력
     show_statusbar: bool
     show_timestamps: bool
     show_token_counts: bool
@@ -28,6 +29,7 @@ class SettingsResult:
             "condition_prompt": self.condition_prompt,
             "max_iterations": self.max_iterations,
             "condition_model": self.condition_model,
+            "feedback_input": self.feedback_input,
             "show_statusbar": self.show_statusbar,
             "show_timestamps": self.show_timestamps,
             "show_token_counts": self.show_token_counts,
@@ -146,6 +148,14 @@ class SettingsModal(ModalScreen[SettingsResult]):
                     id="condition-prompt"
                 )
 
+            with Vertical(classes="setting-row"):
+                yield Label("  회귀 입력 메시지 (선택):")
+                yield Input(
+                    value=self.settings.get("feedback_input", ""),
+                    placeholder="예: {{output}}을 보고 {{condition}}을 만족하도록 개선해주세요",
+                    id="feedback-input"
+                )
+
             with Horizontal(classes="setting-row"):
                 yield Label("  최대 반복:")
                 yield Input(
@@ -229,6 +239,7 @@ class SettingsModal(ModalScreen[SettingsResult]):
             condition_prompt=self.query_one("#condition-prompt", Input).value.strip(),
             max_iterations=max_iter,
             condition_model=condition_model_value,
+            feedback_input=self.query_one("#feedback-input", Input).value.strip(),
             show_statusbar=self.query_one("#show-statusbar", Checkbox).value,
             show_timestamps=self.query_one("#show-timestamps", Checkbox).value,
             show_token_counts=self.query_one("#show-token-counts", Checkbox).value,
@@ -244,6 +255,7 @@ class SettingsModal(ModalScreen[SettingsResult]):
             self.query_one("#model-select", Select).value = "claude-sonnet-4.5"
             self.query_one("#feedback-enabled", Checkbox).value = False
             self.query_one("#condition-prompt", Input).value = ""
+            self.query_one("#feedback-input", Input).value = ""
             self.query_one("#max-iterations", Input).value = "3"
             self.query_one("#condition-model", Select).value = "claude-haiku-4-5-20251001"
             self.query_one("#show-statusbar", Checkbox).value = True

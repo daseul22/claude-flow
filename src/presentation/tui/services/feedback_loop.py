@@ -24,11 +24,14 @@ class FeedbackLoop:
         self,
         output: str,
         condition_prompt: str,
-    ) -> bool:
-        """조건 평가 (LLM 사용)"""
+        on_eval_output: Optional[Callable[[str], None]] = None,
+    ) -> tuple[bool, str]:
+        """조건 평가 (LLM 사용)
+        
+        Returns:
+            (조건 충족 여부, 평가 응답)
+        """
         # 조건 평가용 에이전트 생성
-        # condition_model은 SDK 형식이므로 그대로 사용하되
-        # AgentClient는 사용자 친화적 이름도 받을 수 있도록 처리
         model_name = self.condition_model
         
         # SDK 형식이 아니면 변환 (안전장치)
@@ -59,22 +62,33 @@ class FeedbackLoop:
         response_text = ""
         async for chunk in evaluator.send_message(eval_prompt):
             response_text += chunk
+            # 평가 과정을 UI에 표시
+            if on_eval_output:
+                on_eval_output(chunk)
 
         # 첫 줄에서 YES/NO 판단
         first_line = response_text.strip().split("\n")[0].upper()
 
-        return "YES" in first_line
+        return ("YES" in first_line, response_text)
 
     async def run_with_feedback(
         self,
         agent: AgentClient,
         initial_message: str,
         condition_prompt: str,
+        feedback_input: str = "",
         on_iteration: Optional[Callable[[int, str], None]] = None,
         on_thinking: Optional[Callable[[str], None]] = None,
         on_tool_use: Optional[Callable[[str, dict], None]] = None,
+        on_eval_start: Optional[Callable[[], None]] = None,
+        on_eval_output: Optional[Callable[[str], None]] = None,
+        on_eval_result: Optional[Callable[[bool, str], None]] = None,
     ) -> AsyncIterator[str]:
-        """피드백 루프 실행"""
+        """피드백 루프 실행
+        
+        Args:
+            feedback_input: 회귀 시 에이전트에게 전달할 입력 메시지 (비어있으면 기본 메시지 사용)
+        """
         current_message = initial_message
         self.current_iteration = 0
 
@@ -94,11 +108,23 @@ class FeedbackLoop:
                 output += chunk
                 yield chunk
 
-            # 조건 평가
+            # 조건 평가 시작 알림
+            if on_eval_start:
+                on_eval_start()
+            
             if on_iteration:
                 on_iteration(self.current_iteration, "평가 중")
 
-            condition_met = await self.evaluate_condition(output, condition_prompt)
+            # 조건 평가 (평가 출력도 UI에 표시)
+            condition_met, eval_response = await self.evaluate_condition(
+                output, 
+                condition_prompt,
+                on_eval_output=on_eval_output
+            )
+            
+            # 평가 결과 콜백
+            if on_eval_result:
+                on_eval_result(condition_met, eval_response)
 
             if condition_met:
                 # 조건 충족 - 루프 종료
@@ -111,8 +137,14 @@ class FeedbackLoop:
                 if on_iteration:
                     on_iteration(self.current_iteration, "재시도 준비")
 
-                # 피드백 메시지 생성
-                current_message = f"""
+                # 피드백 메시지 생성 (사용자 정의 메시지 또는 기본 메시지)
+                if feedback_input.strip():
+                    # 사용자가 정의한 회귀 입력 사용
+                    # {{output}}, {{condition}} 치환 지원
+                    current_message = feedback_input.replace("{{output}}", output).replace("{{condition}}", condition_prompt)
+                else:
+                    # 기본 회귀 메시지
+                    current_message = f"""
 이전 출력:
 {output}
 

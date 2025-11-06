@@ -26,6 +26,7 @@ class FeedbackLoopConfig:
     condition_model: str = "claude-haiku-4-5-20251001"
     max_iterations: int = 3
     current_iteration: int = 0
+    feedback_input: str = ""  # 회귀 시 에이전트에게 전달할 입력
 
 
 @dataclass

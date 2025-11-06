@@ -169,6 +169,7 @@ class ClaudeFlowApp(App):
             condition_model=self.config.config.feedback_loop_defaults.condition_model,
             max_iterations=self.config.config.feedback_loop_defaults.max_iterations,
             current_iteration=0,
+            feedback_input="",
         )
         
         # 세션 생성
@@ -395,17 +396,47 @@ class ClaudeFlowApp(App):
                     style="yellow"
                 )
 
+                # 평가 LLM 출력 콜백
+                def on_eval_start():
+                    """평가 시작"""
+                    from rich.text import Text
+                    eval_header = Text("\n", style="")
+                    eval_header.append("━" * 60, style="dim yellow")
+                    eval_header.append("\n🔍 ", style="yellow")
+                    eval_header.append("조건 평가 중...", style="bold yellow")
+                    chat_view.write(eval_header)
+                
+                def on_eval_output(chunk: str):
+                    """평가 LLM 출력"""
+                    chat_view.write_wrapped(chunk)
+                
+                def on_eval_result(condition_met: bool, eval_response: str):
+                    """평가 결과"""
+                    from rich.text import Text
+                    result_text = Text()
+                    if condition_met:
+                        result_text.append("✅ 조건 충족", style="bold green")
+                    else:
+                        result_text.append("❌ 조건 미충족 - 재시도 필요", style="bold red")
+                    result_text.append("\n", style="")
+                    result_text.append("━" * 60, style="dim yellow")
+                    chat_view.write(result_text)
+
                 iteration = 0
                 async for chunk in self.feedback_loop.run_with_feedback(
                     agent=self.agent,
                     initial_message=user_message,
                     condition_prompt=session.feedback_loop.condition_prompt,
+                    feedback_input=session.feedback_loop.feedback_input,
                     on_iteration=lambda iter_num, status: chat_view.add_system_message(
                         f"🔄 반복 {iter_num}: {status}",
                         style="dim"
                     ),
                     on_thinking=on_thinking_callback,
                     on_tool_use=on_tool_use_callback,
+                    on_eval_start=on_eval_start,
+                    on_eval_output=on_eval_output,
+                    on_eval_result=on_eval_result,
                 ):
                     if self.should_stop:
                         chat_view.add_system_message("작업이 중단되었습니다.", style="yellow")
@@ -571,6 +602,7 @@ class ClaudeFlowApp(App):
             "condition_prompt": session.feedback_loop.condition_prompt if session else "",
             "max_iterations": self.config.config.feedback_loop_defaults.max_iterations,
             "condition_model": self.config.config.feedback_loop_defaults.condition_model,
+            "feedback_input": session.feedback_loop.feedback_input if session else "",
             "show_statusbar": self.config.config.display.show_statusbar,
             "show_timestamps": self.config.config.display.show_timestamps,
             "show_token_counts": self.config.config.display.show_token_counts,
@@ -652,6 +684,7 @@ class ClaudeFlowApp(App):
                 self.session_manager.current_session.feedback_loop.condition_prompt = result.get("condition_prompt", "")
                 self.session_manager.current_session.feedback_loop.max_iterations = result["max_iterations"]
                 self.session_manager.current_session.feedback_loop.condition_model = result["condition_model"]
+                self.session_manager.current_session.feedback_loop.feedback_input = result.get("feedback_input", "")
                 self.session_manager.save_session(self.session_manager.current_session)
 
             # 피드백 루프 재생성 (설정 변경 시)
