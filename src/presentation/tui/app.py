@@ -98,6 +98,8 @@ class ClaudeFlowApp(App):
 
         # 현재 작업
         self.current_task: Optional[asyncio.Task] = None
+        self.is_processing: bool = False  # 응답 처리 중 플래그
+        self.should_stop: bool = False  # 중단 요청 플래그
 
         # 디렉토리 히스토리 (cd - 용)
         self.directory_history: list[Path] = []
@@ -227,16 +229,8 @@ class ClaudeFlowApp(App):
         if self.logger:
             self.logger.log_message("user", user_message)
 
-        # 에이전트 응답 (Task로 실행하여 중단 가능하게)
-        self.current_task = asyncio.create_task(self.get_agent_response(user_message))
-        
-        try:
-            await self.current_task
-        except asyncio.CancelledError:
-            # Ctrl+C로 중단됨
-            chat_view.add_system_message("작업이 중단되었습니다.", style="yellow")
-        finally:
-            self.current_task = None
+        # 에이전트 응답
+        await self.get_agent_response(user_message)
 
     async def handle_cd_command(self, command: str):
         """cd 명령어 처리"""
@@ -324,6 +318,10 @@ class ClaudeFlowApp(App):
     async def get_agent_response(self, user_message: str) -> None:
         """에이전트 응답 받기 (실시간 스트리밍)"""
         chat_view = self.query_one(ChatView)
+        
+        # 처리 중 플래그 설정
+        self.is_processing = True
+        self.should_stop = False
 
         try:
             # 응답 헤더 추가
@@ -383,6 +381,9 @@ class ClaudeFlowApp(App):
                     on_thinking=on_thinking_callback,
                     on_tool_use=on_tool_use_callback,
                 ):
+                    if self.should_stop:
+                        chat_view.add_system_message("작업이 중단되었습니다.", style="yellow")
+                        return
                     response_text += chunk
                     chat_view.write_wrapped(chunk)  # 문자열은 줄바꿈 처리
             else:
@@ -393,6 +394,9 @@ class ClaudeFlowApp(App):
                     on_tool_use=on_tool_use_callback,
                     on_tool_result=on_tool_result_callback,
                 ):
+                    if self.should_stop:
+                        chat_view.add_system_message("작업이 중단되었습니다.", style="yellow")
+                        return
                     response_text += chunk
                     chat_view.write_wrapped(chunk)  # 문자열은 줄바꿈 처리
 
@@ -410,14 +414,14 @@ class ClaudeFlowApp(App):
             # 상태바 업데이트 (토큰)
             self._update_token_display(len(response_text))
 
-        except asyncio.CancelledError:
-            # 작업 중단됨
-            chat_view.write("")  # 구분선
-            raise  # 상위로 전파
         except Exception as e:
             chat_view.add_error_message(str(e))
             if self.logger:
                 self.logger.log_error(e)
+        finally:
+            # 처리 완료
+            self.is_processing = False
+            self.should_stop = False
 
     async def action_new_session(self) -> None:
         """새 세션 생성"""
@@ -572,19 +576,18 @@ class ClaudeFlowApp(App):
     async def action_interrupt(self) -> None:
         """현재 작업 중단"""
         input_box = self.query_one(InputBox)
+        chat_view = self.query_one(ChatView)
+
+        # 응답 스트리밍 중이면 중단 플래그 설정
+        if self.is_processing:
+            self.should_stop = True
+            chat_view.add_system_message("⏹️  응답 중단 중...", style="yellow")
+            return
 
         # 입력 중이면 입력창 초기화
         if input_box.text:
             input_box.clear_input()
-            chat_view = self.query_one(ChatView)
             chat_view.add_system_message("입력이 취소되었습니다.", style="yellow")
-            return
-
-        # 실행 중인 작업 중단
-        if self.current_task and not self.current_task.done():
-            self.current_task.cancel()
-            chat_view = self.query_one(ChatView)
-            chat_view.add_system_message("작업이 중단되었습니다.", style="yellow")
             return
 
         # 아무것도 없으면 종료
