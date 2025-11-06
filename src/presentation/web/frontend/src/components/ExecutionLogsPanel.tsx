@@ -491,6 +491,22 @@ export const ExecutionLogsPanel: React.FC<ExecutionLogsPanelProps> = ({ addToast
                             <Badge variant="outline" className="text-xs">
                               {getNodeName(group.nodeId)}
                             </Badge>
+                            {/* 반복 횟수 배지 (Condition 노드) */}
+                            {(() => {
+                              const startLog = group.logs.find(log => log.type === 'start')
+                              const iteration = startLog?.data?.iteration
+                              const maxIterations = startLog?.data?.max_iterations
+
+                              if (iteration && iteration > 1) {
+                                return (
+                                  <Badge variant="secondary" className="text-xs bg-yellow-100 text-yellow-800">
+                                    🔄 {iteration}회차
+                                    {maxIterations && ` / ${maxIterations}`}
+                                  </Badge>
+                                )
+                              }
+                              return null
+                            })()}
                             <Button
                               variant="ghost"
                               size="sm"

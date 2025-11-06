@@ -27,6 +27,7 @@ export interface LogItem {
   type: 'start' | 'input' | 'execution' | 'output' | 'complete' | 'error'
   message: string
   timestamp: number
+  data?: Record<string, any>  // 이벤트 데이터 (iteration, max_iterations 등)
 }
 
 export interface PendingUserInput {
@@ -107,7 +108,7 @@ interface WorkflowStore {
   setCurrentSessionId: (sessionId: string | null) => void
   setNodeInput: (nodeId: string, input: string) => void
   addNodeOutput: (nodeId: string, output: string) => void
-  addLog: (nodeId: string, type: WorkflowExecutionState['logs'][0]['type'], message: string) => void
+  addLog: (nodeId: string, type: WorkflowExecutionState['logs'][0]['type'], message: string, data?: Record<string, any>) => void
   clearExecution: () => void
 
   // Human-in-the-Loop
@@ -403,8 +404,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       },
     })),
 
-  addLog: (nodeId, type, message) => {
-    console.log('[workflowStore] addLog 호출:', { nodeId, type, message })
+  addLog: (nodeId, type, message, data) => {
+    console.log('[workflowStore] addLog 호출:', { nodeId, type, message, data })
 
     set((state) => {
       const newLog = {
@@ -412,6 +413,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         type,
         message,
         timestamp: Date.now(),
+        data,
       }
       const newLogs = [...state.execution.logs, newLog]
 

@@ -72,6 +72,14 @@ class ConditionNodeExecutor(BaseNodeExecutor):
 
         node_data = node.data
 
+        # 현재 반복 횟수 가져오기 (다음 실행 예정 횟수)
+        current_iteration = 1
+        if session_id in condition_evaluator.condition_iterations:
+            current_iteration = condition_evaluator.condition_iterations[session_id].get(node_id, 0) + 1
+
+        # max_iterations 가져오기
+        max_iterations = node_data.max_iterations if hasattr(node_data, "max_iterations") else None
+
         # node_start 이벤트
         yield WorkflowNodeExecutionEvent(
             event_type="node_start",
@@ -88,6 +96,8 @@ class ConditionNodeExecutor(BaseNodeExecutor):
                     if hasattr(node_data, "condition_value")
                     else node_data.get("condition_value")
                 ),
+                "iteration": current_iteration,  # 반복 횟수 추가
+                "max_iterations": max_iterations,  # 최대 반복 횟수 추가
             },
             timestamp=datetime.now().isoformat(),
         )

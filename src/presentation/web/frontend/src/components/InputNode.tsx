@@ -118,7 +118,7 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
               if (eventData.input) {
                 setNodeInput(node_id, eventData.input)
               }
-              addLog(node_id, 'start', `▶️  ${eventData.agent_name} 실행 시작`)
+              addLog(node_id, 'start', `▶️  ${eventData.agent_name} 실행 시작`, eventData)
               break
 
             case 'node_output':
