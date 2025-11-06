@@ -12,7 +12,7 @@ class FeedbackLoop:
     def __init__(
         self,
         project_path: Path,
-        condition_model: str = "claude-haiku-4.5",
+        condition_model: str = "claude-haiku-4-5-20251001",
         max_iterations: int = 3,
     ):
         self.project_path = project_path

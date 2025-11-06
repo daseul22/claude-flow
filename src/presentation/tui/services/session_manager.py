@@ -23,7 +23,7 @@ class FeedbackLoopConfig:
     """피드백 루프 설정"""
     enabled: bool = False
     condition_prompt: str = ""
-    condition_model: str = "claude-haiku-4.5"
+    condition_model: str = "claude-haiku-4-5-20251001"
     max_iterations: int = 3
     current_iteration: int = 0
 

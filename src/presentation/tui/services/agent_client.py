@@ -47,8 +47,7 @@ class AgentClient:
         """모델명을 SDK 형식으로 변환"""
         model_mapping = {
             "claude-sonnet-4.5": "claude-sonnet-4-5-20250929",
-            "claude-opus-4.1": "claude-opus-4-20250514",
-            "claude-haiku-4.5": "claude-haiku-4-5-20250429",
+            "claude-haiku-4.5": "claude-haiku-4-5-20251001",  # 수정됨
         }
         return model_mapping.get(model, "claude-sonnet-4-5-20250929")
 

@@ -20,7 +20,7 @@ class FeedbackLoopDefaults:
     """피드백 루프 기본 설정"""
     enabled: bool = False
     max_iterations: int = 3
-    condition_model: str = "claude-haiku-4.5"
+    condition_model: str = "claude-haiku-4-5-20251001"
 
 
 @dataclass
