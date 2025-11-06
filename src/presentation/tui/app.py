@@ -1,6 +1,7 @@
 """Claude Flow TUI 메인 앱"""
 
 import asyncio
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -198,6 +199,7 @@ class ClaudeFlowApp(App):
         git_branch = self.git_info["branch"] if self.git_info else ""
         status_bar.update_project(self.project_name, git_branch)
         status_bar.update_session(session.session_id)
+        status_bar.update_feedback_loop(session.feedback_loop.enabled)
 
         if self.logger:
             self.logger.log_event("new_session", {
@@ -273,6 +275,19 @@ class ClaudeFlowApp(App):
             if not new_path.is_dir():
                 chat_view.add_error_message(f"디렉토리가 아닙니다: {new_path}")
                 return
+            
+            # 권한 검증 (읽기/쓰기 가능 여부)
+            if not os.access(new_path, os.R_OK):
+                chat_view.add_system_message(
+                    f"⚠️  읽기 권한이 없습니다: {new_path}",
+                    style="yellow"
+                )
+            
+            if not os.access(new_path, os.W_OK):
+                chat_view.add_system_message(
+                    f"⚠️  쓰기 권한이 없습니다: {new_path}",
+                    style="yellow"
+                )
 
             # 작업 디렉토리 변경
             old_path = self.project_path
@@ -446,9 +461,36 @@ class ClaudeFlowApp(App):
         modal = SessionListModal(sessions)
         result = await self.push_screen(modal)
         
-        # 모달에서 세션 ID 반환받음
+        # 모달에서 결과 처리
         if result:
-            self.load_selected_session(result)
+            # 삭제 액션 처리
+            if isinstance(result, str) and result.startswith("DELETE:"):
+                session_id = result[7:]  # "DELETE:" 제거
+                await self.delete_session_with_confirmation(session_id)
+            # 세션 선택
+            else:
+                self.load_selected_session(result)
+
+    async def delete_session_with_confirmation(self, session_id: str) -> None:
+        """세션 삭제 (확인 후)"""
+        chat_view = self.query_one(ChatView)
+        
+        try:
+            # 세션 삭제
+            self.session_manager.delete_session(session_id)
+            
+            # 알림
+            chat_view.add_system_message(
+                f"✅ 세션 {session_id[:8]}이(가) 삭제되었습니다.",
+                style="green"
+            )
+            
+            # 로그
+            if self.logger:
+                self.logger.log_event("session_deleted", {"session_id": session_id})
+                
+        except Exception as e:
+            chat_view.add_error_message(f"세션 삭제 실패: {str(e)}")
 
     def load_selected_session(self, session_id: str) -> None:
         """선택된 세션 불러오기"""
@@ -519,6 +561,7 @@ class ClaudeFlowApp(App):
             "condition_prompt": session.feedback_loop.condition_prompt if session else "",
             "max_iterations": session.feedback_loop.max_iterations if session else self.config.config.feedback_loop_defaults.max_iterations,
             "condition_model": session.feedback_loop.condition_model if session else self.config.config.feedback_loop_defaults.condition_model,
+            "show_statusbar": self.config.config.display.show_statusbar,
             "show_timestamps": self.config.config.display.show_timestamps,
             "show_token_counts": self.config.config.display.show_token_counts,
         }
@@ -534,6 +577,7 @@ class ClaudeFlowApp(App):
                 self.config.config.feedback_loop_defaults.enabled = result["feedback_loop_enabled"]
                 self.config.config.feedback_loop_defaults.max_iterations = result["max_iterations"]
                 self.config.config.feedback_loop_defaults.condition_model = result["condition_model"]
+                self.config.config.display.show_statusbar = result["show_statusbar"]
                 self.config.config.display.show_timestamps = result["show_timestamps"]
                 self.config.config.display.show_token_counts = result["show_token_counts"]
 
@@ -576,6 +620,16 @@ class ClaudeFlowApp(App):
                 # 타임스탬프 표시 토글 적용
                 chat_view.show_timestamps = result["show_timestamps"]
                 
+                # 상태바 표시/숨김
+                status_bar = self.query_one(StatusBar)
+                if self.config.config.display.show_statusbar:
+                    status_bar.styles.display = "block"
+                else:
+                    status_bar.styles.display = "none"
+                
+                # 상태바 업데이트 (피드백 루프 상태)
+                status_bar.update_feedback_loop(result["feedback_loop_enabled"])
+                
             except Exception as e:
                 chat_view.add_error_message(f"설정 저장 실패: {str(e)}")
 
@@ -612,6 +666,26 @@ class ClaudeFlowApp(App):
 
     def action_quit(self) -> None:
         """앱 종료"""
+        # 종료 전 세션 통계 표시
+        if self.session_manager.current_session:
+            session = self.session_manager.current_session
+            total_input = session.total_tokens["input"]
+            total_output = session.total_tokens["output"]
+            total_tokens = total_input + total_output
+            
+            if self.agent:
+                cost = self.agent.estimate_cost(total_input, total_output)
+                
+                # 로그에 기록
+                if self.logger:
+                    self.logger.log_event("session_end", {
+                        "total_tokens": total_tokens,
+                        "input_tokens": total_input,
+                        "output_tokens": total_output,
+                        "estimated_cost": cost,
+                        "message_count": len(session.messages),
+                    })
+        
         self.exit()
 
     # ========== Helper Methods ==========

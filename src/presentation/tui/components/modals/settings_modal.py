@@ -143,6 +143,14 @@ class SettingsModal(ModalScreen[Dict[str, Any]]):
             yield Label("표시 옵션:", classes="section-label")
             
             with Horizontal(classes="setting-row"):
+                yield Label("  상태바:")
+                yield Checkbox(
+                    "상태바 표시",
+                    value=self.settings.get("show_statusbar", True),
+                    id="show-statusbar"
+                )
+            
+            with Horizontal(classes="setting-row"):
                 yield Label("  타임스탬프:")
                 yield Checkbox(
                     "메시지에 시간 표시",
@@ -163,6 +171,7 @@ class SettingsModal(ModalScreen[Dict[str, Any]]):
             # 버튼
             with Horizontal(classes="buttons"):
                 yield Button("저장", variant="primary", id="save")
+                yield Button("기본값", variant="warning", id="reset")
                 yield Button("취소", variant="default", id="cancel")
 
     def _collect_settings(self) -> Dict[str, Any]:
@@ -181,6 +190,7 @@ class SettingsModal(ModalScreen[Dict[str, Any]]):
             "condition_prompt": self.query_one("#condition-prompt", Input).value.strip(),
             "max_iterations": max_iter,
             "condition_model": self.query_one("#condition-model", Select).value,
+            "show_statusbar": self.query_one("#show-statusbar", Checkbox).value,
             "show_timestamps": self.query_one("#show-timestamps", Checkbox).value,
             "show_token_counts": self.query_one("#show-token-counts", Checkbox).value,
         }
@@ -190,6 +200,16 @@ class SettingsModal(ModalScreen[Dict[str, Any]]):
         if event.button.id == "save":
             settings = self._collect_settings()
             self.dismiss(settings)
+        elif event.button.id == "reset":
+            # 기본값으로 리셋
+            self.query_one("#model-select", Select).value = "claude-sonnet-4.5"
+            self.query_one("#feedback-enabled", Checkbox).value = False
+            self.query_one("#condition-prompt", Input).value = ""
+            self.query_one("#max-iterations", Input).value = "3"
+            self.query_one("#condition-model", Select).value = "claude-haiku-4-5-20251001"
+            self.query_one("#show-statusbar", Checkbox).value = True
+            self.query_one("#show-timestamps", Checkbox).value = True
+            self.query_one("#show-token-counts", Checkbox).value = True
         elif event.button.id == "cancel":
             self.dismiss(None)
 

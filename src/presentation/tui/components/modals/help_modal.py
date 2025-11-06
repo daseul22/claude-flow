@@ -58,6 +58,7 @@ class HelpModal(ModalScreen):
             
             # 입력
             table.add_row("Enter", "메시지 전송")
+            table.add_row("Shift+Enter", "줄바꿈 (멀티라인 입력)")
             table.add_row("Ctrl+Enter", "메시지 전송 (대안)")
             table.add_row("↑ / ↓", "이전 입력 탐색")
             

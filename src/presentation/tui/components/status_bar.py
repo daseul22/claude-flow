@@ -45,6 +45,7 @@ class StatusBar(Widget):
         self.input_tokens = 0
         self.output_tokens = 0
         self.estimated_cost = 0.0
+        self.feedback_loop_enabled = False
 
     def compose(self) -> ComposeResult:
         """컴포넌트 구성"""
@@ -71,6 +72,11 @@ class StatusBar(Widget):
         self.estimated_cost = cost
         self._refresh_display()
 
+    def update_feedback_loop(self, enabled: bool) -> None:
+        """피드백 루프 상태 업데이트"""
+        self.feedback_loop_enabled = enabled
+        self._refresh_display()
+
     def _refresh_display(self) -> None:
         """화면 갱신"""
         # 프로젝트 정보
@@ -83,6 +89,8 @@ class StatusBar(Widget):
 
         # 세션 정보
         session_text = f"Session: {self.session_id}" if self.session_id else "No session"
+        if self.feedback_loop_enabled:
+            session_text += " | 🔁 Feedback"
         session_widget = self.query_one("#session-info", Static)
         session_widget.update(session_text)
 

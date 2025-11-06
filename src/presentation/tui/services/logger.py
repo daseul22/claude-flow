@@ -52,6 +52,7 @@ class SessionLogger:
         if tokens:
             log_entry += f" | Tokens: {tokens}"
         self.logger.info(log_entry)
+        self.check_rotation()
 
     def log_tool_call(self, tool_name: str, args: dict):
         """도구 호출 로그"""

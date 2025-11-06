@@ -35,20 +35,22 @@ class InputBox(TextArea):
 
     async def on_key(self, event) -> None:
         """키 이벤트 처리"""
-        # Enter로 전송 (Shift+Enter는 줄바꿈)
-        # Textual에서는 Shift가 눌린 경우 event에 shift 속성이 없으므로
-        # 기본 동작을 그대로 사용 (TextArea가 줄바꿈 처리)
-        if event.key == "enter":
-            # Shift가 눌리지 않았을 때만 전송
-            # Textual의 Key 이벤트는 shift 수식자를 별도로 체크해야 함
-            # 간단하게 처리: enter만 누르면 전송
+        # Shift+Enter는 줄바꿈 (기본 동작)
+        if event.key == "shift+enter":
+            # TextArea 기본 동작으로 줄바꿈
+            return
+        
+        # Enter로 전송
+        elif event.key == "enter":
             await self.submit_message()
             event.prevent_default()
-
-        # Ctrl+Enter도 전송으로 처리 (대안)
+            event.stop()
+        
+        # Ctrl+Enter도 전송 (대안)
         elif event.key == "ctrl+enter":
             await self.submit_message()
             event.prevent_default()
+            event.stop()
 
         # 위/아래 화살표로 히스토리 탐색 (입력창이 비어있을 때만)
         elif event.key == "up" and not self.text:

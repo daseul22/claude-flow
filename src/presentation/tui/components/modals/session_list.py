@@ -2,7 +2,7 @@
 
 from textual.app import ComposeResult
 from textual.screen import ModalScreen
-from textual.containers import Container, Vertical
+from textual.containers import Container, Vertical, Horizontal
 from textual.widgets import Button, Label, ListView, ListItem
 
 
@@ -58,8 +58,9 @@ class SessionListModal(ModalScreen[str]):
                     )
 
             # 버튼
-            with Vertical(classes="buttons"):
+            with Horizontal(classes="buttons"):
                 yield Button("선택", variant="primary", id="select")
+                yield Button("삭제", variant="error", id="delete")
                 yield Button("취소", variant="default", id="cancel")
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -70,6 +71,16 @@ class SessionListModal(ModalScreen[str]):
             if list_view.index is not None and list_view.index < len(self.sessions):
                 selected_session = self.sessions[list_view.index]
                 self.dismiss(selected_session["session_id"])
+            else:
+                self.dismiss()
+
+        elif event.button.id == "delete":
+            # 삭제할 세션 찾기
+            list_view = self.query_one(ListView)
+            if list_view.index is not None and list_view.index < len(self.sessions):
+                selected_session = self.sessions[list_view.index]
+                # 삭제 액션을 나타내는 특수 값 반환
+                self.dismiss(f"DELETE:{selected_session['session_id']}")
             else:
                 self.dismiss()
 
