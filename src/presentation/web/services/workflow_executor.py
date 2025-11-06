@@ -64,6 +64,10 @@ class WorkflowExecutor:
         # 여러 워크플로우 실행에 걸쳐 유지되어 컨텍스트 재활용
         self._node_sessions: Dict[str, str] = {}
 
+        # 노드 세션 타임스탬프 (세션 만료 추적용)
+        # {node_id: last_used_timestamp}
+        self._node_session_timestamps: Dict[str, str] = {}
+
         # 노드 세션 이력 (노드별 모든 세션 목록)
         # {node_id: [SessionInfo, ...]}
         # 사용자가 세션 목록을 보고 선택할 수 있도록 지원
@@ -187,21 +191,79 @@ class WorkflowExecutor:
 
         try:
             import json
+            from datetime import datetime, timedelta
+
             with open(self._node_sessions_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                self._node_sessions = data.get("node_sessions", {})
+
+                # 타임스탬프 로드
+                timestamps = data.get("node_session_timestamps", {})
+
+                # 오래된 세션 필터링 (24시간 이상)
+                now = datetime.now()
+                session_ttl_hours = 24
+                valid_sessions = {}
+                expired_count = 0
+
+                for node_id, session_id in data.get("node_sessions", {}).items():
+                    timestamp_str = timestamps.get(node_id)
+                    if timestamp_str:
+                        try:
+                            last_used = datetime.fromisoformat(timestamp_str)
+                            age = now - last_used
+                            if age < timedelta(hours=session_ttl_hours):
+                                valid_sessions[node_id] = session_id
+                            else:
+                                expired_count += 1
+                                logger.debug(
+                                    f"만료된 세션 무시: {node_id} "
+                                    f"(세션: {session_id[:8]}..., 경과: {age.days}일 {age.seconds//3600}시간)"
+                                )
+                        except (ValueError, AttributeError):
+                            # 타임스탬프 파싱 실패 → 세션 무시
+                            expired_count += 1
+                            logger.warning(f"타임스탬프 파싱 실패: {node_id} (무시)")
+                    else:
+                        # 타임스탬프 없음 → 세션 무시 (이전 버전 파일)
+                        expired_count += 1
+                        logger.debug(f"타임스탬프 없음: {node_id} (무시)")
+
+                # ⚠️  재할당 대신 .clear() + .update() 사용 (참조 유지)
+                self._node_sessions.clear()
+                self._node_sessions.update(valid_sessions)
+
+                self._node_session_timestamps.clear()
+                self._node_session_timestamps.update(
+                    {k: v for k, v in timestamps.items() if k in valid_sessions}
+                )
+
+                self._node_session_history.clear()
+                self._node_session_history.update(data.get("node_session_history", {}))
+
+                self._node_agent_names.clear()
+                self._node_agent_names.update(data.get("node_agent_names", {}))
+
                 logger.info(
-                    f"노드 세션 매핑 로드 완료: {len(self._node_sessions)}개 "
-                    f"(파일: {self._node_sessions_file})"
+                    f"노드 세션 데이터 로드 완료: "
+                    f"유효 세션 {len(self._node_sessions)}개, "
+                    f"만료 세션 {expired_count}개, "
+                    f"이력 {sum(len(h) for h in self._node_session_history.values())}개, "
+                    f"에이전트 {len(self._node_agent_names)}개 "
+                    f"(파일: {self._node_sessions_file}, TTL: {session_ttl_hours}시간)"
                 )
         except Exception as e:
             logger.warning(f"노드 세션 파일 로드 실패: {e}", exc_info=True)
-            self._node_sessions = {}
+            # ⚠️  재할당 대신 .clear() 사용 (참조 유지)
+            self._node_sessions.clear()
+            self._node_session_timestamps.clear()
+            self._node_session_history.clear()
+            self._node_agent_names.clear()
 
     def _save_node_sessions_to_disk(self) -> None:
         """
-        노드 세션 매핑을 디스크에 저장
+        노드 세션 데이터를 디스크에 저장
 
+        세션 매핑, 세션 이력, 에이전트 이름을 모두 저장합니다.
         실패 시 로그만 출력 (치명적 에러 아님)
         """
         if not self._node_sessions_file:
@@ -211,11 +273,20 @@ class WorkflowExecutor:
             import json
             data = {
                 "node_sessions": self._node_sessions,
+                "node_session_timestamps": self._node_session_timestamps,
+                "node_session_history": self._node_session_history,
+                "node_agent_names": self._node_agent_names,
                 "updated_at": datetime.now().isoformat(),
             }
             with open(self._node_sessions_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
-            logger.debug(f"노드 세션 매핑 저장 완료: {self._node_sessions_file}")
+            logger.debug(
+                f"노드 세션 데이터 저장 완료: "
+                f"세션 {len(self._node_sessions)}개, "
+                f"이력 {sum(len(h) for h in self._node_session_history.values())}개, "
+                f"에이전트 {len(self._node_agent_names)}개 "
+                f"(파일: {self._node_sessions_file})"
+            )
         except Exception as e:
             logger.error(f"노드 세션 파일 저장 실패: {e}", exc_info=True)
 
@@ -225,11 +296,20 @@ class WorkflowExecutor:
 
         Args:
             node_id: 노드 ID
-            session_id: SDK 세션 ID
+            session_id: SDK 세션 ID (None이면 세션 삭제)
         """
-        self._node_sessions[node_id] = session_id
+        if session_id:
+            self._node_sessions[node_id] = session_id
+            self._node_session_timestamps[node_id] = datetime.now().isoformat()
+        else:
+            # 세션 무효화
+            if node_id in self._node_sessions:
+                del self._node_sessions[node_id]
+            if node_id in self._node_session_timestamps:
+                del self._node_session_timestamps[node_id]
+
         self._save_node_sessions_to_disk()
-        logger.debug(f"노드 세션 업데이트: {node_id} → {session_id}")
+        logger.debug(f"노드 세션 업데이트: {node_id} → {session_id or '(삭제)'}")
 
     def cancel_session(self, session_id: str) -> None:
         """

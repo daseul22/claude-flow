@@ -164,71 +164,166 @@ class WorkerNodeExecutor(BaseNodeExecutor):
                 # 이벤트 전송 플래그 설정 (다음 청크에서 전송)
                 session_event_sent[0] = False
 
-            # Worker 실행
-            async for chunk in worker.execute_task(
-                task_description,
-                usage_callback=usage_callback,
-                resume_session_id=previous_session_id,
-                user_input_callback=user_input_callback_impl,
-                session_id_callback=session_id_callback_impl,
-            ):
-                # 취소 플래그 체크
-                self._check_cancellation(session_id)
+            # Worker 실행 (세션 유효성 검사 및 fallback 지원)
+            retry_without_session = False
+            try:
+                async for chunk in worker.execute_task(
+                    task_description,
+                    usage_callback=usage_callback,
+                    resume_session_id=previous_session_id,
+                    user_input_callback=user_input_callback_impl,
+                    session_id_callback=session_id_callback_impl,
+                ):
+                    # 취소 플래그 체크
+                    self._check_cancellation(session_id)
 
-                # 새 세션 생성 시 프론트엔드로 이벤트 전송 (최초 1회)
-                if not session_event_sent[0] and not previous_session_id:
-                    current_sdk_session = self.node_sessions.get(node_id)
-                    if current_sdk_session:
-                        session_event = WorkflowNodeExecutionEvent(
-                            event_type="node_session_created",
+                    # 새 세션 생성 시 프론트엔드로 이벤트 전송 (최초 1회)
+                    if not session_event_sent[0] and not previous_session_id:
+                        current_sdk_session = self.node_sessions.get(node_id)
+                        if current_sdk_session:
+                            session_event = WorkflowNodeExecutionEvent(
+                                event_type="node_session_created",
+                                node_id=node_id,
+                                data={
+                                    "session_id": current_sdk_session,
+                                    "agent_name": agent_name,
+                                    "created_at": datetime.now().isoformat(),
+                                },
+                            )
+                            logger.info(
+                                f"[{session_id}] 📡 이벤트 전송: node_session_created "
+                                f"(node: {node_id}, sdk_session: {current_sdk_session[:8]}...)"
+                            )
+                            yield session_event
+                            session_event_sent[0] = True
+
+                    # 특수 이벤트 마커 감지
+                    if chunk.startswith("@EVENT:user_input_request:"):
+                        import json
+
+                        json_str = chunk[len("@EVENT:user_input_request:") :]
+                        event_data = json.loads(json_str)
+                        question = event_data.get("question", "")
+
+                        user_input_event = WorkflowNodeExecutionEvent(
+                            event_type="user_input_request",
                             node_id=node_id,
-                            data={
-                                "session_id": current_sdk_session,
-                                "agent_name": agent_name,
-                                "created_at": datetime.now().isoformat(),
-                            },
+                            data={"question": question, "session_id": session_id},
                         )
                         logger.info(
-                            f"[{session_id}] 📡 이벤트 전송: node_session_created "
-                            f"(node: {node_id}, sdk_session: {current_sdk_session[:8]}...)"
+                            f"[{session_id}] 💬 이벤트 생성: user_input_request (node: {node_id})"
                         )
-                        yield session_event
-                        session_event_sent[0] = True
+                        yield user_input_event
+                        continue
 
-                # 특수 이벤트 마커 감지
-                if chunk.startswith("@EVENT:user_input_request:"):
-                    import json
+                    node_output_chunks.append(chunk)
 
-                    json_str = chunk[len("@EVENT:user_input_request:") :]
-                    event_data = json.loads(json_str)
-                    question = event_data.get("question", "")
+                    # 청크 타입 분류
+                    chunk_type = classify_chunk_type(chunk)
 
-                    user_input_event = WorkflowNodeExecutionEvent(
-                        event_type="user_input_request",
+                    output_event = WorkflowNodeExecutionEvent(
+                        event_type="node_output",
                         node_id=node_id,
-                        data={"question": question, "session_id": session_id},
+                        data={"chunk": chunk, "chunk_type": chunk_type},
                     )
-                    logger.info(
-                        f"[{session_id}] 💬 이벤트 생성: user_input_request (node: {node_id})"
+                    logger.debug(
+                        f"[{session_id}] 📝 이벤트 생성: node_output (node: {node_id}, "
+                        f"type: {chunk_type}, chunk: {len(chunk)}자)"
                     )
-                    yield user_input_event
-                    continue
+                    yield output_event
 
-                node_output_chunks.append(chunk)
+            except Exception as sdk_error:
+                # SDK 세션 관련 에러 처리 (만료된 세션 ID 등)
+                if previous_session_id and ("session" in str(sdk_error).lower() or "not found" in str(sdk_error).lower()):
+                    logger.warning(
+                        f"[{session_id}] ⚠️  노드 {node_id}: SDK 세션 에러 발생 "
+                        f"(세션 ID: {previous_session_id[:8]}...) - 새 세션으로 재시도\n"
+                        f"  에러: {str(sdk_error)}"
+                    )
+                    # 만료된 세션 ID 무효화
+                    if node_id in self.node_sessions:
+                        del self.node_sessions[node_id]
+                    if node_id in self.node_agent_names:
+                        del self.node_agent_names[node_id]
+                    # 디스크 동기화
+                    if self.on_node_session_update:
+                        self.on_node_session_update(node_id, None)
 
-                # 청크 타입 분류
-                chunk_type = classify_chunk_type(chunk)
+                    # 재시도 플래그 설정
+                    retry_without_session = True
+                else:
+                    # 세션 관련 아닌 에러는 상위로 전파
+                    raise
 
-                output_event = WorkflowNodeExecutionEvent(
-                    event_type="node_output",
-                    node_id=node_id,
-                    data={"chunk": chunk, "chunk_type": chunk_type},
+            # 재시도: 세션 ID 없이 실행
+            if retry_without_session:
+                logger.info(
+                    f"[{session_id}] 🔄 노드 {node_id}: 새 세션으로 재시도 (previous_session_id=None)"
                 )
-                logger.debug(
-                    f"[{session_id}] 📝 이벤트 생성: node_output (node: {node_id}, "
-                    f"type: {chunk_type}, chunk: {len(chunk)}자)"
-                )
-                yield output_event
+                async for chunk in worker.execute_task(
+                    task_description,
+                    usage_callback=usage_callback,
+                    resume_session_id=None,  # 새 세션
+                    user_input_callback=user_input_callback_impl,
+                    session_id_callback=session_id_callback_impl,
+                ):
+                    # 취소 플래그 체크
+                    self._check_cancellation(session_id)
+
+                    # 새 세션 생성 이벤트 전송
+                    if not session_event_sent[0]:
+                        current_sdk_session = self.node_sessions.get(node_id)
+                        if current_sdk_session:
+                            session_event = WorkflowNodeExecutionEvent(
+                                event_type="node_session_created",
+                                node_id=node_id,
+                                data={
+                                    "session_id": current_sdk_session,
+                                    "agent_name": agent_name,
+                                    "created_at": datetime.now().isoformat(),
+                                },
+                            )
+                            logger.info(
+                                f"[{session_id}] 📡 이벤트 전송: node_session_created "
+                                f"(node: {node_id}, sdk_session: {current_sdk_session[:8]}...)"
+                            )
+                            yield session_event
+                            session_event_sent[0] = True
+
+                    # 특수 이벤트 마커 감지
+                    if chunk.startswith("@EVENT:user_input_request:"):
+                        import json
+
+                        json_str = chunk[len("@EVENT:user_input_request:") :]
+                        event_data = json.loads(json_str)
+                        question = event_data.get("question", "")
+
+                        user_input_event = WorkflowNodeExecutionEvent(
+                            event_type="user_input_request",
+                            node_id=node_id,
+                            data={"question": question, "session_id": session_id},
+                        )
+                        logger.info(
+                            f"[{session_id}] 💬 이벤트 생성: user_input_request (node: {node_id})"
+                        )
+                        yield user_input_event
+                        continue
+
+                    node_output_chunks.append(chunk)
+
+                    # 청크 타입 분류
+                    chunk_type = classify_chunk_type(chunk)
+
+                    output_event = WorkflowNodeExecutionEvent(
+                        event_type="node_output",
+                        node_id=node_id,
+                        data={"chunk": chunk, "chunk_type": chunk_type},
+                    )
+                    logger.debug(
+                        f"[{session_id}] 📝 이벤트 생성: node_output (node: {node_id}, "
+                        f"type: {chunk_type}, chunk: {len(chunk)}자)"
+                    )
+                    yield output_event
 
             # 최종 텍스트 추출 (출력 추출 전략 적용)
             full_output = "".join(node_output_chunks)

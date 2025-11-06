@@ -157,10 +157,10 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
     }
   }
 
-  // 컴포넌트 마운트 시 세션 정보 로드
-  useEffect(() => {
-    loadNodeSession()
-  }, [node.id])
+  // 컴포넌트 마운트 시 세션 정보 로드 - 비활성화 (병렬 실행 시 세션 충돌 방지)
+  // useEffect(() => {
+  //   loadNodeSession()
+  // }, [node.id])
 
   // 노드 설정 Hook
   const { data, setData, hasChanges, save, reset } = useNodeConfig<WorkerNodeData>({
