@@ -269,22 +269,22 @@ class WorkflowExecutor:
         """
         return [edge.source for edge in edges if edge.target == node_id]
 
-    def _find_start_node(
+    def _find_start_nodes(
         self,
         workflow: Workflow,
         start_node_id: Optional[str] = None,
         allow_non_input: bool = False,
-    ) -> str:
+    ) -> List[str]:
         """
-        워크플로우의 시작 노드 찾기
+        워크플로우의 시작 노드 찾기 (복수 지원)
 
         Args:
             workflow: 워크플로우 객체
-            start_node_id: 지정된 시작 노드 ID (옵션)
+            start_node_id: 지정된 시작 노드 ID (옵션, 지정 시 단일 노드 반환)
             allow_non_input: Input 노드가 아닌 노드도 허용 (재시작 시 True)
 
         Returns:
-            str: 시작 노드 ID
+            List[str]: 시작 노드 ID 목록
 
         Raises:
             ValueError: 시작 노드를 찾을 수 없는 경우
@@ -300,15 +300,15 @@ class WorkflowExecutor:
                 raise ValueError(
                     f"시작 노드는 Input 노드여야 합니다: {start_node_id} (타입: {start_node.type})"
                 )
-            return start_node_id
+            return [start_node_id]
 
-        # Input 노드 찾기
+        # 모든 Input 노드 찾기
         input_nodes = [node for node in workflow.nodes if node.type == "input"]
         if not input_nodes:
             raise ValueError("워크플로우에 Input 노드가 없습니다. Input 노드에서 시작해야 합니다.")
 
-        # 첫 번째 Input 노드 사용
-        return input_nodes[0].id
+        # 모든 Input 노드 반환 (병렬 실행 지원)
+        return [node.id for node in input_nodes]
 
     def _can_execute_merge_node(
         self,
@@ -527,10 +527,13 @@ class WorkflowExecutor:
             node_map = {node.id: node for node in workflow.nodes}
 
             # 시작 노드 찾기 (재시작 시 allow_non_input=True)
-            current_node_id = self._find_start_node(
+            start_nodes = self._find_start_nodes(
                 workflow, start_node_id, allow_non_input=is_restart
             )
-            logger.info(f"[{session_id}] 시작 노드: {current_node_id}")
+            logger.info(
+                f"[{session_id}] 시작 노드: {start_nodes} "
+                f"({'병렬 실행' if len(start_nodes) > 1 else '단일 실행'})"
+            )
 
             # 실행 추적 (재시작 시 이전 상태 복원)
             executed_nodes: Set[str] = restore_executed_nodes.copy() if restore_executed_nodes else set()
@@ -553,6 +556,124 @@ class WorkflowExecutor:
 
             max_iterations = len(workflow.nodes) * 10  # 무한 루프 방지
             iteration_count = 0
+
+            # === 시작 노드 처리 (병렬 실행 지원) ===
+            current_node_id = None
+            if len(start_nodes) == 1:
+                # 단일 시작 노드: 기존 로직
+                current_node_id = start_nodes[0]
+            else:
+                # 여러 Input 노드: 병렬 실행
+                logger.info(
+                    f"[{session_id}] 🔀 여러 Input 노드 병렬 실행: {start_nodes} ({len(start_nodes)}개)"
+                )
+
+                # Input 노드들을 병렬로 실행
+                async for event in self._execute_nodes_in_parallel(
+                    node_ids=start_nodes,
+                    node_map=node_map,
+                    node_outputs=node_outputs,
+                    node_inputs=node_inputs,
+                    initial_input=initial_input,
+                    session_id=session_id,
+                    edges=workflow.edges,
+                    all_nodes=workflow.nodes,
+                    project_path=project_path,
+                ):
+                    yield event
+
+                # 모든 Input 노드 완료 표시
+                executed_nodes.update(start_nodes)
+                logger.info(
+                    f"[{session_id}] ✓ 모든 Input 노드 병렬 실행 완료: {start_nodes}"
+                )
+
+                # 다음 노드 결정: 각 Input 노드의 자식 노드들 수집
+                next_candidates = set()
+                for input_node_id in start_nodes:
+                    children = graph_manager.get_child_nodes(input_node_id)
+                    next_candidates.update(children)
+
+                if not next_candidates:
+                    # 자식 노드 없음: 종료
+                    logger.info(
+                        f"[{session_id}] Input 노드 실행 후 자식 노드 없음, 워크플로우 종료"
+                    )
+                else:
+                    # Merge 노드와 일반 노드 분류
+                    merge_nodes = [
+                        nid
+                        for nid in next_candidates
+                        if node_map.get(nid) and node_map.get(nid).type == "merge"
+                    ]
+                    regular_nodes = [
+                        nid for nid in next_candidates if nid not in merge_nodes
+                    ]
+
+                    # Merge 노드가 있으면 실행 가능 여부 확인
+                    if merge_nodes:
+                        for merge_id in merge_nodes:
+                            if self._can_execute_merge_node(
+                                merge_id, executed_nodes, graph_manager
+                            ):
+                                # Merge 노드 실행 가능
+                                current_node_id = merge_id
+                                logger.info(
+                                    f"[{session_id}] Input 병렬 실행 후 Merge 노드 준비 완료: {merge_id}"
+                                )
+                                break
+                            else:
+                                # 아직 미완료 부모가 있으면 대기
+                                pending_merge_nodes.add(merge_id)
+                                logger.info(
+                                    f"[{session_id}] Input 병렬 실행 후 Merge 노드 대기 등록: {merge_id}"
+                                )
+
+                    # Merge 노드가 준비되지 않았으면 일반 노드로 진행
+                    if not current_node_id and regular_nodes:
+                        # 일반 노드 중 하나를 선택 (첫 번째)
+                        current_node_id = regular_nodes[0]
+                        # 부모 출력을 자식 입력으로 설정
+                        for input_node_id in start_nodes:
+                            if current_node_id in graph_manager.get_child_nodes(input_node_id):
+                                parent_output = node_outputs.get(input_node_id, "")
+                                node_inputs[current_node_id] = parent_output
+                                break
+                        logger.info(
+                            f"[{session_id}] Input 병렬 실행 후 다음 노드: {current_node_id}"
+                        )
+
+                    # 여러 일반 노드가 있으면 나머지도 병렬 실행
+                    if len(regular_nodes) > 1:
+                        remaining_nodes = [nid for nid in regular_nodes if nid != current_node_id]
+                        if remaining_nodes:
+                            logger.info(
+                                f"[{session_id}] 추가 병렬 실행할 노드: {remaining_nodes}"
+                            )
+                            # 부모 출력을 자식 입력으로 설정
+                            for child_id in remaining_nodes:
+                                for input_node_id in start_nodes:
+                                    if child_id in graph_manager.get_child_nodes(input_node_id):
+                                        parent_output = node_outputs.get(input_node_id, "")
+                                        node_inputs[child_id] = parent_output
+                                        break
+
+                            # 병렬 실행
+                            async for event in self._execute_nodes_in_parallel(
+                                node_ids=remaining_nodes,
+                                node_map=node_map,
+                                node_outputs=node_outputs,
+                                node_inputs=node_inputs,
+                                initial_input=initial_input,
+                                session_id=session_id,
+                                edges=workflow.edges,
+                                all_nodes=workflow.nodes,
+                                project_path=project_path,
+                            ):
+                                yield event
+
+                            # 병렬 실행 완료
+                            executed_nodes.update(remaining_nodes)
 
             # === 동적 노드 실행 루프 ===
             while current_node_id or pending_merge_nodes:

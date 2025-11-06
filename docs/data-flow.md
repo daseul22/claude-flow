@@ -169,11 +169,18 @@ class WorkflowNodeExecutionEvent:
 2. 로깅 세션 파일 핸들러 추가
    - ~/.claude-flow/{project}/logs/session_{session_id}.log
         ↓
-3. Input 노드 탐색 (시작점)
-   - _find_input_node(workflow)
+3. Input 노드 탐색 (시작점, 병렬 지원)
+   - _find_start_nodes(workflow) → List[str]
         ↓
-4. 동적 노드 선택 루프 시작
-   - current_node_id = input_node.id
+4. 시작 노드 처리
+   - len(start_nodes) == 1: 단일 Input (기존 로직)
+   - len(start_nodes) > 1: **병렬 Input 실행**
+     * _execute_nodes_in_parallel() 호출
+     * 모든 Input 노드 동시 실행
+     * 각 자식 노드 수집
+        ↓
+5. 동적 노드 선택 루프 시작
+   - current_node_id = start_node 또는 병렬 실행 후 다음 노드
    - executed_nodes = set()
    - pending_merge_nodes = set()
         ↓
@@ -188,9 +195,9 @@ class WorkflowNodeExecutionEvent:
    │   4. 실행 완료 마킹                  │
    └─────────────────────────────────────┘
         ↓
-5. workflow_complete 이벤트 전송
+6. workflow_complete 이벤트 전송
         ↓
-6. 세션 로그 핸들러 제거
+7. 세션 로그 핸들러 제거
         ↓
 [Frontend] 실행 로그 패널에 결과 표시
 ```
@@ -1132,4 +1139,5 @@ WorkerAgent.query(options=ClaudeAgentOptions(resume_session_id=...))
 
 ## 변경 이력
 
+- **2025-11-06**: 여러 Input 노드 병렬 실행 기능 추가 (섹션 2.1 업데이트)
 - **2025-11-05**: 초안 작성 (동적 노드 선택 알고리즘 반영)

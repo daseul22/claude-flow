@@ -691,6 +691,88 @@ async def browse_directory(path: Optional[str] = None):
 
 ## 최근 개선사항 (v4.0.1)
 
+### [2025-11-06] 🚀 여러 Input 노드 병렬 실행 기능 추가
+
+**배경**:
+- 기존에는 Input 노드가 여러 개 있어도 첫 번째 노드만 실행
+- 여러 시작점에서 독립적인 워크플로우를 병렬로 실행할 수 없는 제약
+- 사용자 요청: "Input 노드 여러 개에서 병렬로 워크플로우 실행"
+
+**개선 사항**:
+
+1. **`_find_start_nodes()` 함수 구현** (`workflow_executor.py:272-311`)
+   - 기존: `_find_start_node()` → 첫 번째 Input 노드만 반환
+   - 변경: `_find_start_nodes()` → **모든 Input 노드 반환** (List[str])
+   - start_node_id 지정 시: 단일 노드 반환 (재시작 기능 유지)
+
+2. **병렬 Input 실행 로직 추가** (`workflow_executor.py:560-677`)
+   ```python
+   # 시작 노드 처리
+   if len(start_nodes) == 1:
+       # 단일 Input: 기존 로직
+       current_node_id = start_nodes[0]
+   else:
+       # 여러 Input: 병렬 실행
+       async for event in self._execute_nodes_in_parallel(
+           node_ids=start_nodes, ...
+       ):
+           yield event
+   ```
+
+3. **병렬 실행 후 다음 노드 결정**
+   - 각 Input 노드의 자식 노드 수집
+   - Merge 노드 감지 및 대기 큐 관리
+   - 일반 노드: 첫 번째를 current_node_id로 설정
+   - 여러 일반 노드: 나머지도 병렬 실행
+
+**변경 효과**:
+- ✅ **Input 노드 여러 개를 동시에 실행 가능**
+- ✅ 독립적인 워크플로우 경로를 병렬로 처리
+- ✅ 기존 단일 Input 로직 100% 호환
+- ✅ Merge 노드와 완벽히 연동 (여러 경로 수렴)
+- ✅ 실행 로그 노드 필터링으로 개별 경로 추적 가능
+
+**사용 시나리오**:
+
+**시나리오 1: 독립적인 병렬 작업**
+```
+Input-1 (작업 A) → Worker-1 → ...
+Input-2 (작업 B) → Worker-2 → ...
+Input-3 (작업 C) → Worker-3 → ...
+```
+- 3개 작업이 동시에 시작하여 병렬 실행
+- 각 경로가 독립적으로 진행
+
+**시나리오 2: 병렬 시작 + Merge**
+```
+Input-1 (데이터 소스 A) → Worker-1 ↘
+Input-2 (데이터 소스 B) → Worker-2 → Merge → 통합 분석
+Input-3 (데이터 소스 C) → Worker-3 ↗
+```
+- 3개 Input을 병렬 실행
+- 각 경로의 결과를 Merge 노드에서 통합
+- 통합된 결과로 최종 분석 수행
+
+**로그 예시**:
+```
+[session-123] 시작 노드: ['input-1', 'input-2', 'input-3'] (병렬 실행)
+[session-123] 🔀 여러 Input 노드 병렬 실행: ['input-1', 'input-2', 'input-3'] (3개)
+[session-123] ✓ 모든 Input 노드 병렬 실행 완료: ['input-1', 'input-2', 'input-3']
+```
+
+**주의사항**:
+- Input 노드는 initial_input을 공유하지 않음 (각자 data.input_text 사용)
+- 노드 필터링 기능으로 개별 경로의 로그를 분리해서 확인 가능
+- 병렬 실행 시간은 가장 느린 경로의 실행 시간에 의존
+
+**수정 파일**:
+- `src/presentation/web/services/workflow_executor.py` (272-311줄, 560-677줄)
+
+**테스트 파일**:
+- `test_parallel_inputs.py`: 3개 Input 노드 병렬 실행 검증
+
+---
+
 ### [2025-11-05] 🚀 Condition 노드 SDK 실행 로그 스트리밍 구현 (Critical)
 
 **배경**:
