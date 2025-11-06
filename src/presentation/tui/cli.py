@@ -2,6 +2,7 @@
 
 import sys
 import os
+import logging
 from pathlib import Path
 import click
 from dotenv import load_dotenv
@@ -82,6 +83,20 @@ def main(project_path: Path = None, version: bool = False):
             err=True,
         )
         sys.exit(1)
+
+    # TUI 실행 중 로그를 터미널에 출력하지 않도록 설정
+    # 모든 로거를 파일로만 출력
+    logging.basicConfig(
+        level=logging.WARNING,  # WARNING 이상만
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.NullHandler()  # 터미널 출력 없음
+        ]
+    )
+    
+    # 루트 로거 비활성화
+    logging.getLogger().handlers = []
+    logging.getLogger().addHandler(logging.NullHandler())
 
     # TUI 앱 실행
     try:

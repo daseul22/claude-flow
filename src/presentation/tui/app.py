@@ -27,9 +27,16 @@ class ClaudeFlowApp(App):
     CSS = """
     Screen {
         background: $background;
+        layout: vertical;
     }
 
     #main-container {
+        width: 100%;
+        height: 100%;
+        layout: vertical;
+    }
+    
+    Container {
         width: 100%;
         height: 100%;
     }
@@ -87,6 +94,17 @@ class ClaudeFlowApp(App):
 
     async def on_mount(self) -> None:
         """앱 마운트 시"""
+        # 터미널 크기 확인
+        size = self.size
+        if size.width < 80 or size.height < 24:
+            chat_view = self.query_one(ChatView)
+            chat_view.add_system_message(
+                f"⚠️  터미널 크기가 작습니다 (현재: {size.width}x{size.height})\n"
+                f"권장 최소 크기: 80x24\n"
+                f"터미널 크기를 조정해주세요.",
+                style="yellow"
+            )
+
         # 새 세션 생성
         await self.create_new_session()
 
@@ -113,6 +131,11 @@ class ClaudeFlowApp(App):
 
         # 입력창 포커스
         self.query_one(InputBox).focus()
+
+    async def on_resize(self, event) -> None:
+        """터미널 크기 변경 시"""
+        # 자동으로 레이아웃 조정됨 (Textual이 처리)
+        pass
 
     async def create_new_session(self):
         """새 세션 생성"""
@@ -261,28 +284,12 @@ class ClaudeFlowApp(App):
 
             # 실시간 스트리밍 응답
             response_text = ""
-            current_line = ""
-            tool_calls_made = []
 
-            async for chunk in self.agent.send_message(
-                user_message,
-                on_tool_use=lambda tool_name, tool_args: self._on_tool_use(tool_name, tool_args, chat_view),
-                on_thinking=lambda thinking: self._on_thinking(thinking, chat_view),
-            ):
+            async for chunk in self.agent.send_message(user_message):
                 response_text += chunk
-                current_line += chunk
-
-                # 줄바꿈이 있으면 출력
-                if "\n" in current_line:
-                    lines = current_line.split("\n")
-                    for line in lines[:-1]:
-                        chat_view.write(f"  {line}")
-                    current_line = lines[-1]
+                # 실시간으로 청크 출력
+                chat_view.write(chunk)
                     
-            # 남은 텍스트 출력
-            if current_line.strip():
-                chat_view.write(f"  {current_line}")
-
             chat_view.write("")  # 구분선
 
             # 세션에 저장
@@ -308,17 +315,6 @@ class ClaudeFlowApp(App):
         except Exception as e:
             chat_view.add_error_message(str(e))
             self.logger.log_error(e)
-
-    def _on_tool_use(self, tool_name: str, tool_args: dict, chat_view):
-        """툴 사용 콜백"""
-        chat_view.add_tool_call(tool_name, tool_args)
-        self.logger.log_tool_call(tool_name, tool_args)
-
-    def _on_thinking(self, thinking: str, chat_view):
-        """사고 과정 콜백"""
-        from rich.text import Text
-        thinking_text = Text(f"💭 Thinking: {thinking[:100]}...", style="dim italic")
-        chat_view.write(thinking_text)
 
     async def action_new_session(self) -> None:
         """새 세션 생성"""

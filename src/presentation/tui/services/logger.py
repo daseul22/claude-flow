@@ -25,8 +25,14 @@ class SessionLogger:
         # 로거 설정
         self.logger = logging.getLogger(f"session_{session_id}")
         self.logger.setLevel(getattr(logging, log_level.upper()))
+        
+        # 기존 핸들러 제거 (중복 방지)
+        self.logger.handlers.clear()
+        
+        # propagate 비활성화 (상위 로거로 전파 방지, 터미널 출력 방지)
+        self.logger.propagate = False
 
-        # 파일 핸들러
+        # 파일 핸들러만 추가 (stdout/stderr 출력 없음)
         handler = logging.FileHandler(self.log_file, encoding="utf-8")
         handler.setLevel(getattr(logging, log_level.upper()))
 

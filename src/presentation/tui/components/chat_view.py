@@ -15,7 +15,9 @@ class ChatView(RichLog):
     ChatView {
         border: solid $primary;
         height: 1fr;
+        width: 100%;
         padding: 1;
+        overflow-y: auto;
     }
     """
 
