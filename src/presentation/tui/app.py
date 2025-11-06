@@ -59,7 +59,7 @@ class ClaudeFlowApp(App):
         Binding("ctrl+n", "new_session", "새 세션"),
         Binding("ctrl+o", "open_session", "세션 불러오기"),
         Binding("ctrl+i", "project_info", "프로젝트 정보"),
-        Binding("ctrl+comma", "settings", "설정"),
+        Binding("ctrl+s", "settings", "설정"),
         Binding("ctrl+slash", "help", "도움말"),
         Binding("f1", "help", "도움말"),
         Binding("ctrl+l", "clear_screen", "화면 지우기"),

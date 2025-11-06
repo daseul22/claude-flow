@@ -51,7 +51,7 @@ class HelpModal(ModalScreen):
             table.add_row("cd -", "이전 디렉토리로 돌아가기")
             
             # 설정
-            table.add_row("Ctrl+,", "설정 열기")
+            table.add_row("Ctrl+S", "설정 열기")
             
             # 화면 제어
             table.add_row("Ctrl+L", "화면 지우기 (대화 기록 유지)")
