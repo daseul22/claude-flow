@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { Search, ChevronDown, Trash2, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { WorkflowNode, getAgents, Agent, getTools, Tool, getNodeSessions, clearSingleNodeSession } from '@/lib/api'
+import { WorkflowNode, getAgents, Agent, getTools, Tool, getAllNodeSessions, clearSingleNodeSession } from '@/lib/api'
 import { useNodeConfig } from './hooks/useNodeConfig'
 import { useAutoSave } from './hooks/useAutoSave'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
@@ -126,7 +126,7 @@ export const WorkerNodeConfig: React.FC<WorkerNodeConfigProps> = ({ node }) => {
     setIsLoadingSession(true)
     setSessionError(null)
     try {
-      const result = await getNodeSessions()
+      const result = await getAllNodeSessions()
       const sessionId = result.node_sessions[node.id] || null
       setNodeSessionId(sessionId)
     } catch (error) {

@@ -967,9 +967,9 @@ export async function clearNodeSessions(): Promise<{
 }
 
 /**
- * 노드별 세션 정보 조회
+ * 모든 노드의 세션 정보 조회
  */
-export async function getNodeSessions(): Promise<{
+export async function getAllNodeSessions(): Promise<{
   node_sessions: Record<string, string>
   node_session_history: Record<string, any[]>
 }> {
