@@ -7,7 +7,7 @@
  * - 실행 상태 표시
  */
 
-import { memo, useRef } from 'react'
+import { memo, useRef, useState } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -28,12 +28,14 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
   const { initial_input } = data
   const abortControllerRef = useRef<AbortController | null>(null)
 
+  // 이 Input 노드의 세션 ID (로컬 상태로 관리)
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+
   const {
     getWorkflow,
     startExecution,
     stopExecution,
     setCurrentNode,
-    setCurrentSessionId,
     addNodeOutput,
     setNodeInput,
     addLog,
@@ -56,23 +58,21 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
     }
 
     // 백엔드 세션도 취소 (실행 중인 SDK 종료)
-    // Zustand store에서 currentSessionId 가져오기 (즉시 중단 가능)
-    const sessionId = execution.currentSessionId
-
-    if (sessionId) {
+    // 로컬 상태에서 currentSessionId 가져오기
+    if (currentSessionId) {
       try {
-        await cancelWorkflowSession(sessionId)
-        console.log('[InputNode] 워크플로우 세션 취소 완료:', sessionId)
+        await cancelWorkflowSession(currentSessionId)
+        console.log(`[InputNode:${id}] 워크플로우 세션 취소 완료:`, currentSessionId)
       } catch (err) {
-        console.error('[InputNode] 워크플로우 세션 취소 실패:', err)
+        console.error(`[InputNode:${id}] 워크플로우 세션 취소 실패:`, err)
       }
     } else {
-      console.warn('[InputNode] 현재 실행 중인 세션 ID를 찾을 수 없습니다')
+      console.warn(`[InputNode:${id}] 현재 실행 중인 세션 ID를 찾을 수 없습니다`)
     }
 
     stopExecution(id)  // 이 노드만 실행 중지
-    setCurrentSessionId(null)
-    addLog('', 'error', '⏹️ 사용자가 워크플로우 실행을 중지했습니다')
+    setCurrentSessionId(null)  // 로컬 세션 ID 초기화
+    addLog('', 'error', `⏹️ 사용자가 워크플로우 실행을 중지했습니다 (노드: ${id})`)
   }
 
   // 워크플로우 실행 (이 Input 노드에서 시작)
@@ -88,15 +88,15 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
       const abortController = new AbortController()
       abortControllerRef.current = abortController
 
-      // 재접속 로직: localStorage에서 세션 ID 확인
-      const STORAGE_KEY_SESSION_ID = 'claude-flow-workflow-session-id'
+      // 재접속 로직: localStorage에서 세션 ID 확인 (노드별 키)
+      const STORAGE_KEY_SESSION_ID = `claude-flow-workflow-session-id-${id}`
       const savedSessionId = localStorage.getItem(STORAGE_KEY_SESSION_ID)
 
       // Zustand store에서 현재 로그 개수 확인 (중복 방지용)
       const currentLogs = useWorkflowStore.getState().execution.logs
       const lastEventIndex = currentLogs.length > 0 ? currentLogs.length - 1 : undefined
 
-      console.log('[InputNode] 재접속 체크:', {
+      console.log(`[InputNode:${id}] 재접속 체크:`, {
         savedSessionId,
         lastEventIndex,
         isReconnect: !!savedSessionId && lastEventIndex !== undefined
@@ -197,14 +197,16 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
         // onComplete
         () => {
           stopExecution(id)  // 이 노드 실행 완료
+          setCurrentSessionId(null)  // 로컬 세션 ID 초기화
           // 워크플로우 완료 시 세션 ID 제거 (다음 새로고침 시 복원하지 않도록)
           localStorage.removeItem(STORAGE_KEY_SESSION_ID)
-          console.log('[InputNode] 워크플로우 완료 - 세션 ID 제거')
+          console.log(`[InputNode:${id}] 워크플로우 완료 - 세션 ID 제거`)
         },
         // onError
         (error) => {
           stopExecution(id)  // 이 노드 실행 중지
-          addLog('', 'error', `실행 실패: ${error}`)
+          setCurrentSessionId(null)  // 로컬 세션 ID 초기화
+          addLog('', 'error', `실행 실패 (노드: ${id}): ${error}`)
         },
         // signal
         abortController.signal,
@@ -214,22 +216,23 @@ export const InputNode = memo(({ id, data, selected }: NodeProps<InputNodeData>)
         lastEventIndex,
         // startNodeId (이 Input 노드에서만 시작)
         id,
-        // onSessionId (세션 ID를 즉시 받아서 store에 저장)
+        // onSessionId (세션 ID를 즉시 받아서 로컬 상태에 저장)
         (sessionId) => {
-          setCurrentSessionId(sessionId)
-          localStorage.setItem('claude-flow-workflow-session-id', sessionId)
-          console.log('[InputNode] 세션 ID 즉시 저장:', sessionId)
+          setCurrentSessionId(sessionId)  // 로컬 상태 업데이트
+          localStorage.setItem(STORAGE_KEY_SESSION_ID, sessionId)  // 노드별 키로 저장
+          console.log(`[InputNode:${id}] 세션 ID 즉시 저장:`, sessionId)
         }
       )
 
       // 최종 세션 ID 확인 (await 완료 후)
       if (sessionId) {
-        console.log('[InputNode] 워크플로우 실행 완료, 세션 ID:', sessionId)
+        console.log(`[InputNode:${id}] 워크플로우 실행 완료, 세션 ID:`, sessionId)
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
       stopExecution(id)  // 이 노드 실행 중지
-      addLog('', 'error', `실행 실패: ${errorMsg}`)
+      setCurrentSessionId(null)  // 로컬 세션 ID 초기화
+      addLog('', 'error', `실행 실패 (노드: ${id}): ${errorMsg}`)
     }
   }
 
