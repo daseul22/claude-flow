@@ -59,6 +59,7 @@ class SessionManager:
         working_directory: str,
         model: str = "claude-sonnet-4.5",
         claude_md_loaded: bool = False,
+        feedback_loop: Optional[FeedbackLoopConfig] = None,
     ) -> Session:
         """새 세션 생성"""
         session_id = str(uuid.uuid4())
@@ -73,6 +74,7 @@ class SessionManager:
             created_at=now,
             updated_at=now,
             claude_md_loaded=claude_md_loaded,
+            feedback_loop=feedback_loop or FeedbackLoopConfig(),
         )
 
         self.current_session = session

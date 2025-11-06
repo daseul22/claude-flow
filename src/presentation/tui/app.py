@@ -161,6 +161,16 @@ class ClaudeFlowApp(App):
 
     async def create_new_session(self):
         """새 세션 생성"""
+        # 피드백 루프 설정 준비
+        from .services.session_manager import FeedbackLoopConfig
+        feedback_loop_config = FeedbackLoopConfig(
+            enabled=self.config.config.feedback_loop_defaults.enabled,
+            condition_prompt="",
+            condition_model=self.config.config.feedback_loop_defaults.condition_model,
+            max_iterations=self.config.config.feedback_loop_defaults.max_iterations,
+            current_iteration=0,
+        )
+        
         # 세션 생성
         session = self.session_manager.create_session(
             project_name=self.project_name,
@@ -168,6 +178,7 @@ class ClaudeFlowApp(App):
             working_directory=str(self.project_path),
             model=self.config.config.default_model,
             claude_md_loaded=self.claude_md_content is not None,
+            feedback_loop=feedback_loop_config,
         )
 
         # 로거 생성
@@ -553,14 +564,14 @@ class ClaudeFlowApp(App):
         """설정 열기"""
         chat_view = self.query_one(ChatView)
         
-        # 현재 설정 수집
+        # 현재 설정 수집 - 항상 config 파일의 값 사용 (세션 값이 아님!)
         session = self.session_manager.current_session
         current_settings = {
             "model": self.config.config.default_model,
-            "feedback_loop_enabled": session.feedback_loop.enabled if session else self.config.config.feedback_loop_defaults.enabled,
+            "feedback_loop_enabled": self.config.config.feedback_loop_defaults.enabled,
             "condition_prompt": session.feedback_loop.condition_prompt if session else "",
-            "max_iterations": session.feedback_loop.max_iterations if session else self.config.config.feedback_loop_defaults.max_iterations,
-            "condition_model": session.feedback_loop.condition_model if session else self.config.config.feedback_loop_defaults.condition_model,
+            "max_iterations": self.config.config.feedback_loop_defaults.max_iterations,
+            "condition_model": self.config.config.feedback_loop_defaults.condition_model,
             "show_statusbar": self.config.config.display.show_statusbar,
             "show_timestamps": self.config.config.display.show_timestamps,
             "show_token_counts": self.config.config.display.show_token_counts,
@@ -569,9 +580,21 @@ class ClaudeFlowApp(App):
         # 설정 모달 표시
         modal = SettingsModal(current_settings)
         result = await self.push_screen(modal)
+        
+        # 디버깅: 모달 결과 확인
+        if result is None:
+            chat_view.add_system_message("설정 변경이 취소되었습니다.", style="yellow")
+            return
 
         if result:
             try:
+                # 설정 변경 전 값 기록 (비교용)
+                old_settings = {
+                    "model": self.config.config.default_model,
+                    "feedback_loop_enabled": self.config.config.feedback_loop_defaults.enabled,
+                    "max_iterations": self.config.config.feedback_loop_defaults.max_iterations,
+                }
+                
                 # 설정 적용
                 self.config.config.default_model = result["model"]
                 self.config.config.feedback_loop_defaults.enabled = result["feedback_loop_enabled"]
@@ -581,8 +604,39 @@ class ClaudeFlowApp(App):
                 self.config.config.display.show_timestamps = result["show_timestamps"]
                 self.config.config.display.show_token_counts = result["show_token_counts"]
 
-                # 설정 저장
-                self.config.save()
+                # 설정 저장 (with 에러 처리)
+                try:
+                    self.config.save()
+                    # 저장 성공 확인
+                    if not self.config.config_path.exists():
+                        raise FileNotFoundError(f"설정 파일이 생성되지 않았습니다: {self.config.config_path}")
+                    
+                    # 세션 로그에 설정 변경 이벤트 기록
+                    if self.logger:
+                        changes = []
+                        if old_settings["model"] != result["model"]:
+                            changes.append(f"모델: {old_settings['model']} → {result['model']}")
+                        if old_settings["feedback_loop_enabled"] != result["feedback_loop_enabled"]:
+                            changes.append(f"피드백 루프: {old_settings['feedback_loop_enabled']} → {result['feedback_loop_enabled']}")
+                        if old_settings["max_iterations"] != result["max_iterations"]:
+                            changes.append(f"최대 반복: {old_settings['max_iterations']} → {result['max_iterations']}")
+                        
+                        self.logger.log_event("settings_changed", {
+                            "config_file": str(self.config.config_path),
+                            "changes": changes,
+                            "new_settings": {
+                                "model": result["model"],
+                                "feedback_loop_enabled": result["feedback_loop_enabled"],
+                                "max_iterations": result["max_iterations"],
+                                "condition_model": result["condition_model"],
+                            }
+                        })
+                        
+                except Exception as save_error:
+                    chat_view.add_error_message(f"❌ 설정 파일 저장 실패: {save_error}")
+                    if self.logger:
+                        self.logger.log_error(save_error)
+                    return
 
                 # 세션에도 피드백 루프 설정 저장
                 if self.session_manager.current_session:
@@ -631,7 +685,9 @@ class ClaudeFlowApp(App):
                 status_bar.update_feedback_loop(result["feedback_loop_enabled"])
                 
             except Exception as e:
-                chat_view.add_error_message(f"설정 저장 실패: {str(e)}")
+                chat_view.add_error_message(f"설정 처리 실패: {str(e)}")
+                if self.logger:
+                    self.logger.log_error(e)
 
     async def action_help(self) -> None:
         """도움말 표시"""

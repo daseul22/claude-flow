@@ -18,10 +18,11 @@ class SettingsModal(ModalScreen[Dict[str, Any]]):
     SettingsModal > Container {
         width: 90;
         height: auto;
-        max-height: 40;
+        max-height: 90%;
         border: solid $primary;
         background: $surface;
         padding: 2 3;
+        overflow-y: auto;
     }
 
     SettingsModal .setting-row {
@@ -184,12 +185,23 @@ class SettingsModal(ModalScreen[Dict[str, Any]]):
         except ValueError:
             max_iter = 3
 
+        # Select 값 안전하게 읽기
+        model_select = self.query_one("#model-select", Select)
+        model_value = model_select.value
+        if model_value == Select.BLANK:
+            model_value = "claude-sonnet-4.5"
+        
+        condition_model_select = self.query_one("#condition-model", Select)
+        condition_model_value = condition_model_select.value
+        if condition_model_value == Select.BLANK:
+            condition_model_value = "claude-haiku-4-5-20251001"
+
         return {
-            "model": self.query_one("#model-select", Select).value,
+            "model": model_value,
             "feedback_loop_enabled": self.query_one("#feedback-enabled", Checkbox).value,
             "condition_prompt": self.query_one("#condition-prompt", Input).value.strip(),
             "max_iterations": max_iter,
-            "condition_model": self.query_one("#condition-model", Select).value,
+            "condition_model": condition_model_value,
             "show_statusbar": self.query_one("#show-statusbar", Checkbox).value,
             "show_timestamps": self.query_one("#show-timestamps", Checkbox).value,
             "show_token_counts": self.query_one("#show-token-counts", Checkbox).value,

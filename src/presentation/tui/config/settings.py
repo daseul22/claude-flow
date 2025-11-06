@@ -73,8 +73,14 @@ class ConfigManager:
     def load(self) -> AppConfig:
         """설정 파일 로드"""
         if not self.config_path.exists():
-            # 기본 설정 반환
-            return AppConfig()
+            # 기본 설정 반환 및 즉시 저장
+            config = AppConfig()
+            try:
+                self.config = config
+                self.save()  # 기본 설정 파일 생성
+            except Exception as e:
+                print(f"⚠️  기본 설정 파일 생성 실패: {e}")
+            return config
 
         try:
             with open(self.config_path, "r", encoding="utf-8") as f:
@@ -91,7 +97,9 @@ class ConfigManager:
                 shortcuts=ShortcutSettings(**data.get("shortcuts", {})),
             )
         except Exception as e:
-            print(f"설정 파일 로드 실패: {e}. 기본 설정 사용")
+            print(f"⚠️  설정 파일 로드 실패: {e}. 기본 설정 사용")
+            import traceback
+            traceback.print_exc()
             return AppConfig()
 
     def save(self):
