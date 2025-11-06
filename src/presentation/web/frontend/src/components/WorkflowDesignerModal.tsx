@@ -33,6 +33,9 @@ export const WorkflowDesignerModal: React.FC<WorkflowDesignerModalProps> = ({
   // 단계: 'input' | 'generating' | 'preview'
   const [step, setStep] = useState<'input' | 'generating' | 'preview'>('input')
 
+  // 모드: 'create' | 'improve'
+  const [mode, setMode] = useState<'create' | 'improve'>('create')
+
   // 입력 필드
   const [requirements, setRequirements] = useState('')
 
@@ -60,6 +63,11 @@ export const WorkflowDesignerModal: React.FC<WorkflowDesignerModalProps> = ({
 
   // Workflow Store
   const loadWorkflow = useWorkflowStore((state) => state.loadWorkflow)
+  const currentWorkflow = useWorkflowStore((state) => ({
+    name: state.workflowName,
+    nodes: state.nodes,
+    edges: state.edges,
+  }))
 
   // step 변경 시 generating 상태 알림
   useEffect(() => {
@@ -139,7 +147,9 @@ export const WorkflowDesignerModal: React.FC<WorkflowDesignerModalProps> = ({
             clearSession()
           },
           controller.signal,
-          sid
+          sid,
+          mode === 'improve' ? currentWorkflow : null,
+          mode
         )
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err)
@@ -265,7 +275,9 @@ export const WorkflowDesignerModal: React.FC<WorkflowDesignerModalProps> = ({
           clearSession()
         },
         controller.signal,
-        newSessionId
+        newSessionId,
+        mode === 'improve' ? currentWorkflow : null,
+        mode
       )
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
@@ -488,20 +500,79 @@ export const WorkflowDesignerModal: React.FC<WorkflowDesignerModalProps> = ({
         {/* 단계: 입력 */}
         {step === 'input' && (
           <div className="space-y-4">
+            {/* 모드 선택 */}
+            <div className="flex gap-3">
+              <button
+                className={`flex-1 p-4 border-2 rounded-lg transition-colors ${
+                  mode === 'create'
+                    ? 'border-blue-500 bg-blue-50 text-blue-900'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+                onClick={() => setMode('create')}
+              >
+                <div className="font-semibold text-sm mb-1">🆕 새로 만들기</div>
+                <div className="text-xs text-muted-foreground">
+                  무에서 유로 워크플로우 생성
+                </div>
+              </button>
+              <button
+                className={`flex-1 p-4 border-2 rounded-lg transition-colors ${
+                  mode === 'improve'
+                    ? 'border-blue-500 bg-blue-50 text-blue-900'
+                    : currentWorkflow.nodes.length === 0
+                    ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-50'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+                onClick={() => {
+                  if (currentWorkflow.nodes.length > 0) {
+                    setMode('improve')
+                  }
+                }}
+                disabled={currentWorkflow.nodes.length === 0}
+              >
+                <div className="font-semibold text-sm mb-1">✨ 개선하기</div>
+                <div className="text-xs text-muted-foreground">
+                  {currentWorkflow.nodes.length > 0
+                    ? '현재 워크플로우를 분석하고 개선'
+                    : '워크플로우가 비어있습니다'}
+                </div>
+              </button>
+            </div>
+
+            {/* 개선 모드일 때 현재 워크플로우 표시 */}
+            {mode === 'improve' && currentWorkflow.nodes.length > 0 && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  <div className="text-sm font-medium mb-1">현재 워크플로우</div>
+                  <div className="text-xs text-muted-foreground">
+                    {currentWorkflow.name || '이름 없음'} ({currentWorkflow.nodes.length}개 노드,{' '}
+                    {currentWorkflow.edges.length}개 연결)
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div>
               <label htmlFor="requirements" className="text-sm font-medium">
-                원하는 워크플로우 설명
+                {mode === 'create' ? '원하는 워크플로우 설명' : '개선 요구사항'}
               </label>
               <Textarea
                 id="requirements"
                 value={requirements}
                 onChange={(e) => setRequirements(e.target.value)}
-                placeholder="예: 코드 작성 후 리뷰하고 테스트 실행하는 워크플로우를 만들어주세요"
+                placeholder={
+                  mode === 'create'
+                    ? '예: 코드 작성 후 리뷰하고 테스트 실행하는 워크플로우를 만들어주세요'
+                    : '예: 리뷰 단계에서 스타일, 보안, 아키텍처 리뷰를 병렬로 실행하도록 개선해주세요'
+                }
                 rows={6}
                 className="mt-2"
               />
               <p className="text-sm text-muted-foreground mt-1">
-                AI가 요구사항을 분석하여 노드와 연결을 자동으로 설계합니다
+                {mode === 'create'
+                  ? 'AI가 요구사항을 분석하여 노드와 연결을 자동으로 설계합니다'
+                  : 'AI가 현재 워크플로우를 분석하고 개선 사항을 제안합니다'}
               </p>
             </div>
 

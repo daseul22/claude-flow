@@ -108,13 +108,20 @@ def get_workflow_designer_config() -> AgentConfig:
         )
 
 
-async def _execute_workflow_designer(requirements: str, session_id: str) -> AsyncIterator[str]:
+async def _execute_workflow_designer(
+    requirements: str,
+    session_id: str,
+    current_workflow: Dict | None = None,
+    mode: str = "create",
+) -> AsyncIterator[str]:
     """
     workflow_designer 실행 (스트리밍)
 
     Args:
         requirements: 워크플로우 요구사항
         session_id: 세션 ID
+        current_workflow: 현재 워크플로우 (개선 모드일 때)
+        mode: 워크플로우 설계 모드 (create | improve)
 
     Yields:
         str: Worker 출력 청크
@@ -128,11 +135,27 @@ async def _execute_workflow_designer(requirements: str, session_id: str) -> Asyn
 
         worker = WorkerAgent(config=config, project_dir=claude_flow_project_dir)
 
-        logger.info(
-            f"[{session_id}] workflow_designer 실행 시작 " f"(working_dir: {claude_flow_project_dir})"
-        )
+        # 개선 모드일 때 프롬프트에 현재 워크플로우 포함
+        if mode == "improve" and current_workflow:
+            task_prompt = f"""---CURRENT_WORKFLOW_START---
+{json.dumps(current_workflow, ensure_ascii=False, indent=2)}
+---CURRENT_WORKFLOW_END---
 
-        async for chunk in worker.execute_task(requirements):
+수정 요구사항:
+{requirements}"""
+            logger.info(
+                f"[{session_id}] workflow_designer 실행 시작 (모드: improve, "
+                f"현재 노드 수: {len(current_workflow.get('nodes', []))}, "
+                f"working_dir: {claude_flow_project_dir})"
+            )
+        else:
+            task_prompt = requirements
+            logger.info(
+                f"[{session_id}] workflow_designer 실행 시작 (모드: create, "
+                f"working_dir: {claude_flow_project_dir})"
+            )
+
+        async for chunk in worker.execute_task(task_prompt):
             yield chunk
 
         logger.info(f"[{session_id}] workflow_designer 실행 완료")
@@ -234,7 +257,9 @@ async def design_workflow(request: WorkflowDesignRequest):
             chunk_count = 0
             accumulated_output = ""
 
-            async for chunk in _execute_workflow_designer(request.requirements, session_id):
+            async for chunk in _execute_workflow_designer(
+                request.requirements, session_id, request.current_workflow, request.mode
+            ):
                 chunk_count += 1
                 accumulated_output += chunk
                 append_design_session_output(session_id, chunk)  # 파일에 저장

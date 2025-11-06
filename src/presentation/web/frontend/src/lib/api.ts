@@ -1299,6 +1299,8 @@ export async function saveDisplayConfig(config: DisplayConfig): Promise<{
 export interface WorkflowDesignRequest {
   requirements: string
   session_id?: string
+  current_workflow?: Workflow | null
+  mode?: 'create' | 'improve'
 }
 
 /**
@@ -1312,6 +1314,8 @@ export interface WorkflowDesignRequest {
  * @param onError 에러 콜백
  * @param signal AbortSignal (연결 중단용)
  * @param sessionId 세션 ID (선택적)
+ * @param currentWorkflow 현재 워크플로우 (개선 모드일 때)
+ * @param mode 워크플로우 설계 모드 (create | improve)
  * @returns 세션 ID
  */
 export async function designWorkflow(
@@ -1320,11 +1324,15 @@ export async function designWorkflow(
   onComplete: (finalOutput: string) => void,
   onError: (error: string) => void,
   signal?: AbortSignal,
-  sessionId?: string
+  sessionId?: string,
+  currentWorkflow?: Workflow | null,
+  mode: 'create' | 'improve' = 'create'
 ): Promise<string | null> {
   const requestBody: WorkflowDesignRequest = {
     requirements,
     session_id: sessionId,
+    current_workflow: currentWorkflow,
+    mode,
   }
 
   const response = await fetch(`${API_BASE}/workflows/design`, {

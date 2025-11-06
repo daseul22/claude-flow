@@ -193,6 +193,14 @@ class WorkflowDesignRequest(BaseModel):
         None,
         description="세션 ID (선택적, 미제공 시 자동 생성)",
     )
+    current_workflow: Optional[dict] = Field(
+        None,
+        description="현재 워크플로우 (개선 모드일 때 전달)",
+    )
+    mode: str = Field(
+        default="create",
+        description="워크플로우 설계 모드 (create: 새로 만들기, improve: 개선하기)",
+    )
 
     @field_validator("requirements")
     @classmethod
@@ -201,3 +209,11 @@ class WorkflowDesignRequest(BaseModel):
         if not v.strip():
             raise ValueError("워크플로우 요구사항은 비어있을 수 없습니다")
         return v.strip()
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v: str) -> str:
+        """모드 검증"""
+        if v not in ("create", "improve"):
+            raise ValueError("모드는 'create' 또는 'improve'만 가능합니다")
+        return v
