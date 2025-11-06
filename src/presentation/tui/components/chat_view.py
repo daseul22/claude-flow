@@ -29,7 +29,6 @@ class ChatView(RichLog):
             markup=True,
             auto_scroll=True,
             wrap=True,  # 자동 줄바꿈 활성화
-            max_width=None,  # 너비 제한 없음 (컨테이너에 맞춤)
             **kwargs
         )
         self.show_timestamps = show_timestamps
