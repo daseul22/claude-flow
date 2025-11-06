@@ -60,15 +60,40 @@ class AgentClient:
         self,
         message: str,
         on_token: Optional[Callable[[str], None]] = None,
+        on_tool_use: Optional[Callable[[str, dict], None]] = None,
+        on_thinking: Optional[Callable[[str], None]] = None,
     ) -> AsyncIterator[str]:
         """메시지 전송 및 스트리밍 응답"""
 
         try:
             # WorkerAgent의 execute_task 사용
+            # 툴 사용 및 thinking은 응답 스트림에서 감지
             async for chunk in self.worker.execute_task(
                 task_description=message,
                 resume_session_id=None,  # TUI에서는 세션 재사용 안 함 (일단)
             ):
+                # 특수 패턴 감지
+                # [TOOL_USE] 패턴: 툴 호출 정보
+                if chunk.startswith("[TOOL_USE]"):
+                    if on_tool_use:
+                        # 간단한 파싱 (예: [TOOL_USE] read_file: file.py)
+                        try:
+                            parts = chunk.replace("[TOOL_USE]", "").strip().split(":", 1)
+                            tool_name = parts[0].strip()
+                            tool_args = {"info": parts[1].strip() if len(parts) > 1 else ""}
+                            on_tool_use(tool_name, tool_args)
+                        except:
+                            pass
+                    continue  # 툴 정보는 yield하지 않음
+
+                # [THINKING] 패턴: 사고 과정
+                elif chunk.startswith("[THINKING]"):
+                    if on_thinking:
+                        thinking = chunk.replace("[THINKING]", "").strip()
+                        on_thinking(thinking)
+                    continue  # thinking은 yield하지 않음
+
+                # 일반 텍스트
                 if on_token:
                     on_token(chunk)
                 yield chunk

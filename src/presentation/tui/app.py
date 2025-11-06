@@ -12,6 +12,7 @@ from .components.status_bar import StatusBar
 from .components.chat_view import ChatView
 from .components.input_box import InputBox
 from .components.modals.session_list import SessionListModal
+from .components.modals.settings_modal import SettingsModal
 from .config.settings import ConfigManager
 from .services.session_manager import SessionManager
 from .services.agent_client import AgentClient
@@ -38,6 +39,7 @@ class ClaudeFlowApp(App):
         Binding("ctrl+n", "new_session", "새 세션"),
         Binding("ctrl+o", "open_session", "세션 불러오기"),
         Binding("ctrl+i", "project_info", "프로젝트 정보"),
+        Binding("ctrl+comma", "settings", "설정"),
         Binding("ctrl+l", "clear_screen", "화면 지우기"),
         Binding("ctrl+c", "interrupt", "중단"),
         Binding("ctrl+q", "quit", "종료"),
@@ -163,6 +165,11 @@ class ClaudeFlowApp(App):
         user_message = message.text
         chat_view = self.query_one(ChatView)
 
+        # cd 명령어 처리
+        if user_message.strip().startswith("cd "):
+            await self.handle_cd_command(user_message.strip())
+            return
+
         # 사용자 메시지 표시
         chat_view.add_user_message(user_message)
 
@@ -178,6 +185,61 @@ class ClaudeFlowApp(App):
 
         # 에이전트 응답
         await self.get_agent_response(user_message)
+
+    async def handle_cd_command(self, command: str):
+        """cd 명령어 처리"""
+        chat_view = self.query_one(ChatView)
+        
+        # 경로 추출
+        path_str = command[3:].strip()
+        
+        if not path_str:
+            # 현재 디렉토리 표시
+            chat_view.add_system_message(f"현재 디렉토리: {self.project_path}", style="cyan")
+            return
+
+        try:
+            # 경로 해석
+            if path_str == "~":
+                new_path = Path.home()
+            elif path_str == "..":
+                new_path = self.project_path.parent
+            elif path_str.startswith("~"):
+                new_path = Path.home() / path_str[2:]
+            elif path_str.startswith("/"):
+                new_path = Path(path_str)
+            else:
+                new_path = self.project_path / path_str
+
+            # 경로 검증
+            if not new_path.exists():
+                chat_view.add_error_message(f"디렉토리를 찾을 수 없습니다: {new_path}")
+                return
+
+            if not new_path.is_dir():
+                chat_view.add_error_message(f"디렉토리가 아닙니다: {new_path}")
+                return
+
+            # 작업 디렉토리 변경
+            old_path = self.project_path
+            self.project_path = new_path.absolute()
+
+            # 세션 업데이트
+            if self.session_manager.current_session:
+                self.session_manager.current_session.working_directory = str(self.project_path)
+                self.session_manager.save_session(self.session_manager.current_session)
+
+            # 알림
+            chat_view.add_system_message(
+                f"작업 디렉토리 변경:\n  {old_path}\n  → {self.project_path}",
+                style="green"
+            )
+
+            # 로그
+            self.logger.log_event("cd", {"from": str(old_path), "to": str(self.project_path)})
+
+        except Exception as e:
+            chat_view.add_error_message(f"디렉토리 변경 실패: {str(e)}")
 
     async def get_agent_response(self, user_message: str):
         """에이전트 응답 받기 (실시간 스트리밍)"""
@@ -200,8 +262,13 @@ class ClaudeFlowApp(App):
             # 실시간 스트리밍 응답
             response_text = ""
             current_line = ""
+            tool_calls_made = []
 
-            async for chunk in self.agent.send_message(user_message):
+            async for chunk in self.agent.send_message(
+                user_message,
+                on_tool_use=lambda tool_name, tool_args: self._on_tool_use(tool_name, tool_args, chat_view),
+                on_thinking=lambda thinking: self._on_thinking(thinking, chat_view),
+            ):
                 response_text += chunk
                 current_line += chunk
 
@@ -241,6 +308,17 @@ class ClaudeFlowApp(App):
         except Exception as e:
             chat_view.add_error_message(str(e))
             self.logger.log_error(e)
+
+    def _on_tool_use(self, tool_name: str, tool_args: dict, chat_view):
+        """툴 사용 콜백"""
+        chat_view.add_tool_call(tool_name, tool_args)
+        self.logger.log_tool_call(tool_name, tool_args)
+
+    def _on_thinking(self, thinking: str, chat_view):
+        """사고 과정 콜백"""
+        from rich.text import Text
+        thinking_text = Text(f"💭 Thinking: {thinking[:100]}...", style="dim italic")
+        chat_view.write(thinking_text)
 
     async def action_new_session(self) -> None:
         """새 세션 생성"""
@@ -326,6 +404,41 @@ class ClaudeFlowApp(App):
             info += f"🔀 Git 브랜치: {self.git_info['branch']}\n"
 
         chat_view.add_system_message(info.strip(), style="cyan")
+
+    async def action_settings(self) -> None:
+        """설정 열기"""
+        # 현재 설정 수집
+        current_settings = {
+            "model": self.config.config.default_model,
+            "feedback_loop_enabled": self.config.config.feedback_loop_defaults.enabled,
+            "max_iterations": self.config.config.feedback_loop_defaults.max_iterations,
+            "condition_model": self.config.config.feedback_loop_defaults.condition_model,
+            "show_timestamps": self.config.config.display.show_timestamps,
+            "show_token_counts": self.config.config.display.show_token_counts,
+        }
+
+        # 설정 모달 표시
+        modal = SettingsModal(current_settings)
+        result = await self.push_screen(modal)
+
+        if result:
+            # 설정 적용
+            self.config.config.default_model = result["model"]
+            self.config.config.feedback_loop_defaults.enabled = result["feedback_loop_enabled"]
+            self.config.config.feedback_loop_defaults.max_iterations = result["max_iterations"]
+            self.config.config.feedback_loop_defaults.condition_model = result["condition_model"]
+            self.config.config.display.show_timestamps = result["show_timestamps"]
+            self.config.config.display.show_token_counts = result["show_token_counts"]
+
+            # 설정 저장
+            self.config.save()
+
+            # 알림
+            chat_view = self.query_one(ChatView)
+            chat_view.add_system_message("설정이 저장되었습니다.", style="green")
+
+            # 타임스탬프 표시 토글 적용
+            chat_view.show_timestamps = result["show_timestamps"]
 
     async def action_clear_screen(self) -> None:
         """화면 지우기"""
