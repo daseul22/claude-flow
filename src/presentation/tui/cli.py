@@ -1,8 +1,10 @@
 """Claude Flow TUI CLI 진입점"""
 
 import sys
+import os
 from pathlib import Path
 import click
+from dotenv import load_dotenv
 
 from .app import ClaudeFlowApp
 
@@ -60,8 +62,15 @@ def main(project_path: Path = None, version: bool = False):
         click.echo(f"❌ 디렉토리가 아닙니다: {project_path}", err=True)
         sys.exit(1)
 
+    # 환경변수 로드 (.env 파일)
+    env_file = project_path / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+    else:
+        # 전역 .env 시도
+        load_dotenv()
+
     # 환경변수 확인
-    import os
     if not os.getenv("CLAUDE_CODE_OAUTH_TOKEN"):
         click.echo(
             "❌ CLAUDE_CODE_OAUTH_TOKEN 환경변수가 설정되지 않았습니다.\n"

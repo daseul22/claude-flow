@@ -3,11 +3,10 @@
 from textual.app import ComposeResult
 from textual.screen import ModalScreen
 from textual.containers import Container, Vertical
-from textual.widgets import Button, Label, ListView, ListItem, Static
-from textual.message import Message
+from textual.widgets import Button, Label, ListView, ListItem
 
 
-class SessionListModal(ModalScreen):
+class SessionListModal(ModalScreen[str]):
     """세션 목록 선택 모달"""
 
     DEFAULT_CSS = """
@@ -33,13 +32,6 @@ class SessionListModal(ModalScreen):
         align: center middle;
     }
     """
-
-    class SessionSelected(Message):
-        """세션 선택 이벤트"""
-
-        def __init__(self, session_id: str):
-            super().__init__()
-            self.session_id = session_id
 
     def __init__(self, sessions: list, **kwargs):
         super().__init__(**kwargs)
@@ -75,20 +67,24 @@ class SessionListModal(ModalScreen):
         if event.button.id == "select":
             # 선택된 세션 찾기
             list_view = self.query_one(ListView)
-            if list_view.index is not None:
+            if list_view.index is not None and list_view.index < len(self.sessions):
                 selected_session = self.sessions[list_view.index]
-                self.post_message(self.SessionSelected(selected_session["session_id"]))
-            self.dismiss()
+                self.dismiss(selected_session["session_id"])
+            else:
+                self.dismiss()
 
         elif event.button.id == "cancel":
             self.dismiss()
 
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """리스트 아이템 선택"""
-        # 더블클릭으로 선택
+        """리스트 아이템 더블클릭으로 선택"""
         if event.item:
-            session_index = list(self.query(ListItem)).index(event.item)
-            selected_session = self.sessions[session_index]
-            self.post_message(self.SessionSelected(selected_session["session_id"]))
-            self.dismiss()
+            try:
+                list_items = list(self.query(ListItem))
+                session_index = list_items.index(event.item)
+                if session_index < len(self.sessions):
+                    selected_session = self.sessions[session_index]
+                    self.dismiss(selected_session["session_id"])
+            except (ValueError, IndexError):
+                pass
 

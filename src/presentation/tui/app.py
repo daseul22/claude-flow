@@ -237,8 +237,55 @@ class ClaudeFlowApp(App):
             return
 
         # 세션 목록 모달 표시
+        def handle_session_selected(session_id: str):
+            """세션 선택 핸들러"""
+            self.load_selected_session(session_id)
+
         modal = SessionListModal(sessions)
-        await self.push_screen(modal)
+        result = await self.push_screen(modal)
+        
+        # 모달에서 세션 ID 반환받음
+        if result:
+            self.load_selected_session(result)
+
+    def load_selected_session(self, session_id: str):
+        """선택된 세션 불러오기"""
+        try:
+            # 세션 로드
+            session = self.session_manager.load_session(session_id)
+
+            # 대화 기록 복원
+            chat_view = self.query_one(ChatView)
+            chat_view.clear_messages()
+
+            chat_view.add_system_message(f"세션 {session_id[:8]} 불러옴", style="green")
+
+            # 메시지 복원
+            for msg in session.messages:
+                # timestamp를 HH:MM:SS 포맷으로 변환
+                timestamp = msg.timestamp.split("T")[1][:8] if "T" in msg.timestamp else msg.timestamp[:8]
+                
+                if msg.role == "user":
+                    chat_view.add_user_message(msg.content, timestamp)
+                elif msg.role == "assistant":
+                    chat_view.add_assistant_message(msg.content, timestamp)
+
+            # 상태바 업데이트
+            status_bar = self.query_one(StatusBar)
+            status_bar.update_session(session.session_id)
+            cost = self.agent.estimate_cost(
+                session.total_tokens["input"],
+                session.total_tokens["output"]
+            )
+            status_bar.update_tokens(
+                session.total_tokens["input"],
+                session.total_tokens["output"],
+                cost
+            )
+
+        except Exception as e:
+            chat_view = self.query_one(ChatView)
+            chat_view.add_error_message(f"세션 불러오기 실패: {str(e)}")
 
     async def action_project_info(self) -> None:
         """프로젝트 정보 표시"""
@@ -283,13 +330,10 @@ class ClaudeFlowApp(App):
             chat_view.add_system_message("작업이 중단되었습니다.", style="yellow")
             return
 
-        # 아무것도 없으면 종료 확인
-        await self.action_quit()
+        # 아무것도 없으면 종료
+        self.action_quit()
 
-    async def action_quit(self) -> None:
+    def action_quit(self) -> None:
         """앱 종료"""
-        chat_view = self.query_one(ChatView)
-        chat_view.add_system_message("Claude Flow를 종료합니다...", style="yellow")
-        await asyncio.sleep(0.5)
         self.exit()
 

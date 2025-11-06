@@ -5,10 +5,13 @@ from typing import Optional, Callable, AsyncIterator
 from pathlib import Path
 
 try:
-    from claude_agent_sdk import Client, AgentConfig
+    from claude_agent_sdk import ClaudeSDKClient
+    from claude_agent_sdk.agent_options import ClaudeAgentOptions
     SDK_AVAILABLE = True
 except ImportError:
     SDK_AVAILABLE = False
+    ClaudeSDKClient = None
+    ClaudeAgentOptions = None
     print("Warning: claude-agent-sdk not available. Running in mock mode.")
 
 
@@ -33,11 +36,6 @@ class AgentClient:
                 "Claude Code에서 OAuth 토큰을 발급받아 설정해주세요."
             )
 
-        if SDK_AVAILABLE:
-            self.client = Client(api_key=self.oauth_token)
-        else:
-            self.client = None
-
     async def send_message(
         self,
         message: str,
@@ -45,9 +43,9 @@ class AgentClient:
     ) -> AsyncIterator[str]:
         """메시지 전송 및 스트리밍 응답"""
 
-        if not SDK_AVAILABLE or not self.client:
+        if not SDK_AVAILABLE:
             # Mock 응답 (SDK 없을 때)
-            mock_response = f"[Mock] 응답: {message[:50]}..."
+            mock_response = f"[Mock] 응답: {message[:50]}...\n\n파일을 읽고 분석하겠습니다."
             if on_token:
                 on_token(mock_response)
             yield mock_response
@@ -57,21 +55,36 @@ class AgentClient:
         system_prompt = self._build_system_prompt()
 
         try:
-            # 에이전트 설정
-            config = AgentConfig(
+            # 에이전트 옵션 설정
+            options = ClaudeAgentOptions(
                 model=self.model,
                 system_prompt=system_prompt,
                 working_directory=str(self.project_path),
+                permission_mode="acceptEdits",
             )
 
-            # 스트리밍 응답
-            async for chunk in self.client.send_message_stream(
-                message=message,
-                config=config,
-            ):
-                if on_token:
-                    on_token(chunk)
-                yield chunk
+            # ClaudeSDKClient를 context manager로 사용
+            async with ClaudeSDKClient(options=options) as client:
+                # query로 메시지 전송
+                await client.query(prompt=message)
+
+                # receive_response로 응답 수신
+                async for response in client.receive_response():
+                    # AssistantMessage에서 텍스트 추출
+                    if hasattr(response, 'blocks'):
+                        for block in response.blocks:
+                            # TextBlock 처리
+                            if hasattr(block, 'text'):
+                                text = block.text
+                                if on_token:
+                                    on_token(text)
+                                yield text
+                            # ThinkingBlock 처리
+                            elif hasattr(block, 'thinking'):
+                                thinking = f"[Thinking] {block.thinking}\n"
+                                if on_token:
+                                    on_token(thinking)
+                                yield thinking
 
         except Exception as e:
             error_msg = f"에러 발생: {str(e)}"
