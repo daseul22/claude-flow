@@ -34,6 +34,8 @@
 | 기능 | 설명 |
 |------|------|
 | **🎨 비주얼 에디터** | 드래그 앤 드롭으로 워크플로우 설계 (ReactFlow 기반) |
+| **💻 TUI 인터페이스** 🆕 | Claude Code 스타일 대화형 터미널 UI (Textual 기반) |
+| **🔁 LLM 피드백 루프** 🆕 | 조건 평가 및 자동 재시도로 출력 품질 보장 |
 | **🤖 AI 자동 설계** | 자연어 지시 → 워크플로우 자동 생성 |
 | **🔗 노드 기반 오케스트레이션** | Input, Worker, Condition, Merge 노드로 복잡한 로직 표현 |
 | **📚 프롬프트 라이브러리** | 46개 전문화된 Worker 프롬프트 (Feature Planner, Backend Coder, QA Engineer 등) |
@@ -105,7 +107,16 @@ Worker가 `@ASK_USER: "질문"` 패턴으로 사용자 입력 요청 → 사용�
 
 ## 빠른 시작
 
+### 두 가지 인터페이스
+
+Claude Flow는 두 가지 인터페이스를 제공합니다:
+
+1. **웹 UI** - 드래그 앤 드롭 워크플로우 에디터
+2. **TUI (Terminal UI)** - LLM 피드백 루프 기반 대화형 인터페이스 🆕
+
 ### 1단계: 설치
+
+#### 웹 UI 설치
 
 ```bash
 # 프로젝트 클론
@@ -114,6 +125,19 @@ cd claude-flow-web
 
 # 자동 설치 (권장)
 ./setup.sh
+```
+
+#### TUI 설치 🆕
+
+```bash
+# TUI 설치
+./setup-tui.sh
+
+# 가상환경 활성화
+source venv/bin/activate
+
+# 실행
+claude-flow
 ```
 
 **수동 설치**:
@@ -153,6 +177,8 @@ export CLAUDE_CODE_OAUTH_TOKEN='your-token-here'
 
 ### 3단계: 실행
 
+#### 웹 UI 실행
+
 ```bash
 # 웹 UI 실행 (권장)
 claude-flow-web
@@ -162,6 +188,21 @@ python -m src.presentation.web.app
 ```
 
 웹 브라우저에서 **http://localhost:5173** 접속
+
+#### TUI 실행 🆕
+
+```bash
+# 가상환경 활성화 (필수)
+source venv/bin/activate
+
+# 현재 디렉토리에서 실행
+claude-flow
+
+# 특정 디렉토리에서 실행
+claude-flow /path/to/your/project
+```
+
+터미널에서 대화형 인터페이스 실행
 
 ---
 
@@ -173,6 +214,8 @@ python -m src.presentation.web.app
 |------|------|------|
 | **[설치 가이드](docs/installation.md)** | 설치 및 환경 설정 | 모든 사용자 |
 | **[사용자 가이드](docs/tutorial.md)** | 워크플로우 설계 및 실행 | 일반 사용자 |
+| **[TUI 기능명세서](docs/TUI_기능명세서.md)** 🆕 | TUI 전체 기능 명세 | TUI 사용자 |
+| **[TUI 사용가이드](docs/TUI_사용가이드.md)** 🆕 | TUI 사용법 및 단축키 | TUI 사용자 |
 | **[API 레퍼런스](docs/api.md)** | REST API 엔드포인트 | 개발자 |
 | **[아키텍처](ARCHITECTURE.md)** | 시스템 설계 및 패턴 | 아키텍트, 개발자 |
 | **[코드 레퍼런스](CODE_REFERENCE.md)** | 핵심 클래스 및 함수 | 개발자 |
