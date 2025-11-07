@@ -18,11 +18,13 @@ class AgentClient:
         project_path: Path,
         model: str = "claude-sonnet-4.5",
         claude_md_content: Optional[str] = None,
+        enable_thinking: bool = True,  # Thinking 활성화 여부
     ):
         self.project_path = project_path
         self.model = model
         self.claude_md_content = claude_md_content
         self.current_session_id: Optional[str] = None  # SDK 세션 ID 저장
+        self.enable_thinking = enable_thinking
 
         # Claude OAuth Token 확인
         self.oauth_token = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
@@ -42,7 +44,7 @@ class AgentClient:
             system_prompt=system_prompt,
             model=self._normalize_model_name(model),
             allowed_tools=["Read", "Write", "Edit", "Bash"],
-            thinking=False,  # TUI에서는 thinking 비활성화
+            thinking=enable_thinking,  # 설정에서 받은 값 사용
         )
 
         # WorkerAgent 생성

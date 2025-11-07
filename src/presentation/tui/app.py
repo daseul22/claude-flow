@@ -223,6 +223,7 @@ class ClaudeFlowApp(App):
                 project_path=self.project_path,
                 model=session.model,
                 claude_md_content=self.claude_md_content,
+                enable_thinking=self.config.config.display.enable_thinking,
             )
         else:
             # 기존 에이전트 세션 초기화 (새 세션이므로 맥락 리셋)
@@ -416,16 +417,20 @@ class ClaudeFlowApp(App):
 
             # 콜백 함수들
             def on_thinking_callback(thinking: str):
-                formatted = parser.format_thinking_block(thinking)
+                show_full = self.config.config.display.show_thinking_full
+                formatted = parser.format_thinking_block(thinking, show_full=show_full)
                 chat_view.write(formatted)  # Rich Text 객체는 그대로
+                chat_view.write("")  # 블록 간 간격
 
             def on_tool_use_callback(tool_name: str, tool_input: dict):
                 formatted = parser.format_tool_use(tool_name, tool_input)
                 chat_view.write(formatted)  # Rich Text 객체는 그대로
+                chat_view.write("")  # 블록 간 간격
 
             def on_tool_result_callback(result: str):
                 formatted = parser.format_tool_result("", result)
                 chat_view.write(formatted)  # Rich Text 객체는 그대로
+                chat_view.write("")  # 블록 간 간격
 
             if use_feedback_loop:
                 # 피드백 루프 사용
@@ -650,6 +655,8 @@ class ClaudeFlowApp(App):
             "show_statusbar": self.config.config.display.show_statusbar,
             "show_timestamps": self.config.config.display.show_timestamps,
             "show_token_counts": self.config.config.display.show_token_counts,
+            "enable_thinking": self.config.config.display.enable_thinking,
+            "show_thinking_full": self.config.config.display.show_thinking_full,
         }
 
         # 설정 모달 표시 (callback 방식)
@@ -687,6 +694,8 @@ class ClaudeFlowApp(App):
             self.config.config.display.show_statusbar = result["show_statusbar"]
             self.config.config.display.show_timestamps = result["show_timestamps"]
             self.config.config.display.show_token_counts = result["show_token_counts"]
+            self.config.config.display.enable_thinking = result["enable_thinking"]
+            self.config.config.display.show_thinking_full = result["show_thinking_full"]
 
             # 설정 저장 (with 에러 처리)
             try:

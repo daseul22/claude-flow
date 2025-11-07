@@ -13,6 +13,9 @@ class DisplaySettings:
     show_timestamps: bool = True
     show_token_counts: bool = True
     sidebar_visible: bool = False
+    # Thinking 블록 관련
+    enable_thinking: bool = True  # Thinking 활성화 여부
+    show_thinking_full: bool = False  # False: 요약만, True: 전체 표시
 
 
 @dataclass

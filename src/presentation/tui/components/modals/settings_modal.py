@@ -20,7 +20,9 @@ class SettingsResult:
     show_statusbar: bool
     show_timestamps: bool
     show_token_counts: bool
-    
+    enable_thinking: bool  # Thinking 블록 활성화
+    show_thinking_full: bool  # Thinking 전체 표시
+
     def to_dict(self) -> Dict[str, Any]:
         """Dict로 변환"""
         return {
@@ -33,6 +35,8 @@ class SettingsResult:
             "show_statusbar": self.show_statusbar,
             "show_timestamps": self.show_timestamps,
             "show_token_counts": self.show_token_counts,
+            "enable_thinking": self.enable_thinking,
+            "show_thinking_full": self.show_thinking_full,
         }
 
 
@@ -206,6 +210,27 @@ class SettingsModal(ModalScreen[SettingsResult]):
 
             yield Static("", classes="spacer")
 
+            # Thinking 블록 섹션
+            yield Label("Thinking 블록 옵션:", classes="section-label")
+
+            with Horizontal(classes="setting-row"):
+                yield Label("  Thinking 활성화:")
+                yield Checkbox(
+                    "Thinking 블록 표시",
+                    value=self.settings.get("enable_thinking", True),
+                    id="enable-thinking"
+                )
+
+            with Horizontal(classes="setting-row"):
+                yield Label("  전체 표시:")
+                yield Checkbox(
+                    "전체 Thinking 내용 표시 (체크 해제 시 요약만)",
+                    value=self.settings.get("show_thinking_full", False),
+                    id="show-thinking-full"
+                )
+
+            yield Static("", classes="spacer")
+
             # 버튼
             with Horizontal(classes="buttons"):
                 yield Button("저장", variant="primary", id="save")
@@ -243,6 +268,8 @@ class SettingsModal(ModalScreen[SettingsResult]):
             show_statusbar=self.query_one("#show-statusbar", Checkbox).value,
             show_timestamps=self.query_one("#show-timestamps", Checkbox).value,
             show_token_counts=self.query_one("#show-token-counts", Checkbox).value,
+            enable_thinking=self.query_one("#enable-thinking", Checkbox).value,
+            show_thinking_full=self.query_one("#show-thinking-full", Checkbox).value,
         )
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -261,6 +288,8 @@ class SettingsModal(ModalScreen[SettingsResult]):
             self.query_one("#show-statusbar", Checkbox).value = True
             self.query_one("#show-timestamps", Checkbox).value = True
             self.query_one("#show-token-counts", Checkbox).value = True
+            self.query_one("#enable-thinking", Checkbox).value = True
+            self.query_one("#show-thinking-full", Checkbox).value = False
         elif event.button.id == "cancel":
             self.dismiss(None)
 

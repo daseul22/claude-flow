@@ -24,15 +24,30 @@ class ResponseParser:
         return {"type": "text", "data": chunk}
 
     @staticmethod
-    def format_thinking_block(thinking: str) -> Text:
-        """ThinkingBlock 포맷팅"""
-        # 사고 과정을 보기 좋게 표시
+    def format_thinking_block(thinking: str, show_full: bool = False) -> Text:
+        """ThinkingBlock 포맷팅
+
+        Args:
+            thinking: Thinking 내용
+            show_full: True면 전체 표시, False면 요약만 표시
+        """
         text = Text()
-        text.append("💭 ", style="dim")
-        text.append("Thinking", style="bold dim italic")
-        text.append(f"\n{thinking[:200]}", style="dim italic")
-        if len(thinking) > 200:
-            text.append("...", style="dim")
+        text.append("💭 ", style="dim cyan")
+
+        if show_full:
+            # 전체 표시
+            text.append("Thinking", style="bold cyan italic")
+            text.append(f"\n{thinking}", style="dim italic")
+        else:
+            # 요약만 표시 (Claude Code 스타일)
+            thinking_lines = thinking.count('\n') + 1
+            thinking_chars = len(thinking)
+            # 시간 추정 (대략 100자/초로 가정)
+            estimated_time = thinking_chars / 100
+
+            text.append(f"Thinking... {estimated_time:.1f}s", style="bold cyan italic")
+            text.append(f" ({thinking_lines} lines, {thinking_chars} chars)", style="dim")
+
         return text
 
     @staticmethod
