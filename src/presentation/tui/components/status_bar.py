@@ -13,8 +13,8 @@ class StatusBar(Widget):
     StatusBar {
         dock: bottom;
         height: 1;
-        background: $panel;
-        color: $text;
+        background: #161b22;
+        color: #8b949e;
     }
 
     StatusBar Horizontal {
@@ -78,27 +78,39 @@ class StatusBar(Widget):
         self._refresh_display()
 
     def _refresh_display(self) -> None:
-        """화면 갱신"""
-        # 프로젝트 정보
-        project_text = f"📁 {self.project_name}"
+        """화면 갱신 (Claude Code 스타일: 간결하게)"""
+        # 프로젝트 정보 (간결하게)
+        project_text = f"{self.project_name}"
         if self.git_branch:
-            project_text += f" [{self.git_branch}]"
+            project_text += f" ({self.git_branch})"
 
         project_widget = self.query_one("#project-info", Static)
         project_widget.update(project_text)
 
-        # 세션 정보
-        session_text = f"Session: {self.session_id}" if self.session_id else "No session"
+        # 세션 정보 (간결하게)
+        session_parts = []
+        if self.session_id:
+            session_parts.append(self.session_id)
         if self.feedback_loop_enabled:
-            session_text += " | 🔁 Feedback"
+            session_parts.append("🔁")
+
+        session_text = " │ ".join(session_parts) if session_parts else "─"
         session_widget = self.query_one("#session-info", Static)
         session_widget.update(session_text)
 
-        # 토큰 정보
+        # 토큰 정보 (간결하게)
         total_tokens = self.input_tokens + self.output_tokens
-        token_text = f"🪙 {total_tokens:,} tokens"
-        if self.estimated_cost > 0:
-            token_text += f" (${self.estimated_cost:.4f})"
+        if total_tokens > 0:
+            if total_tokens >= 1000:
+                # K 단위로 표시
+                token_text = f"{total_tokens/1000:.1f}K"
+            else:
+                token_text = f"{total_tokens}"
+
+            if self.estimated_cost > 0:
+                token_text += f" ${self.estimated_cost:.3f}"
+        else:
+            token_text = "─"
 
         token_widget = self.query_one("#token-info", Static)
         token_widget.update(token_text)

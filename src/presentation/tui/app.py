@@ -32,7 +32,7 @@ class ClaudeFlowApp(App):
 
     CSS = """
     Screen {
-        background: $background;
+        background: #0d1117;
         layout: vertical;
     }
 
@@ -41,19 +41,30 @@ class ClaudeFlowApp(App):
         height: 100%;
         layout: vertical;
     }
-    
+
     Container {
         width: 100%;
         height: 100%;
     }
-    
+
     ChatView {
         height: 1fr;
-    }
-    
-    InputBox {
-        height: 5;
+        border: none;
+        padding: 0 1;
         margin-bottom: 1;
+        background: #0d1117;
+    }
+
+    InputBox {
+        height: 3;
+        margin: 0 0 1 0;
+        border: solid #8b5cf6;
+        background: #0d1117;
+    }
+
+    StatusBar {
+        background: #161b22;
+        color: #8b949e;
     }
     """
 
@@ -848,15 +859,14 @@ class ClaudeFlowApp(App):
     # ========== Helper Methods ==========
 
     def _add_response_header(self, chat_view: ChatView) -> None:
-        """응답 헤더 추가 (타임스탬프 + 레이블)"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        if self.config.config.display.show_timestamps:
-            header = Text(f"[{timestamp}] ", style="dim")
-            header.append("Claude", style="bold green")
-            chat_view.write(header)
-        else:
-            assistant_label = Text("Claude", style="bold green")
-            chat_view.write(assistant_label)
+        """응답 헤더 추가 (Claude Code 스타일: ● 사용)"""
+        # 빈 줄
+        chat_view.write("")
+
+        # 큰 bullet point로 시작 (Claude Code 스타일)
+        header = Text()
+        header.append("● ", style="bold green")
+        chat_view.write(header)
 
     def _update_token_display(self, response_length: int) -> None:
         """토큰 사용량 표시 업데이트"""

@@ -9,10 +9,17 @@ class InputBox(TextArea):
 
     DEFAULT_CSS = """
     InputBox {
-        height: 5;
+        height: 3;
         width: 100%;
-        border: solid $accent;
-        margin-bottom: 1;
+        border: solid #8b5cf6;
+        background: #0d1117;
+        margin: 0;
+        padding: 0;
+    }
+
+    InputBox:focus {
+        border: solid #8b5cf6;
+        background: #0d1117;
     }
     """
 
@@ -25,8 +32,6 @@ class InputBox(TextArea):
 
     def __init__(self, **kwargs):
         super().__init__(
-            language="markdown",
-            theme="monokai",
             show_line_numbers=False,
             **kwargs
         )
