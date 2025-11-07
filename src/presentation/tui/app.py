@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container
+from textual.worker import Worker, WorkerState
 from rich.text import Text
 
 from .components.status_bar import StatusBar
@@ -98,7 +99,7 @@ class ClaudeFlowApp(App):
         self.feedback_loop: Optional[FeedbackLoop] = None
 
         # 현재 작업
-        self.current_task: Optional[asyncio.Task] = None
+        self.current_worker: Optional[Worker] = None  # 현재 실행 중인 Worker
         self.is_processing: bool = False  # 응답 처리 중 플래그
         self.should_stop: bool = False  # 중단 요청 플래그
 
@@ -158,6 +159,31 @@ class ClaudeFlowApp(App):
         """터미널 크기 변경 시"""
         # 자동으로 레이아웃 조정됨 (Textual이 처리)
         pass
+    
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        """Worker 상태 변경 감지"""
+        worker = event.worker
+        
+        # Worker가 시작되면 처리 중 플래그 설정
+        if worker.state == WorkerState.RUNNING:
+            if worker.name == "agent_response":
+                self.is_processing = True
+        
+        # Worker가 완료/취소되면 플래그 초기화
+        elif worker.state in (WorkerState.SUCCESS, WorkerState.CANCELLED, WorkerState.ERROR):
+            if worker.name == "agent_response":
+                self.is_processing = False
+                self.should_stop = False
+                
+                # 취소된 경우
+                if worker.state == WorkerState.CANCELLED:
+                    chat_view = self.query_one(ChatView)
+                    chat_view.add_system_message("✓ 응답이 중단되었습니다.", style="yellow")
+                
+                # 에러 발생
+                elif worker.state == WorkerState.ERROR and worker.error:
+                    chat_view = self.query_one(ChatView)
+                    chat_view.add_error_message(f"Worker 에러: {worker.error}")
 
     async def create_new_session(self):
         """새 세션 생성"""
@@ -243,8 +269,13 @@ class ClaudeFlowApp(App):
         if self.logger:
             self.logger.log_message("user", user_message)
 
-        # 에이전트 응답
-        await self.get_agent_response(user_message)
+        # 에이전트 응답 (Worker로 실행)
+        self.current_worker = self.run_worker(
+            self.get_agent_response(user_message),
+            name="agent_response",
+            group="agent",
+            exclusive=True,  # 같은 그룹의 다른 워커 취소
+        )
 
     async def handle_cd_command(self, command: str):
         """cd 명령어 처리"""
@@ -343,8 +374,11 @@ class ClaudeFlowApp(App):
             chat_view.add_error_message(f"디렉토리 변경 실패: {str(e)}")
 
     async def get_agent_response(self, user_message: str) -> None:
-        """에이전트 응답 받기 (실시간 스트리밍)"""
+        """에이전트 응답 받기 (실시간 스트리밍) - Worker에서 실행"""
+        from textual.worker import get_current_worker
+        
         chat_view = self.query_one(ChatView)
+        worker = get_current_worker()
         
         # 처리 중 플래그 설정
         self.is_processing = True
@@ -438,9 +472,10 @@ class ClaudeFlowApp(App):
                     on_eval_output=on_eval_output,
                     on_eval_result=on_eval_result,
                 ):
-                    if self.should_stop:
-                        chat_view.add_system_message("작업이 중단되었습니다.", style="yellow")
+                    # Worker 취소 체크 (Ctrl+C 즉시 반응)
+                    if worker.is_cancelled or self.should_stop:
                         return
+                    
                     response_text += chunk
                     chat_view.write_wrapped(chunk)  # 문자열은 줄바꿈 처리
             else:
@@ -451,9 +486,10 @@ class ClaudeFlowApp(App):
                     on_tool_use=on_tool_use_callback,
                     on_tool_result=on_tool_result_callback,
                 ):
-                    if self.should_stop:
-                        chat_view.add_system_message("작업이 중단되었습니다.", style="yellow")
+                    # Worker 취소 체크 (Ctrl+C 즉시 반응)
+                    if worker.is_cancelled or self.should_stop:
                         return
+                    
                     response_text += chunk
                     chat_view.write_wrapped(chunk)  # 문자열은 줄바꿈 처리
 
@@ -746,7 +782,14 @@ class ClaudeFlowApp(App):
         input_box = self.query_one(InputBox)
         chat_view = self.query_one(ChatView)
 
-        # 응답 스트리밍 중이면 중단 플래그 설정
+        # Worker 실행 중이면 취소
+        if self.current_worker and self.current_worker.is_running:
+            self.current_worker.cancel()
+            self.should_stop = True
+            chat_view.add_system_message("⏹️  응답 중단 중...", style="yellow")
+            return
+
+        # 응답 스트리밍 중이면 중단 플래그 설정 (fallback)
         if self.is_processing:
             self.should_stop = True
             chat_view.add_system_message("⏹️  응답 중단 중...", style="yellow")
