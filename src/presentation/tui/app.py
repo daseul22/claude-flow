@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from textual.app import App, ComposeResult
-from textual.binding import Binding
 from textual.containers import Container
 from textual.worker import Worker, WorkerState
 from rich.text import Text
@@ -25,6 +24,7 @@ from .services.logger import SessionLogger, LogManager
 from .services.project_utils import get_project_info
 from .services.feedback_loop import FeedbackLoop
 from .services.response_parser import ResponseParser
+from .utils.keymap import ShortcutDefinition, expand_shortcut
 
 
 class ClaudeFlowApp(App):
@@ -68,16 +68,22 @@ class ClaudeFlowApp(App):
     }
     """
 
+    _BINDING_DEFINITIONS = [
+        ShortcutDefinition("ctrl+n", "new_session", "새 세션"),
+        ShortcutDefinition("ctrl+o", "open_session", "세션 불러오기"),
+        ShortcutDefinition("ctrl+i", "project_info", "프로젝트 정보"),
+        ShortcutDefinition("ctrl+s", "settings", "설정"),
+        ShortcutDefinition("ctrl+slash", "help", "도움말"),
+        ShortcutDefinition("f1", "help", "도움말"),
+        ShortcutDefinition("ctrl+l", "clear_screen", "화면 지우기"),
+        ShortcutDefinition("ctrl+c", "interrupt", "중단"),
+        ShortcutDefinition("ctrl+q", "quit", "종료"),
+    ]
+
     BINDINGS = [
-        Binding("ctrl+n", "new_session", "새 세션"),
-        Binding("ctrl+o", "open_session", "세션 불러오기"),
-        Binding("ctrl+i", "project_info", "프로젝트 정보"),
-        Binding("ctrl+s", "settings", "설정"),
-        Binding("ctrl+slash", "help", "도움말"),
-        Binding("f1", "help", "도움말"),
-        Binding("ctrl+l", "clear_screen", "화면 지우기"),
-        Binding("ctrl+c", "interrupt", "중단"),
-        Binding("ctrl+q", "quit", "종료"),
+        binding
+        for definition in _BINDING_DEFINITIONS
+        for binding in expand_shortcut(definition)
     ]
 
     def __init__(self, project_path: Path, **kwargs):

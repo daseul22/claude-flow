@@ -3,6 +3,8 @@
 from textual.widgets import TextArea
 from textual.message import Message
 
+from ..utils.keymap import normalize_shortcut_key
+
 
 class InputBox(TextArea):
     """메시지 입력창"""
@@ -40,32 +42,34 @@ class InputBox(TextArea):
 
     async def on_key(self, event) -> None:
         """키 이벤트 처리"""
+        key = normalize_shortcut_key(event.key)
+
         # Shift+Enter는 줄바꿈 (기본 동작)
-        if event.key == "shift+enter":
+        if key == "shift+enter":
             # TextArea 기본 동작으로 줄바꿈
             return
         
         # Enter로 전송
-        elif event.key == "enter":
+        elif key == "enter":
             await self.submit_message()
             event.prevent_default()
             event.stop()
         
         # Ctrl+Enter도 전송 (대안)
-        elif event.key == "ctrl+enter":
+        elif key == "ctrl+enter":
             await self.submit_message()
             event.prevent_default()
             event.stop()
 
         # 위/아래 화살표로 히스토리 탐색 (입력창이 비어있을 때만)
-        elif event.key == "up" and not self.text:
+        elif key == "up" and not self.text:
             if self.input_history:
                 if self.history_index < len(self.input_history) - 1:
                     self.history_index += 1
                     self.text = self.input_history[-(self.history_index + 1)]
             event.prevent_default()
 
-        elif event.key == "down" and not self.text:
+        elif key == "down" and not self.text:
             if self.history_index > 0:
                 self.history_index -= 1
                 self.text = self.input_history[-(self.history_index + 1)]

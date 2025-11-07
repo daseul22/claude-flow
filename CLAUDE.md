@@ -643,3 +643,11 @@ npm run build
 - **타입 힌팅**: 점진적으로 `disallow_untyped_defs: true`로 전환
 - **문서화**: `docs/` 디렉토리에 API 문서 및 사용자 가이드 추가
 - **보안**: AST 화이트리스트를 설정 파일로 분리하여 확장 가능하도록 개선
+
+#### fix. TUI 한글 IME 단축키 정규화
+- 날짜: 2025-11-07 11:38 (Asia/Seoul)
+- 컨텍스트: 한글 입력기 활성 상태에서 Ctrl 조합 단축키가 Textual에서 인식되지 않는 문제를 해결하고자 함.
+- 변경사항: `src/presentation/tui/utils/keymap.py`: 한글-영문 키 매핑 헬퍼 추가 및 Binding 확장; `src/presentation/tui/app.py`: 단축키 정의를 헬퍼 기반으로 리팩터링; `src/presentation/tui/components/input_box.py`: 키 이벤트 정규화 적용; `tests/test_tui_keymap.py`: 키 매핑 단위 테스트 추가.
+- 영향범위: 기능
+- 테스트: 단위(환경 제약으로 실행 불가, 추후 확인 필요)
+- 후속 조치: Textual/pytest 의존성 설치 가능한 환경에서 단위 테스트 및 린트 재실행
