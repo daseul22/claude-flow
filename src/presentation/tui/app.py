@@ -217,12 +217,16 @@ class ClaudeFlowApp(App):
             max_file_size_mb=self.config.config.logging.max_file_size_mb,
         )
 
-        # 에이전트 클라이언트 생성
-        self.agent = AgentClient(
-            project_path=self.project_path,
-            model=session.model,
-            claude_md_content=self.claude_md_content,
-        )
+        # 에이전트 클라이언트 생성 (또는 재사용)
+        if self.agent is None:
+            self.agent = AgentClient(
+                project_path=self.project_path,
+                model=session.model,
+                claude_md_content=self.claude_md_content,
+            )
+        else:
+            # 기존 에이전트 세션 초기화 (새 세션이므로 맥락 리셋)
+            self.agent.reset_session()
 
         # 피드백 루프 생성
         if self.config.config.feedback_loop_defaults.enabled:
@@ -576,6 +580,10 @@ class ClaudeFlowApp(App):
         try:
             # 세션 로드
             session = self.session_manager.load_session(session_id)
+            
+            # SDK 세션 초기화 (다른 세션이므로 맥락 리셋)
+            if self.agent:
+                self.agent.reset_session()
 
             # 대화 기록 복원
             chat_view.clear_messages()

@@ -22,6 +22,7 @@ class AgentClient:
         self.project_path = project_path
         self.model = model
         self.claude_md_content = claude_md_content
+        self.current_session_id: Optional[str] = None  # SDK 세션 ID 저장
 
         # Claude OAuth Token 확인
         self.oauth_token = os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
@@ -75,10 +76,20 @@ class AgentClient:
         """메시지 전송 및 스트리밍 응답 (블록 파싱)"""
         parser = ResponseParser()
         
+        # 세션 ID 콜백 (첫 실행 후 세션 ID 저장)
+        def on_session_id(session_id: str):
+            if self.current_session_id is None:
+                # 첫 실행 - 새 세션 생성됨
+                self.current_session_id = session_id
+                import sys
+                print(f"[SDK] 새 세션 생성: {session_id[:16]}...", file=sys.stderr)
+            # 세션 재사용 시에는 로그 없음 (이미 저장됨)
+        
         try:
             async for chunk in self.worker.execute_task(
                 task_description=message,
-                resume_session_id=None,
+                resume_session_id=self.current_session_id,  # 세션 재사용
+                session_id_callback=on_session_id,  # 세션 ID 저장
             ):
                 # 워커 완료 메시지 필터링
                 if "└─ ✅" in chunk and "완료" in chunk:
@@ -145,6 +156,10 @@ class AgentClient:
         )
 
         return "\n".join(prompts)
+
+    def reset_session(self):
+        """SDK 세션 초기화 (새 세션 시작 시 호출)"""
+        self.current_session_id = None
 
     def estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
         """비용 추정 (USD)"""
