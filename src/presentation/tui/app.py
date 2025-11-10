@@ -1,8 +1,6 @@
 """Claude Flow TUI 메인 앱"""
 
-import asyncio
 import os
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -24,6 +22,13 @@ from .services.logger import SessionLogger, LogManager
 from .services.project_utils import get_project_info
 from .services.feedback_loop import FeedbackLoop
 from .services.response_parser import ResponseParser
+from .services.response_handler import ResponseCallbackHandler, FeedbackLoopCallbackHandler
+from .services.response_strategy import (
+    ResponseStrategy,
+    NormalResponseStrategy,
+    FeedbackLoopResponseStrategy,
+)
+from .services.settings_helpers import SettingsChangeDetector, SettingsApplicator
 from .utils.keymap import ShortcutDefinition, expand_shortcut
 
 
@@ -81,9 +86,7 @@ class ClaudeFlowApp(App):
     ]
 
     BINDINGS = [
-        binding
-        for definition in _BINDING_DEFINITIONS
-        for binding in expand_shortcut(definition)
+        binding for definition in _BINDING_DEFINITIONS for binding in expand_shortcut(definition)
     ]
 
     def __init__(self, project_path: Path, **kwargs):
@@ -126,9 +129,7 @@ class ClaudeFlowApp(App):
     def compose(self) -> ComposeResult:
         """UI 구성"""
         with Container(id="main-container"):
-            yield ChatView(
-                show_timestamps=self.config.config.display.show_timestamps
-            )
+            yield ChatView(show_timestamps=self.config.config.display.show_timestamps)
             yield InputBox()
             yield StatusBar()
 
@@ -142,7 +143,7 @@ class ClaudeFlowApp(App):
                 f"⚠️  터미널 크기가 작습니다 (현재: {size.width}x{size.height})\n"
                 f"권장 최소 크기: 80x24\n"
                 f"터미널 크기를 조정해주세요.",
-                style="yellow"
+                style="yellow",
             )
 
         # 새 세션 생성
@@ -154,20 +155,14 @@ class ClaudeFlowApp(App):
             f"Claude Flow TUI v1.0 시작됨\n"
             f"프로젝트: {self.project_name}\n"
             f"경로: {self.project_path}",
-            style="cyan"
+            style="cyan",
         )
 
         if self.git_info:
-            chat_view.add_system_message(
-                f"Git 브랜치: {self.git_info['branch']}",
-                style="dim"
-            )
+            chat_view.add_system_message(f"Git 브랜치: {self.git_info['branch']}", style="dim")
 
         if self.claude_md_content:
-            chat_view.add_system_message(
-                "✓ CLAUDE.md 로드됨",
-                style="green"
-            )
+            chat_view.add_system_message("✓ CLAUDE.md 로드됨", style="green")
 
         # 입력창 포커스
         self.query_one(InputBox).focus()
@@ -176,27 +171,27 @@ class ClaudeFlowApp(App):
         """터미널 크기 변경 시"""
         # 자동으로 레이아웃 조정됨 (Textual이 처리)
         pass
-    
+
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         """Worker 상태 변경 감지"""
         worker = event.worker
-        
+
         # Worker가 시작되면 처리 중 플래그 설정
         if worker.state == WorkerState.RUNNING:
             if worker.name == "agent_response":
                 self.is_processing = True
-        
+
         # Worker가 완료/취소되면 플래그 초기화
         elif worker.state in (WorkerState.SUCCESS, WorkerState.CANCELLED, WorkerState.ERROR):
             if worker.name == "agent_response":
                 self.is_processing = False
                 self.should_stop = False
-                
+
                 # 취소된 경우
                 if worker.state == WorkerState.CANCELLED:
                     chat_view = self.query_one(ChatView)
                     chat_view.add_system_message("✓ 응답이 중단되었습니다.", style="yellow")
-                
+
                 # 에러 발생
                 elif worker.state == WorkerState.ERROR and worker.error:
                     chat_view = self.query_one(ChatView)
@@ -206,6 +201,7 @@ class ClaudeFlowApp(App):
         """새 세션 생성"""
         # 피드백 루프 설정 준비
         from .services.session_manager import FeedbackLoopConfig
+
         feedback_loop_config = FeedbackLoopConfig(
             enabled=self.config.config.feedback_loop_defaults.enabled,
             condition_prompt="",
@@ -214,7 +210,7 @@ class ClaudeFlowApp(App):
             current_iteration=0,
             feedback_input="",
         )
-        
+
         # 세션 생성
         session = self.session_manager.create_session(
             project_name=self.project_name,
@@ -262,10 +258,13 @@ class ClaudeFlowApp(App):
         status_bar.update_feedback_loop(session.feedback_loop.enabled)
 
         if self.logger:
-            self.logger.log_event("new_session", {
-                "session_id": session.session_id,
-                "project": self.project_name,
-            })
+            self.logger.log_event(
+                "new_session",
+                {
+                    "session_id": session.session_id,
+                    "project": self.project_name,
+                },
+            )
 
     async def on_input_box_submitted(self, message: InputBox.Submitted) -> None:
         """메시지 전송 처리"""
@@ -302,10 +301,10 @@ class ClaudeFlowApp(App):
     async def handle_cd_command(self, command: str):
         """cd 명령어 처리"""
         chat_view = self.query_one(ChatView)
-        
+
         # 경로 추출
         path_str = command[3:].strip()
-        
+
         if not path_str:
             # 현재 디렉토리 표시
             chat_view.add_system_message(f"현재 디렉토리: {self.project_path}", style="cyan")
@@ -317,9 +316,9 @@ class ClaudeFlowApp(App):
                 if not self.directory_history:
                     chat_view.add_system_message("이전 디렉토리가 없습니다.", style="yellow")
                     return
-                
+
                 new_path = self.directory_history.pop()
-                
+
             # 경로 해석
             elif path_str == "~":
                 new_path = Path.home()
@@ -340,30 +339,24 @@ class ClaudeFlowApp(App):
             if not new_path.is_dir():
                 chat_view.add_error_message(f"디렉토리가 아닙니다: {new_path}")
                 return
-            
+
             # 권한 검증 (읽기/쓰기 가능 여부)
             if not os.access(new_path, os.R_OK):
-                chat_view.add_system_message(
-                    f"⚠️  읽기 권한이 없습니다: {new_path}",
-                    style="yellow"
-                )
-            
+                chat_view.add_system_message(f"⚠️  읽기 권한이 없습니다: {new_path}", style="yellow")
+
             if not os.access(new_path, os.W_OK):
-                chat_view.add_system_message(
-                    f"⚠️  쓰기 권한이 없습니다: {new_path}",
-                    style="yellow"
-                )
+                chat_view.add_system_message(f"⚠️  쓰기 권한이 없습니다: {new_path}", style="yellow")
 
             # 작업 디렉토리 변경
             old_path = self.project_path
-            
+
             # cd - 가 아닌 경우에만 히스토리에 추가
             if path_str != "-":
                 self.directory_history.append(old_path)
                 # 히스토리는 최대 10개만 유지
                 if len(self.directory_history) > 10:
                     self.directory_history.pop(0)
-            
+
             self.project_path = new_path.absolute()
 
             # 프로젝트 루트 외부 이동 경고
@@ -374,7 +367,7 @@ class ClaudeFlowApp(App):
                 chat_view.add_system_message(
                     "⚠️  프로젝트 루트 외부로 이동했습니다.\n"
                     f"초기 프로젝트: {self.initial_project_path}",
-                    style="yellow"
+                    style="yellow",
                 )
 
             # 세션 업데이트
@@ -386,13 +379,12 @@ class ClaudeFlowApp(App):
                 if not save_success:
                     chat_view.add_system_message(
                         "⚠️  세션 저장 실패 (작업 디렉토리 변경은 적용되었으나 저장되지 않음)",
-                        style="yellow"
+                        style="yellow",
                     )
 
             # 알림
             chat_view.add_system_message(
-                f"작업 디렉토리 변경:\n  {old_path}\n  → {self.project_path}",
-                style="green"
+                f"작업 디렉토리 변경:\n  {old_path}\n  → {self.project_path}", style="green"
             )
 
             # 로그
@@ -405,149 +397,40 @@ class ClaudeFlowApp(App):
     async def get_agent_response(self, user_message: str) -> None:
         """에이전트 응답 받기 (실시간 스트리밍) - Worker에서 실행"""
         from textual.worker import get_current_worker
-        
+
         chat_view = self.query_one(ChatView)
         worker = get_current_worker()
-        
-        # 처리 중 플래그 설정
-        self.is_processing = True
-        self.should_stop = False
+
+        # 초기화
+        self._initialize_response_state()
+        self._add_response_header(chat_view)
 
         try:
-            # 응답 헤더 추가
-            self._add_response_header(chat_view)
+            # 응답 전략 선택
+            strategy = self._select_response_strategy()
+            if strategy is None:
+                # 피드백 루프 설정 오류
+                return
 
-            # 피드백 루프 활성화 확인
-            session = self.session_manager.current_session
-            use_feedback_loop = (
-                self.feedback_loop is not None 
-                and session 
-                and session.feedback_loop.enabled
+            # 콜백 핸들러 생성
+            handler = self._create_response_handler(strategy)
+
+            # 응답 실행
+            response_text = await strategy.execute(
+                agent=self.agent,
+                message=user_message,
+                handler=handler,
+                worker=worker,
+                should_stop_flag=lambda: self.should_stop,
             )
 
-            # 피드백 루프 활성화했지만 조건 프롬프트 없음
-            if use_feedback_loop and not session.feedback_loop.condition_prompt.strip():
-                chat_view.add_error_message(
-                    "⚠️  피드백 루프가 활성화되었지만 조건 프롬프트가 없습니다.\n"
-                    "Ctrl+,로 설정에서 '조건 프롬프트'를 입력하세요."
-                )
-                use_feedback_loop = False
-
-            # 실시간 스트리밍 응답
-            response_text = ""
-
-            # 블록 처리용 파서
-            parser = ResponseParser()
-
-            # 콜백 함수들
-            def on_thinking_callback(thinking: str):
-                show_full = self.config.config.display.show_thinking_full
-                formatted = parser.format_thinking_block(thinking, show_full=show_full)
-                chat_view.write(formatted)  # Rich Text 객체는 그대로
-                chat_view.write("")  # 블록 간 간격
-
-            def on_tool_use_callback(tool_name: str, tool_input: dict):
-                formatted = parser.format_tool_use(tool_name, tool_input)
-                chat_view.write(formatted)  # Rich Text 객체는 그대로
-                chat_view.write("")  # 블록 간 간격
-
-            def on_tool_result_callback(result: str):
-                formatted = parser.format_tool_result("", result)
-                chat_view.write(formatted)  # Rich Text 객체는 그대로
-                chat_view.write("")  # 블록 간 간격
-
-            if use_feedback_loop:
-                # 피드백 루프 사용
-                chat_view.add_system_message(
-                    f"🔁 피드백 루프 활성화 (최대 {session.feedback_loop.max_iterations}회)",
-                    style="yellow"
-                )
-
-                # 평가 LLM 출력 콜백
-                def on_eval_start():
-                    """평가 시작"""
-                    from rich.text import Text
-                    eval_header = Text("\n", style="")
-                    eval_header.append("━" * 60, style="dim yellow")
-                    eval_header.append("\n🔍 ", style="yellow")
-                    eval_header.append("조건 평가 중...", style="bold yellow")
-                    chat_view.write(eval_header)
-                
-                def on_eval_output(chunk: str):
-                    """평가 LLM 출력"""
-                    chat_view.write_wrapped(chunk)
-                
-                def on_eval_result(condition_met: bool, eval_response: str):
-                    """평가 결과"""
-                    from rich.text import Text
-                    result_text = Text()
-                    if condition_met:
-                        result_text.append("✅ 조건 충족", style="bold green")
-                    else:
-                        result_text.append("❌ 조건 미충족 - 재시도 필요", style="bold red")
-                    result_text.append("\n", style="")
-                    result_text.append("━" * 60, style="dim yellow")
-                    chat_view.write(result_text)
-
-                iteration = 0
-                async for chunk in self.feedback_loop.run_with_feedback(
-                    agent=self.agent,
-                    initial_message=user_message,
-                    condition_prompt=session.feedback_loop.condition_prompt,
-                    feedback_input=session.feedback_loop.feedback_input,
-                    on_iteration=lambda iter_num, status: chat_view.add_system_message(
-                        f"🔄 반복 {iter_num}: {status}",
-                        style="dim"
-                    ),
-                    on_thinking=on_thinking_callback,
-                    on_tool_use=on_tool_use_callback,
-                    on_eval_start=on_eval_start,
-                    on_eval_output=on_eval_output,
-                    on_eval_result=on_eval_result,
-                ):
-                    # Worker 취소 체크 (Ctrl+C 즉시 반응)
-                    if worker.is_cancelled or self.should_stop:
-                        return
-                    
-                    response_text += chunk
-                    chat_view.write_wrapped(chunk)  # 문자열은 줄바꿈 처리
-            else:
-                # 일반 응답
-                async for chunk in self.agent.send_message(
-                    user_message,
-                    on_thinking=on_thinking_callback,
-                    on_tool_use=on_tool_use_callback,
-                    on_tool_result=on_tool_result_callback,
-                ):
-                    # Worker 취소 체크 (Ctrl+C 즉시 반응)
-                    if worker.is_cancelled or self.should_stop:
-                        return
-                    
-                    response_text += chunk
-                    chat_view.write_wrapped(chunk)  # 문자열은 줄바꿈 처리
-
-            # 세션에 저장
-            self.session_manager.add_message(
-                role="assistant",
-                content=response_text,
-                tokens={"input": 0, "output": len(response_text.split())},
-            )
-
-            # 로그
-            if self.logger:
-                self.logger.log_message("assistant", response_text)
-
-            # 상태바 업데이트 (토큰)
-            self._update_token_display(len(response_text))
+            # 세션 저장 및 상태 업데이트
+            self._save_response(response_text)
 
         except Exception as e:
-            chat_view.add_error_message(str(e))
-            if self.logger:
-                self.logger.log_error(e)
+            self._handle_response_error(e, chat_view)
         finally:
-            # 처리 완료
-            self.is_processing = False
-            self.should_stop = False
+            self._cleanup_response_state()
 
     async def action_new_session(self) -> None:
         """새 세션 생성"""
@@ -569,7 +452,7 @@ class ClaudeFlowApp(App):
             """세션 선택 콜백"""
             if result is None:
                 return
-            
+
             # 삭제 액션 처리
             if isinstance(result, str) and result.startswith("DELETE:"):
                 session_id = result[7:]  # "DELETE:" 제거
@@ -584,32 +467,31 @@ class ClaudeFlowApp(App):
     def _delete_session_sync(self, session_id: str) -> None:
         """세션 삭제 (동기 버전, callback에서 호출)"""
         chat_view = self.query_one(ChatView)
-        
+
         try:
             # 세션 삭제
             self.session_manager.delete_session(session_id)
-            
+
             # 알림
             chat_view.add_system_message(
-                f"✅ 세션 {session_id[:8]}이(가) 삭제되었습니다.",
-                style="green"
+                f"✅ 세션 {session_id[:8]}이(가) 삭제되었습니다.", style="green"
             )
-            
+
             # 로그
             if self.logger:
                 self.logger.log_event("session_deleted", {"session_id": session_id})
-                
+
         except Exception as e:
             chat_view.add_error_message(f"세션 삭제 실패: {str(e)}")
 
     def load_selected_session(self, session_id: str) -> None:
         """선택된 세션 불러오기"""
         chat_view = self.query_one(ChatView)
-        
+
         try:
             # 세션 로드
             session = self.session_manager.load_session(session_id)
-            
+
             # SDK 세션 초기화 (다른 세션이므로 맥락 리셋)
             if self.agent:
                 self.agent.reset_session()
@@ -621,7 +503,7 @@ class ClaudeFlowApp(App):
             # 메시지 복원
             for msg in session.messages:
                 timestamp = self._format_timestamp(msg.timestamp)
-                
+
                 if msg.role == "user":
                     chat_view.add_user_message(msg.content, timestamp)
                 elif msg.role == "assistant":
@@ -632,13 +514,10 @@ class ClaudeFlowApp(App):
                 status_bar = self.query_one(StatusBar)
                 status_bar.update_session(session.session_id)
                 cost = self.agent.estimate_cost(
-                    session.total_tokens["input"],
-                    session.total_tokens["output"]
+                    session.total_tokens["input"], session.total_tokens["output"]
                 )
                 status_bar.update_tokens(
-                    session.total_tokens["input"],
-                    session.total_tokens["output"],
-                    cost
+                    session.total_tokens["input"], session.total_tokens["output"], cost
                 )
 
         except Exception as e:
@@ -666,7 +545,7 @@ class ClaudeFlowApp(App):
     async def action_settings(self) -> None:
         """설정 열기"""
         chat_view = self.query_one(ChatView)
-        
+
         # 현재 설정 수집 - 항상 config 파일의 값 사용 (세션 값이 아님!)
         session = self.session_manager.current_session
         current_settings = {
@@ -689,128 +568,58 @@ class ClaudeFlowApp(App):
             if settings_result is None:
                 chat_view.add_system_message("설정 변경이 취소되었습니다.", style="yellow")
                 return
-            
+
             self._apply_settings(settings_result)
-        
+
         modal = SettingsModal(current_settings)
         self.push_screen(modal, callback=on_settings_saved)
-    
+
     def _apply_settings(self, settings_result) -> None:
         """설정 적용 (콜백에서 호출)"""
         chat_view = self.query_one(ChatView)
-        
+
         try:
             # SettingsResult를 dict로 변환
-            result = settings_result.to_dict()
-            
-            # 설정 변경 전 값 기록 (비교용)
-            old_settings = {
-                "model": self.config.config.default_model,
-                "feedback_loop_enabled": self.config.config.feedback_loop_defaults.enabled,
-                "max_iterations": self.config.config.feedback_loop_defaults.max_iterations,
-            }
-            
-            # 설정 적용
-            self.config.config.default_model = result["model"]
-            self.config.config.feedback_loop_defaults.enabled = result["feedback_loop_enabled"]
-            self.config.config.feedback_loop_defaults.max_iterations = result["max_iterations"]
-            self.config.config.feedback_loop_defaults.condition_model = result["condition_model"]
-            self.config.config.display.show_statusbar = result["show_statusbar"]
-            self.config.config.display.show_timestamps = result["show_timestamps"]
-            self.config.config.display.show_token_counts = result["show_token_counts"]
-            self.config.config.display.enable_thinking = result["enable_thinking"]
-            self.config.config.display.show_thinking_full = result["show_thinking_full"]
+            settings = settings_result.to_dict()
 
-            # 설정 저장 (with 에러 처리)
+            # 변경 감지
+            old_settings = self._get_current_settings_dict()
+            detector = SettingsChangeDetector(old_settings, settings)
+
+            # 설정 적용
+            applicator = SettingsApplicator(self.config, self.session_manager)
+            applicator.apply_global_settings(settings)
+
+            # 설정 저장
             try:
-                self.config.save()
-                # 저장 성공 확인
-                if not self.config.config_path.exists():
-                    raise FileNotFoundError(f"설정 파일이 생성되지 않았습니다: {self.config.config_path}")
-                
-                # 세션 로그에 설정 변경 이벤트 기록
-                if self.logger:
-                    changes = []
-                    if old_settings["model"] != result["model"]:
-                        changes.append(f"모델: {old_settings['model']} → {result['model']}")
-                    if old_settings["feedback_loop_enabled"] != result["feedback_loop_enabled"]:
-                        changes.append(f"피드백 루프: {old_settings['feedback_loop_enabled']} → {result['feedback_loop_enabled']}")
-                    if old_settings["max_iterations"] != result["max_iterations"]:
-                        changes.append(f"최대 반복: {old_settings['max_iterations']} → {result['max_iterations']}")
-                    
-                    self.logger.log_event("settings_changed", {
-                        "config_file": str(self.config.config_path),
-                        "changes": changes,
-                        "new_settings": {
-                            "model": result["model"],
-                            "feedback_loop_enabled": result["feedback_loop_enabled"],
-                            "max_iterations": result["max_iterations"],
-                            "condition_model": result["condition_model"],
-                        }
-                    })
-                    
+                applicator.save_config()
             except Exception as save_error:
                 chat_view.add_error_message(f"❌ 설정 파일 저장 실패: {save_error}")
                 if self.logger:
                     self.logger.log_error(save_error)
                 return
 
-            # 세션에도 피드백 루프 설정 저장
-            if self.session_manager.current_session:
-                self.session_manager.current_session.feedback_loop.enabled = result["feedback_loop_enabled"]
-                self.session_manager.current_session.feedback_loop.condition_prompt = result.get("condition_prompt", "")
-                self.session_manager.current_session.feedback_loop.max_iterations = result["max_iterations"]
-                self.session_manager.current_session.feedback_loop.condition_model = result["condition_model"]
-                self.session_manager.current_session.feedback_loop.feedback_input = result.get("feedback_input", "")
-
-                # 세션 저장 (실패 시 경고)
-                save_success = self.session_manager.save_session(
-                    self.session_manager.current_session
+            # 세션 설정 적용
+            session_save_success = applicator.apply_session_settings(settings)
+            if not session_save_success:
+                chat_view.add_system_message(
+                    "⚠️  세션 저장 실패 (설정은 적용되었으나 세션에 저장되지 않음)",
+                    style="yellow",
                 )
-                if not save_success:
-                    chat_view.add_system_message(
-                        "⚠️  세션 저장 실패 (설정은 적용되었으나 세션에 저장되지 않음)",
-                        style="yellow"
-                    )
 
-            # 피드백 루프 재생성 (설정 변경 시)
-            if result["feedback_loop_enabled"]:
-                self.feedback_loop = FeedbackLoop(
-                    project_path=self.project_path,
-                    condition_model=result["condition_model"],
-                    max_iterations=result["max_iterations"],
-                )
+            # 피드백 루프 재생성
+            if settings["feedback_loop_enabled"]:
+                self.feedback_loop = applicator.create_feedback_loop(settings, self.project_path)
             else:
                 self.feedback_loop = None
 
-            # 알림 (상세)
-            feedback_status = "활성화" if result['feedback_loop_enabled'] else "비활성화"
-            condition_info = ""
-            if result['feedback_loop_enabled'] and result.get('condition_prompt'):
-                condition_info = f"\n  조건: {result['condition_prompt'][:40]}..."
-            
-            chat_view.add_system_message(
-                f"✅ 설정이 저장되었습니다.\n"
-                f"  파일: {self.config.config_path}\n"
-                f"  모델: {result['model']}\n"
-                f"  피드백 루프: {feedback_status}{condition_info}\n"
-                f"  최대 반복: {result['max_iterations']}회",
-                style="green"
-            )
+            # UI 설정 적용
+            self._apply_ui_settings(settings, chat_view)
 
-            # 타임스탬프 표시 토글 적용
-            chat_view.show_timestamps = result["show_timestamps"]
-            
-            # 상태바 표시/숨김
-            status_bar = self.query_one(StatusBar)
-            if self.config.config.display.show_statusbar:
-                status_bar.styles.display = "block"
-            else:
-                status_bar.styles.display = "none"
-            
-            # 상태바 업데이트 (피드백 루프 상태)
-            status_bar.update_feedback_loop(result["feedback_loop_enabled"])
-            
+            # 로깅 및 알림
+            self._log_settings_changes(detector, settings)
+            self._show_settings_success_message(settings, chat_view)
+
         except Exception as e:
             chat_view.add_error_message(f"설정 처리 실패: {str(e)}")
             if self.logger:
@@ -866,15 +675,12 @@ class ClaudeFlowApp(App):
 
                 # Worker 종료 대기 (최대 2초)
                 import asyncio
+
                 try:
-                    await asyncio.wait_for(
-                        asyncio.to_thread(self.current_worker.wait),
-                        timeout=2.0
-                    )
+                    await asyncio.wait_for(asyncio.to_thread(self.current_worker.wait), timeout=2.0)
                 except asyncio.TimeoutError:
                     chat_view.add_system_message(
-                        "⚠️  Worker 종료 timeout (강제 종료됨)",
-                        style="yellow"
+                        "⚠️  Worker 종료 timeout (강제 종료됨)", style="yellow"
                     )
 
             # 세션 저장 (최종)
@@ -886,21 +692,25 @@ class ClaudeFlowApp(App):
 
                 # 종료 이벤트 로그
                 if self.logger:
-                    cost = self.agent.estimate_cost(total_input, total_output) if self.agent else 0.0
-                    self.logger.log_event("session_end", {
-                        "total_tokens": total_tokens,
-                        "input_tokens": total_input,
-                        "output_tokens": total_output,
-                        "estimated_cost": cost,
-                        "message_count": len(session.messages),
-                    })
+                    cost = (
+                        self.agent.estimate_cost(total_input, total_output) if self.agent else 0.0
+                    )
+                    self.logger.log_event(
+                        "session_end",
+                        {
+                            "total_tokens": total_tokens,
+                            "input_tokens": total_input,
+                            "output_tokens": total_output,
+                            "estimated_cost": cost,
+                            "message_count": len(session.messages),
+                        },
+                    )
 
                 # 최종 세션 저장
                 save_success = self.session_manager.save_session(session)
                 if not save_success:
                     chat_view.add_system_message(
-                        "⚠️  세션 저장 실패 (백업 파일 확인 필요)",
-                        style="red"
+                        "⚠️  세션 저장 실패 (백업 파일 확인 필요)", style="red"
                     )
                     # 사용자가 메시지를 볼 시간 제공
                     await asyncio.sleep(1.0)
@@ -917,6 +727,146 @@ class ClaudeFlowApp(App):
             self.exit()
 
     # ========== Helper Methods ==========
+
+    def _initialize_response_state(self) -> None:
+        """응답 처리 상태 초기화"""
+        self.is_processing = True
+        self.should_stop = False
+
+    def _select_response_strategy(self) -> Optional[ResponseStrategy]:
+        """응답 전략 선택 (피드백 루프 vs 일반)"""
+        session = self.session_manager.current_session
+        chat_view = self.query_one(ChatView)
+
+        # 피드백 루프 활성화 확인
+        use_feedback_loop = (
+            self.feedback_loop is not None and session and session.feedback_loop.enabled
+        )
+
+        # 피드백 루프 활성화했지만 조건 프롬프트 없음
+        if use_feedback_loop and not session.feedback_loop.condition_prompt.strip():
+            chat_view.add_error_message(
+                "⚠️  피드백 루프가 활성화되었지만 조건 프롬프트가 없습니다.\n"
+                "Ctrl+,로 설정에서 '조건 프롬프트'를 입력하세요."
+            )
+            return None
+
+        if use_feedback_loop:
+            # 피드백 루프 전략
+            return FeedbackLoopResponseStrategy(
+                feedback_loop=self.feedback_loop,
+                condition_prompt=session.feedback_loop.condition_prompt,
+                feedback_input=session.feedback_loop.feedback_input,
+                max_iterations=session.feedback_loop.max_iterations,
+            )
+        else:
+            # 일반 응답 전략
+            return NormalResponseStrategy()
+
+    def _create_response_handler(self, strategy: ResponseStrategy) -> ResponseCallbackHandler:
+        """응답 핸들러 생성"""
+        chat_view = self.query_one(ChatView)
+        parser = ResponseParser()
+        display_config = self.config.config.display
+
+        if isinstance(strategy, FeedbackLoopResponseStrategy):
+            # 피드백 루프 핸들러 (평가 콜백 포함)
+            return FeedbackLoopCallbackHandler(chat_view, parser, display_config)
+        else:
+            # 일반 핸들러
+            return ResponseCallbackHandler(chat_view, parser, display_config)
+
+    def _save_response(self, response_text: str) -> None:
+        """응답 저장 및 상태 업데이트"""
+        # 세션에 저장
+        self.session_manager.add_message(
+            role="assistant",
+            content=response_text,
+            tokens={"input": 0, "output": len(response_text.split())},
+        )
+
+        # 로그
+        if self.logger:
+            self.logger.log_message("assistant", response_text)
+
+        # 상태바 업데이트 (토큰)
+        self._update_token_display(len(response_text))
+
+    def _handle_response_error(self, error: Exception, chat_view: ChatView) -> None:
+        """응답 에러 처리"""
+        chat_view.add_error_message(str(error))
+        if self.logger:
+            self.logger.log_error(error)
+
+    def _cleanup_response_state(self) -> None:
+        """응답 처리 상태 정리"""
+        self.is_processing = False
+        self.should_stop = False
+
+    def _get_current_settings_dict(self) -> Dict[str, Any]:
+        """현재 설정을 딕셔너리로 반환"""
+        return {
+            "model": self.config.config.default_model,
+            "feedback_loop_enabled": self.config.config.feedback_loop_defaults.enabled,
+            "max_iterations": self.config.config.feedback_loop_defaults.max_iterations,
+            "condition_model": self.config.config.feedback_loop_defaults.condition_model,
+        }
+
+    def _apply_ui_settings(self, settings: Dict[str, Any], chat_view: ChatView) -> None:
+        """UI 설정 적용 (타임스탬프, 상태바 등)"""
+        # 타임스탬프 표시 토글
+        chat_view.show_timestamps = settings["show_timestamps"]
+
+        # 상태바 표시/숨김
+        status_bar = self.query_one(StatusBar)
+        if self.config.config.display.show_statusbar:
+            status_bar.styles.display = "block"
+        else:
+            status_bar.styles.display = "none"
+
+        # 상태바 업데이트 (피드백 루프 상태)
+        status_bar.update_feedback_loop(settings["feedback_loop_enabled"])
+
+    def _log_settings_changes(
+        self, detector: SettingsChangeDetector, settings: Dict[str, Any]
+    ) -> None:
+        """설정 변경 이력 로깅"""
+        if not self.logger:
+            return
+
+        changes = detector.get_changes()
+        if not changes:
+            return
+
+        self.logger.log_event(
+            "settings_changed",
+            {
+                "config_file": str(self.config.config_path),
+                "changes": changes,
+                "new_settings": {
+                    "model": settings["model"],
+                    "feedback_loop_enabled": settings["feedback_loop_enabled"],
+                    "max_iterations": settings["max_iterations"],
+                    "condition_model": settings["condition_model"],
+                },
+            },
+        )
+
+    def _show_settings_success_message(self, settings: Dict[str, Any], chat_view: ChatView) -> None:
+        """설정 저장 성공 메시지 표시"""
+        feedback_status = "활성화" if settings["feedback_loop_enabled"] else "비활성화"
+        condition_info = ""
+        if settings["feedback_loop_enabled"] and settings.get("condition_prompt"):
+            condition_info = f"\n  조건: {settings['condition_prompt'][:40]}..."
+
+        chat_view.add_system_message(
+            f"✅ 설정이 저장되었습니다.\n"
+            f"  파일: {self.config.config_path}\n"
+            f"  모델: {settings['model']}\n"
+            f"  피드백 루프: {feedback_status}{condition_info}\n"
+            f"  최대 반복: {settings['max_iterations']}회",
+            style="green",
+        )
 
     def _add_response_header(self, chat_view: ChatView) -> None:
         """응답 헤더 추가 (Claude Code 스타일: ● 사용)"""
@@ -949,4 +899,3 @@ class ClaudeFlowApp(App):
             return timestamp.split("T")[1][:8]
         # 이미 HH:MM:SS 형식이면 그대로
         return timestamp[:8]
-
