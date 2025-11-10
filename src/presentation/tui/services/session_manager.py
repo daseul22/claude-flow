@@ -111,11 +111,17 @@ class SessionManager:
         # 자동 저장
         self.save_session(self.current_session)
 
-    def save_session(self, session: Session) -> None:
-        """세션 저장"""
-        try:
-            session_file = self.sessions_dir / f"{session.session_id}.json"
+    def save_session(self, session: Session, max_retries: int = 3) -> bool:
+        """세션 저장 (재시도 로직 포함)
 
+        Returns:
+            bool: 저장 성공 여부
+        """
+        session_file = self.sessions_dir / f"{session.session_id}.json"
+        backup_file = self.sessions_dir / f"{session.session_id}.json.backup"
+
+        # 세션 데이터 직렬화
+        try:
             session_dict = {
                 "session_id": session.session_id,
                 "project_name": session.project_name,
@@ -138,11 +144,79 @@ class SessionManager:
                 "feedback_loop": asdict(session.feedback_loop),
                 "total_tokens": session.total_tokens,
             }
-
-            with open(session_file, "w", encoding="utf-8") as f:
-                json.dump(session_dict, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"세션 저장 실패: {e}")  # 로거가 없으므로 print 사용
+            import sys
+            print(
+                f"[CRITICAL] 세션 데이터 직렬화 실패: {e}\n"
+                f"세션 ID: {session.session_id}",
+                file=sys.stderr
+            )
+            return False
+
+        # 재시도 로직
+        for attempt in range(max_retries):
+            try:
+                # 기존 파일이 있으면 백업 생성
+                if session_file.exists():
+                    import shutil
+                    shutil.copy2(session_file, backup_file)
+
+                # 임시 파일에 먼저 저장 (원자적 쓰기)
+                temp_file = session_file.with_suffix('.json.tmp')
+                with open(temp_file, "w", encoding="utf-8") as f:
+                    json.dump(session_dict, f, indent=2, ensure_ascii=False)
+
+                # 검증: 저장된 파일 읽기 테스트
+                with open(temp_file, "r", encoding="utf-8") as f:
+                    json.load(f)  # 파싱 가능한지 확인
+
+                # 임시 파일을 실제 파일로 이동 (원자적 연산)
+                temp_file.replace(session_file)
+
+                # 백업 파일 삭제 (성공 시)
+                if backup_file.exists():
+                    backup_file.unlink()
+
+                return True
+
+            except (IOError, OSError, PermissionError) as e:
+                # 파일 시스템 에러 (디스크 가득 참, 권한 부족 등)
+                if attempt < max_retries - 1:
+                    # 재시도
+                    import time
+                    time.sleep(0.1 * (attempt + 1))  # 지수 백오프
+                    continue
+                else:
+                    # 최종 실패
+                    import sys
+                    error_msg = (
+                        f"[CRITICAL] 세션 저장 실패 ({max_retries}회 재시도 후):\n"
+                        f"  세션 ID: {session.session_id}\n"
+                        f"  파일: {session_file}\n"
+                        f"  에러: {e}\n"
+                    )
+
+                    # 백업 파일이 있으면 알림
+                    if backup_file.exists():
+                        error_msg += f"  백업: {backup_file} (이전 상태 보존됨)\n"
+
+                    print(error_msg, file=sys.stderr)
+                    return False
+
+            except Exception as e:
+                # 예상치 못한 에러
+                import sys
+                import traceback
+                print(
+                    f"[CRITICAL] 세션 저장 중 예상치 못한 에러:\n"
+                    f"  세션 ID: {session.session_id}\n"
+                    f"  에러: {e}\n"
+                    f"  트레이스:\n{traceback.format_exc()}",
+                    file=sys.stderr
+                )
+                return False
+
+        return False
 
     def load_session(self, session_id: str) -> Session:
         """세션 불러오기"""

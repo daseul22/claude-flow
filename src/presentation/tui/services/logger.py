@@ -71,17 +71,81 @@ class SessionLogger:
 
     def check_rotation(self):
         """로그 파일 크기 확인 및 로테이션"""
-        if self.log_file.exists() and self.log_file.stat().st_size > self.max_file_size:
+        if not self.log_file.exists():
+            return
+
+        if self.log_file.stat().st_size <= self.max_file_size:
+            return
+
+        try:
             # 백업 파일명
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_file = self.logs_dir / f"{self.session_id}_{timestamp}.log.gz"
 
-            # 압축 (간단히 rename만 수행, 실제로는 gzip 사용)
-            import shutil
-            shutil.move(str(self.log_file), str(backup_file))
+            # 로그 기록 (압축 전)
+            self.logger.info(f"로그 로테이션 시작: 크기 {self.log_file.stat().st_size:,} bytes")
 
-            # 새 로그 파일 시작
-            self.logger.info(f"로그 로테이션: {backup_file}")
+            # 핸들러 임시 제거 (파일 잠금 해제)
+            handlers = self.logger.handlers[:]
+            for handler in handlers:
+                handler.close()
+                self.logger.removeHandler(handler)
+
+            # gzip으로 압축
+            import gzip
+            import shutil
+
+            with open(self.log_file, 'rb') as f_in:
+                with gzip.open(backup_file, 'wb') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+
+            # 원본 파일 삭제
+            self.log_file.unlink()
+
+            # 핸들러 재생성 (새 로그 파일)
+            new_handler = logging.FileHandler(self.log_file, encoding="utf-8")
+            new_handler.setLevel(self.logger.level)
+            formatter = logging.Formatter(
+                "%(asctime)s - %(levelname)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+            new_handler.setFormatter(formatter)
+            self.logger.addHandler(new_handler)
+
+            # 로그 로테이션 완료 기록
+            compressed_size = backup_file.stat().st_size
+            self.logger.info(
+                f"로그 로테이션 완료: {backup_file.name} "
+                f"(압축 후: {compressed_size:,} bytes)"
+            )
+
+        except Exception as e:
+            # 로테이션 실패 시 에러 로그 (핸들러가 있으면 기록)
+            try:
+                self.logger.error(f"로그 로테이션 실패: {e}", exc_info=True)
+            except:
+                # 로거 자체가 실패했으면 stderr로 출력 (최후 수단)
+                import sys
+                print(f"[CRITICAL] 로그 로테이션 실패: {e}", file=sys.stderr)
+
+            # 핸들러가 제거된 상태면 복구 시도
+            if not self.logger.handlers:
+                try:
+                    recovery_handler = logging.FileHandler(self.log_file, encoding="utf-8")
+                    recovery_handler.setLevel(self.logger.level)
+                    formatter = logging.Formatter(
+                        "%(asctime)s - %(levelname)s - %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S",
+                    )
+                    recovery_handler.setFormatter(formatter)
+                    self.logger.addHandler(recovery_handler)
+                    self.logger.warning("로그 핸들러 복구 완료")
+                except Exception as recovery_error:
+                    import sys
+                    print(
+                        f"[CRITICAL] 로그 핸들러 복구 실패: {recovery_error}",
+                        file=sys.stderr
+                    )
 
 
 class LogManager:

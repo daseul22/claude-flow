@@ -380,7 +380,14 @@ class ClaudeFlowApp(App):
             # 세션 업데이트
             if self.session_manager.current_session:
                 self.session_manager.current_session.working_directory = str(self.project_path)
-                self.session_manager.save_session(self.session_manager.current_session)
+                save_success = self.session_manager.save_session(
+                    self.session_manager.current_session
+                )
+                if not save_success:
+                    chat_view.add_system_message(
+                        "⚠️  세션 저장 실패 (작업 디렉토리 변경은 적용되었으나 저장되지 않음)",
+                        style="yellow"
+                    )
 
             # 알림
             chat_view.add_system_message(
@@ -755,7 +762,16 @@ class ClaudeFlowApp(App):
                 self.session_manager.current_session.feedback_loop.max_iterations = result["max_iterations"]
                 self.session_manager.current_session.feedback_loop.condition_model = result["condition_model"]
                 self.session_manager.current_session.feedback_loop.feedback_input = result.get("feedback_input", "")
-                self.session_manager.save_session(self.session_manager.current_session)
+
+                # 세션 저장 (실패 시 경고)
+                save_success = self.session_manager.save_session(
+                    self.session_manager.current_session
+                )
+                if not save_success:
+                    chat_view.add_system_message(
+                        "⚠️  세션 저장 실패 (설정은 적용되었으나 세션에 저장되지 않음)",
+                        style="yellow"
+                    )
 
             # 피드백 루프 재생성 (설정 변경 시)
             if result["feedback_loop_enabled"]:
@@ -836,22 +852,41 @@ class ClaudeFlowApp(App):
             return
 
         # 아무것도 없으면 종료
-        self.action_quit()
+        await self.action_quit()
 
-    def action_quit(self) -> None:
-        """앱 종료"""
-        # 종료 전 세션 통계 표시
-        if self.session_manager.current_session:
-            session = self.session_manager.current_session
-            total_input = session.total_tokens["input"]
-            total_output = session.total_tokens["output"]
-            total_tokens = total_input + total_output
-            
-            if self.agent:
-                cost = self.agent.estimate_cost(total_input, total_output)
-                
-                # 로그에 기록
+    async def action_quit(self) -> None:
+        """앱 종료 (비동기 정리 작업 포함)"""
+        chat_view = self.query_one(ChatView)
+
+        try:
+            # 실행 중인 Worker 취소
+            if self.current_worker and self.current_worker.is_running:
+                self.should_stop = True
+                self.current_worker.cancel()
+
+                # Worker 종료 대기 (최대 2초)
+                import asyncio
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self.current_worker.wait),
+                        timeout=2.0
+                    )
+                except asyncio.TimeoutError:
+                    chat_view.add_system_message(
+                        "⚠️  Worker 종료 timeout (강제 종료됨)",
+                        style="yellow"
+                    )
+
+            # 세션 저장 (최종)
+            if self.session_manager.current_session:
+                session = self.session_manager.current_session
+                total_input = session.total_tokens["input"]
+                total_output = session.total_tokens["output"]
+                total_tokens = total_input + total_output
+
+                # 종료 이벤트 로그
                 if self.logger:
+                    cost = self.agent.estimate_cost(total_input, total_output) if self.agent else 0.0
                     self.logger.log_event("session_end", {
                         "total_tokens": total_tokens,
                         "input_tokens": total_input,
@@ -859,8 +894,27 @@ class ClaudeFlowApp(App):
                         "estimated_cost": cost,
                         "message_count": len(session.messages),
                     })
-        
-        self.exit()
+
+                # 최종 세션 저장
+                save_success = self.session_manager.save_session(session)
+                if not save_success:
+                    chat_view.add_system_message(
+                        "⚠️  세션 저장 실패 (백업 파일 확인 필요)",
+                        style="red"
+                    )
+                    # 사용자가 메시지를 볼 시간 제공
+                    await asyncio.sleep(1.0)
+
+        except Exception as e:
+            # 종료 중 에러가 발생해도 앱은 종료해야 함
+            chat_view.add_error_message(f"종료 중 에러 발생: {e}")
+            if self.logger:
+                self.logger.log_error(e)
+            await asyncio.sleep(0.5)
+
+        finally:
+            # 항상 종료
+            self.exit()
 
     # ========== Helper Methods ==========
 
