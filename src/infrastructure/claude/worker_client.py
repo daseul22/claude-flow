@@ -65,8 +65,13 @@ class WorkerAgent:
             try:
                 prompt_path = Path(prompt_text)
                 if not prompt_path.is_absolute():
-                    # 프로젝트 루트 기준으로 경로 해석
-                    prompt_path = get_project_root() / prompt_text
+                    # 프로젝트 디렉토리 기준으로 경로 해석 (project_dir 우선)
+                    # TUI 등에서 실행 시 사용자가 실행한 workdir 기준으로 찾음
+                    if self.project_dir:
+                        prompt_path = Path(self.project_dir) / prompt_text
+                    else:
+                        # project_dir이 없으면 TUI 원본 코드 프로젝트 루트 기준
+                        prompt_path = get_project_root() / prompt_text
 
                 if prompt_path.exists():
                     with open(prompt_path, 'r', encoding='utf-8') as f:
