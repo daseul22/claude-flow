@@ -17,12 +17,11 @@ class AgentClient:
         self,
         project_path: Path,
         model: str = "claude-sonnet-4.5",
-        claude_md_content: Optional[str] = None,
+        claude_md_content: Optional[str] = None,  # 더 이상 사용하지 않음 (하위 호환성 유지)
         enable_thinking: bool = True,  # Thinking 활성화 여부
     ):
         self.project_path = project_path
         self.model = model
-        self.claude_md_content = claude_md_content
         self.current_session_id: Optional[str] = None  # SDK 세션 ID 저장
         self.enable_thinking = enable_thinking
 
@@ -34,7 +33,7 @@ class AgentClient:
                 "Claude Code에서 OAuth 토큰을 발급받아 설정해주세요."
             )
 
-        # 시스템 프롬프트 구성
+        # 시스템 프롬프트 구성 (CLAUDE.md는 WorkerAgent가 자동 로드)
         system_prompt = self._build_system_prompt()
 
         # AgentConfig 생성 (기존 도메인 모델 사용)
@@ -47,7 +46,7 @@ class AgentClient:
             thinking=enable_thinking,  # 설정에서 받은 값 사용
         )
 
-        # WorkerAgent 생성
+        # WorkerAgent 생성 (project_dir 전달 → CLAUDE.md 자동 로드)
         self.worker = WorkerAgent(
             config=agent_config,
             project_dir=str(project_path)
@@ -74,8 +73,20 @@ class AgentClient:
         on_thinking: Optional[Callable[[str], None]] = None,
         on_tool_use: Optional[Callable[[str, Dict], None]] = None,
         on_tool_result: Optional[Callable[[str], None]] = None,
+        on_todo_update: Optional[Callable[[list], None]] = None,
+        usage_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> AsyncIterator[str]:
-        """메시지 전송 및 스트리밍 응답 (블록 파싱)"""
+        """메시지 전송 및 스트리밍 응답 (블록 파싱)
+
+        Args:
+            message: 전송할 메시지
+            on_token: 텍스트 토큰 콜백
+            on_thinking: ThinkingBlock 콜백
+            on_tool_use: 도구 사용 콜백
+            on_tool_result: 도구 결과 콜백
+            on_todo_update: Todo 업데이트 콜백
+            usage_callback: 토큰 사용량 정보 콜백 (세션 통계 추적용)
+        """
         parser = ResponseParser()
         
         # 세션 ID 콜백 (첫 실행 후 세션 ID 저장)
@@ -90,6 +101,7 @@ class AgentClient:
         try:
             async for chunk in self.worker.execute_task(
                 task_description=message,
+                usage_callback=usage_callback,  # 토큰 사용량 콜백
                 resume_session_id=self.current_session_id,  # 세션 재사용
                 session_id_callback=on_session_id,  # 세션 ID 저장
             ):
@@ -120,6 +132,15 @@ class AgentClient:
                             elif block_type == "tool_use":
                                 tool_name = block.get("name", "unknown")
                                 tool_input = block.get("input", {})
+
+                                # TodoWrite 도구 특별 처리
+                                if tool_name == "TodoWrite" and "todos" in tool_input:
+                                    if on_todo_update:
+                                        on_todo_update(tool_input["todos"])
+                                    # TodoWrite는 일반 tool_use 콜백도 호출하지 않음 (중복 방지)
+                                    continue
+
+                                # 일반 도구 사용
                                 if on_tool_use:
                                     on_tool_use(tool_name, tool_input)
                                 # JSON은 yield하지 않음
@@ -141,23 +162,17 @@ class AgentClient:
             yield error_msg
 
     def _build_system_prompt(self) -> str:
-        """시스템 프롬프트 구성"""
-        prompts = []
+        """시스템 프롬프트 구성
 
-        # CLAUDE.md 내용 추가
-        if self.claude_md_content:
-            prompts.append("# 프로젝트 컨텍스트 (CLAUDE.md)")
-            prompts.append(self.claude_md_content)
-            prompts.append("")
-
-        # 기본 시스템 프롬프트
-        prompts.append(
+        Note: CLAUDE.md는 WorkerAgent._load_system_prompt()에서 자동으로 로드되므로
+              여기서는 추가하지 않습니다 (중복 방지).
+        """
+        # 기본 시스템 프롬프트만 반환 (CLAUDE.md는 WorkerAgent가 처리)
+        return (
             "당신은 소프트웨어 개발을 돕는 AI 에이전트입니다.\n"
             "사용자의 요청을 정확히 이해하고, 필요한 작업을 수행하세요.\n"
             "파일을 읽고 쓸 수 있으며, 터미널 명령어를 실행할 수 있습니다."
         )
-
-        return "\n".join(prompts)
 
     def reset_session(self):
         """SDK 세션 초기화 (새 세션 시작 시 호출)"""

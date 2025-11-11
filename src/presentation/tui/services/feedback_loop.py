@@ -83,6 +83,7 @@ class FeedbackLoop:
         on_eval_start: Optional[Callable[[], None]] = None,
         on_eval_output: Optional[Callable[[str], None]] = None,
         on_eval_result: Optional[Callable[[bool, str], None]] = None,
+        on_todo_update: Optional[Callable[[list], None]] = None,
     ) -> AsyncIterator[str]:
         """피드백 루프 실행
         
@@ -104,6 +105,7 @@ class FeedbackLoop:
                 current_message,
                 on_thinking=on_thinking,
                 on_tool_use=on_tool_use,
+                on_todo_update=on_todo_update if on_todo_update else None,
             ):
                 output += chunk
                 yield chunk

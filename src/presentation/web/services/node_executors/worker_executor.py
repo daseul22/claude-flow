@@ -356,6 +356,33 @@ class WorkerNodeExecutor(BaseNodeExecutor):
 
             elapsed_time = time.time() - start_time
 
+            # 세션 통계 업데이트 (토큰 사용량 누적)
+            if self.on_session_stats_update and worker.last_session_id and node_token_usage:
+                # usage_dict 생성
+                usage_dict = {
+                    "input_tokens": node_token_usage.input_tokens,
+                    "output_tokens": node_token_usage.output_tokens,
+                    "cache_read_tokens": 0,  # SDK 응답에 있으면 추출, 없으면 0
+                    "cache_creation_tokens": 0,  # SDK 응답에 있으면 추출, 없으면 0
+                }
+
+                try:
+                    self.on_session_stats_update(
+                        worker.last_session_id,  # SDK 세션 ID
+                        node_id,
+                        agent_name,
+                        agent_config.model,
+                        usage_dict,
+                    )
+                    logger.info(
+                        f"[{session_id}] 📊 세션 통계 업데이트: SDK 세션 {worker.last_session_id[:8]}..."
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"[{session_id}] ⚠️  세션 통계 업데이트 실패: {e}",
+                        exc_info=True
+                    )
+
             complete_event = WorkflowNodeExecutionEvent(
                 event_type="node_complete",
                 node_id=node_id,

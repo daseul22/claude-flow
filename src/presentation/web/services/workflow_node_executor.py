@@ -60,6 +60,7 @@ class WorkflowNodeExecutor:
         user_input_queues: Dict[str, asyncio.Queue],
         cancelled_sessions: Set[str],
         on_node_session_update: Optional[callable] = None,
+        on_session_stats_update: Optional[callable] = None,
     ):
         """
         WorkflowNodeExecutor 초기화
@@ -75,6 +76,7 @@ class WorkflowNodeExecutor:
             user_input_queues: 사용자 입력 Queue (참조)
             cancelled_sessions: 취소된 세션 집합 (참조)
             on_node_session_update: 노드 세션 업데이트 콜백 (node_id, session_id)
+            on_session_stats_update: 세션 통계 업데이트 콜백 (session_id, node_id, agent_name, model, usage_dict)
         """
         self.config_loader = config_loader
         self.agent_config_map = agent_config_map
@@ -88,6 +90,7 @@ class WorkflowNodeExecutor:
         self.user_input_queues = user_input_queues
         self.cancelled_sessions = cancelled_sessions
         self.on_node_session_update = on_node_session_update
+        self.on_session_stats_update = on_session_stats_update
 
         # 노드 타입별 Executor 생성 (Strategy Pattern)
         executor_args = {
@@ -101,6 +104,7 @@ class WorkflowNodeExecutor:
             "user_input_queues": user_input_queues,
             "cancelled_sessions": cancelled_sessions,
             "on_node_session_update": on_node_session_update,
+            "on_session_stats_update": on_session_stats_update,
         }
 
         self.input_executor = InputNodeExecutor(**executor_args)

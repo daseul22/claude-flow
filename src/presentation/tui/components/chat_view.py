@@ -1,6 +1,6 @@
 """대화 뷰 컴포넌트"""
 
-from typing import Optional
+from typing import Optional, Union
 from datetime import datetime
 import textwrap
 
@@ -34,11 +34,27 @@ class ChatView(RichLog):
         )
         self.show_timestamps = show_timestamps
 
-    def write_wrapped(self, content: str) -> None:
-        """텍스트 출력 (자동 줄바꿈 처리)"""
+    def write_wrapped(self, content: Union[str, Text]) -> None:
+        """텍스트 출력 (자동 줄바꿈 처리)
+
+        Args:
+            content: 출력할 텍스트 (str 또는 Text 객체)
+
+        Note:
+            Text 객체의 경우 스타일이 보존되지 않고 일반 문자열로 변환됩니다.
+            스타일을 보존하려면 write() 메서드를 직접 사용하세요.
+        """
+        # Text 객체는 일반 문자열로 변환 (스타일 제거)
+        # RichLog의 wrap=True 옵션으로 자동 줄바꿈이 되므로
+        # Text 객체는 그대로 write()로 전달하는 것이 더 좋습니다
+        if isinstance(content, Text):
+            # Text 객체는 그대로 write()로 전달
+            super().write(content)
+            return
+
         # 터미널 너비 가져오기 (패딩 고려)
         max_width = max(self.size.width - 4, 40)  # 최소 40자
-        
+
         # 긴 줄을 줄바꿈
         lines = content.split('\n')
         wrapped_lines = []
@@ -54,9 +70,9 @@ class ChatView(RichLog):
                 wrapped_lines.append(wrapped)
             else:
                 wrapped_lines.append(line)
-        
+
         content = '\n'.join(wrapped_lines)
-        
+
         # 부모 클래스의 write 호출
         super().write(content)
 

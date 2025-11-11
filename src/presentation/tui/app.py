@@ -21,12 +21,18 @@ from .services.agent_client import AgentClient
 from .services.logger import SessionLogger, LogManager
 from .services.project_utils import get_project_info
 from .services.feedback_loop_improved import ImprovedFeedbackLoop, EvaluationResult
+from .services.smart_feedback_loop import SmartFeedbackLoop, create_smart_feedback_loop
 from .services.response_parser import ResponseParser
-from .services.response_handler import ResponseCallbackHandler, FeedbackLoopCallbackHandler
+from .services.response_handler import (
+    ResponseCallbackHandler,
+    FeedbackLoopCallbackHandler,
+    SmartFeedbackLoopCallbackHandler,
+)
 from .services.response_strategy import (
     ResponseStrategy,
     NormalResponseStrategy,
     FeedbackLoopResponseStrategy,
+    SmartFeedbackLoopResponseStrategy,
 )
 from .services.settings_helpers import SettingsChangeDetector, SettingsApplicator
 from .utils.keymap import ShortcutDefinition, expand_shortcut
@@ -101,7 +107,7 @@ class ClaudeFlowApp(App):
         project_info = get_project_info(self.project_path)
         self.project_name = project_info["name"]
         self.git_info = project_info["git"]
-        self.claude_md_content = project_info["claude_md_content"]
+        self.claude_md_exists = project_info["claude_md_loaded"]  # CLAUDE.md 파일 존재 여부만 저장
 
         # 프로젝트별 설정 로드
         self.project_settings = self.config.load_project_settings(self.project_name)
@@ -120,6 +126,9 @@ class ClaudeFlowApp(App):
 
         # 피드백 루프 (개선된 버전)
         self.feedback_loop: Optional[ImprovedFeedbackLoop] = None
+
+        # 스마트 피드백 루프 (조건 자동 생성)
+        self.smart_feedback_loop: Optional[SmartFeedbackLoop] = None
 
         # 현재 작업
         self.current_worker: Optional[Worker] = None  # 현재 실행 중인 Worker
@@ -164,8 +173,8 @@ class ClaudeFlowApp(App):
         if self.git_info:
             chat_view.add_system_message(f"Git 브랜치: {self.git_info['branch']}", style="dim")
 
-        if self.claude_md_content:
-            chat_view.add_system_message("✓ CLAUDE.md 로드됨", style="green")
+        if self.claude_md_exists:
+            chat_view.add_system_message("✓ CLAUDE.md 감지됨 (자동 로드)", style="green")
 
         # 입력창 포커스
         self.query_one(InputBox).focus()
@@ -232,7 +241,7 @@ class ClaudeFlowApp(App):
             project_path=str(self.project_path),
             working_directory=str(self.project_path),
             model=self.config.config.default_model,
-            claude_md_loaded=self.claude_md_content is not None,
+            claude_md_loaded=self.claude_md_exists,
             feedback_loop=feedback_loop_config,
         )
 
@@ -250,7 +259,7 @@ class ClaudeFlowApp(App):
             self.agent = AgentClient(
                 project_path=self.project_path,
                 model=session.model,
-                claude_md_content=self.claude_md_content,
+                # claude_md_content 파라미터 제거 (WorkerAgent가 자동 로드)
                 enable_thinking=self.config.config.display.enable_thinking,
             )
         else:
@@ -264,6 +273,25 @@ class ClaudeFlowApp(App):
                 condition_model=self.project_settings["feedback_loop_condition_model"],
                 max_iterations=self.project_settings["feedback_loop_max_iterations"],
                 quality_threshold=self.project_settings["feedback_loop_quality_threshold"],
+            )
+
+        # 스마트 피드백 루프 생성 (조건 자동 생성)
+        if self.project_settings.get("smart_feedback_enabled", False):
+            self.smart_feedback_loop = create_smart_feedback_loop(
+                project_path=self.project_path,
+                mode=self.project_settings.get("smart_feedback_mode", "auto"),
+                simple_goal=self.project_settings.get("smart_feedback_simple_goal", ""),
+                detailed_condition=self.project_settings.get(
+                    "smart_feedback_detailed_condition", ""
+                ),
+                max_iterations=self.project_settings.get(
+                    "smart_feedback_max_iterations",
+                    self.project_settings["feedback_loop_max_iterations"],
+                ),
+                quality_threshold=self.project_settings.get(
+                    "smart_feedback_quality_threshold",
+                    self.project_settings["feedback_loop_quality_threshold"],
+                ),
             )
 
         # 상태바 업데이트
@@ -431,6 +459,9 @@ class ClaudeFlowApp(App):
             # 콜백 핸들러 생성
             handler = self._create_response_handler(strategy)
 
+            # 토큰 사용량 콜백 생성 (세션 통계 추적용)
+            usage_callback = self._create_usage_callback(chat_view)
+
             # 응답 실행
             response_text = await strategy.execute(
                 agent=self.agent,
@@ -438,6 +469,7 @@ class ClaudeFlowApp(App):
                 handler=handler,
                 worker=worker,
                 should_stop_flag=lambda: self.should_stop,
+                usage_callback=usage_callback,
             )
 
             # 세션 저장 및 상태 업데이트
@@ -756,22 +788,40 @@ class ClaudeFlowApp(App):
         self.should_stop = False
 
     def _select_response_strategy(self) -> Optional[ResponseStrategy]:
-        """응답 전략 선택 (피드백 루프 vs 일반)"""
+        """응답 전략 선택 (스마트 피드백 루프 > 피드백 루프 > 일반)"""
         session = self.session_manager.current_session
         chat_view = self.query_one(ChatView)
 
-        # 피드백 루프 활성화 확인
+        # 1. 스마트 피드백 루프 (우선순위 1)
+        if self.smart_feedback_loop is not None:
+            return SmartFeedbackLoopResponseStrategy(
+                smart_feedback_loop=self.smart_feedback_loop,
+            )
+
+        # 2. 기존 피드백 루프 (우선순위 2)
         use_feedback_loop = (
             self.feedback_loop is not None and session and session.feedback_loop.enabled
         )
 
-        # 피드백 루프 활성화했지만 조건 프롬프트 없음
+        # 피드백 루프 활성화했지만 조건 프롬프트 없음 → 스마트 피드백 루프 자동 사용
         if use_feedback_loop and not session.feedback_loop.condition_prompt.strip():
-            chat_view.add_error_message(
-                "⚠️  피드백 루프가 활성화되었지만 조건 프롬프트가 없습니다.\n"
-                "Ctrl+,로 설정에서 '조건 프롬프트'를 입력하세요."
+            # 스마트 피드백 루프 즉석 생성
+            if self.smart_feedback_loop is None:
+                self.smart_feedback_loop = create_smart_feedback_loop(
+                    project_path=self.project_path,
+                    mode="auto",  # 자동 모드 (조건 자동 생성)
+                    max_iterations=self.project_settings["feedback_loop_max_iterations"],
+                    quality_threshold=self.project_settings["feedback_loop_quality_threshold"],
+                )
+
+            # 스마트 피드백 루프 전략 반환
+            chat_view.add_system_message(
+                "💡 조건 프롬프트가 없어 스마트 피드백 루프를 자동 활성화했습니다.\n"
+                "요청을 분석하여 평가 기준을 자동 생성합니다."
             )
-            return None
+            return SmartFeedbackLoopResponseStrategy(
+                smart_feedback_loop=self.smart_feedback_loop,
+            )
 
         if use_feedback_loop:
             # 피드백 루프 전략
@@ -781,9 +831,9 @@ class ClaudeFlowApp(App):
                 feedback_input=session.feedback_loop.feedback_input,
                 max_iterations=session.feedback_loop.max_iterations,
             )
-        else:
-            # 일반 응답 전략
-            return NormalResponseStrategy()
+
+        # 3. 일반 응답 전략 (우선순위 3)
+        return NormalResponseStrategy()
 
     def _create_response_handler(self, strategy: ResponseStrategy) -> ResponseCallbackHandler:
         """응답 핸들러 생성"""
@@ -791,7 +841,10 @@ class ClaudeFlowApp(App):
         parser = ResponseParser()
         display_config = self.config.config.display
 
-        if isinstance(strategy, FeedbackLoopResponseStrategy):
+        if isinstance(strategy, SmartFeedbackLoopResponseStrategy):
+            # 스마트 피드백 루프 핸들러 (조건 생성 + 평가 콜백)
+            return SmartFeedbackLoopCallbackHandler(chat_view, parser, display_config)
+        elif isinstance(strategy, FeedbackLoopResponseStrategy):
             # 피드백 루프 핸들러 (평가 콜백 포함)
             return FeedbackLoopCallbackHandler(chat_view, parser, display_config)
         else:
@@ -889,6 +942,58 @@ class ClaudeFlowApp(App):
             f"  최대 반복: {settings['max_iterations']}회",
             style="green",
         )
+
+    def _create_usage_callback(self, chat_view: ChatView) -> callable:
+        """토큰 사용량 콜백 생성 (세션 통계 추적용)
+
+        Returns:
+            Callable[[Dict[str, Any]], None]: 토큰 사용량 콜백 함수
+        """
+
+        def on_usage(usage_dict: Dict[str, Any]) -> None:
+            """토큰 사용량 정보 수신 시 호출"""
+            # SDK 세션 ID 확인
+            if not self.agent or not self.agent.current_session_id:
+                return
+
+            sdk_session_id = self.agent.current_session_id
+            model = self.agent.model
+
+            # 정규화된 모델 이름 사용
+            normalized_model = self.agent._normalize_model_name(model)
+
+            # 세션 통계 업데이트
+            compaction_event = self.session_manager.update_session_stats(
+                sdk_session_id=sdk_session_id,
+                model=normalized_model,
+                usage_dict=usage_dict,
+            )
+
+            # 컴팩션 이벤트 감지 시 알림
+            if compaction_event:
+                trigger_text = {
+                    "cache_creation": "캐시 재생성",
+                    "cache_reset": "캐시 리셋",
+                    "context_limit": "컨텍스트 윈도우 축소",
+                }.get(compaction_event["trigger"], compaction_event["trigger"])
+
+                reduction = compaction_event["reduction_tokens"]
+                chat_view.add_system_message(
+                    f"🔄 컨텍스트 컴팩션 발생: {trigger_text} (감소: {reduction} tokens)",
+                    style="yellow",
+                )
+
+            # 세션 통계 조회 및 StatusBar 업데이트
+            stats = self.session_manager.get_current_sdk_session_stats(sdk_session_id)
+            if stats:
+                cumulative_tokens = stats["cumulative_total_tokens"]
+                usage_pct = stats["estimated_context_window_usage"]
+                limit = 200000  # 기본 한계
+
+                status_bar = self.query_one(StatusBar)
+                status_bar.update_context_window(cumulative_tokens, usage_pct, limit)
+
+        return on_usage
 
     def _add_response_header(self, chat_view: ChatView) -> None:
         """응답 헤더 추가 (Claude Code 스타일: ● 사용)"""

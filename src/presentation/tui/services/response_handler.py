@@ -44,6 +44,12 @@ class ResponseCallbackHandler:
         self.chat_view.write(formatted)
         self.chat_view.write("")  # 블록 간 간격
 
+    def on_todo_update(self, todos: list[Dict[str, Any]]) -> None:
+        """TodoWrite 투두 리스트 업데이트 처리"""
+        formatted = self.parser.format_todo_list(todos)
+        self.chat_view.write(formatted)
+        self.chat_view.write("")  # 블록 간 간격
+
 
 class FeedbackLoopCallbackHandler(ResponseCallbackHandler):
     """피드백 루프 응답 콜백 핸들러 (평가 콜백 추가)"""
@@ -91,3 +97,22 @@ class FeedbackLoopCallbackHandler(ResponseCallbackHandler):
         result_text.append("\n", style="")
         result_text.append("━" * 60, style="dim yellow")
         self.chat_view.write(result_text)
+
+
+class SmartFeedbackLoopCallbackHandler(FeedbackLoopCallbackHandler):
+    """스마트 피드백 루프 응답 콜백 핸들러 (조건 생성 콜백 추가)"""
+
+    def on_condition_generation(self, chunk: str) -> None:
+        """조건 생성 과정 출력"""
+        # 조건 생성 헤더 (처음 호출 시에만)
+        if not hasattr(self, "_condition_generation_started"):
+            self._condition_generation_started = True
+            header = Text("\n", style="")
+            header.append("━" * 60, style="dim cyan")
+            header.append("\n🧠 ", style="cyan")
+            header.append("조건 자동 생성 중...", style="bold cyan")
+            header.append("\n", style="")
+            self.chat_view.write(header)
+
+        # 조건 생성 출력 (dim 스타일)
+        self.chat_view.write(Text(chunk, style="dim white"))

@@ -76,6 +76,11 @@ from .log_session_schemas import (
     ReportFileInfo,
     ReportListResponse,
     ReportContentResponse,
+    # 세션 통계
+    TokenSnapshot,
+    CompactionEvent,
+    SessionStats,
+    SessionStatsResponse,
 )
 
 __all__ = [
@@ -120,4 +125,9 @@ __all__ = [
     "ReportFileInfo",
     "ReportListResponse",
     "ReportContentResponse",
+    # 세션 통계
+    "TokenSnapshot",
+    "CompactionEvent",
+    "SessionStats",
+    "SessionStatsResponse",
 ]

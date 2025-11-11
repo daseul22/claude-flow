@@ -8,14 +8,16 @@ import json
 import shutil
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from src.infrastructure.logging import get_logger
 from src.presentation.web.schemas.workflow import (
     SessionFileInfo,
     SessionListResponse,
     SessionContentResponse,
+    SessionStats,
+    SessionStatsResponse,
 )
 from . import dependencies
 
@@ -179,3 +181,95 @@ async def get_session_content(session_id: str) -> SessionContentResponse:
     except Exception as e:
         logger.error(f"세션 파일 내용 조회 실패: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"세션 파일 내용 조회 실패: {str(e)}")
+
+
+# ============================================================================
+# 세션 통계 API (컨텍스트 윈도우 추적)
+# ============================================================================
+
+
+@router.get("/sessions/stats", response_model=List[SessionStatsResponse])
+async def get_all_session_stats() -> List[SessionStatsResponse]:
+    """
+    모든 세션 통계 조회
+
+    Returns:
+        List[SessionStatsResponse]: 모든 세션 통계 목록
+    """
+    try:
+        from . import dependencies
+
+        executor = dependencies.get_workflow_executor()
+        if not executor:
+            raise HTTPException(status_code=500, detail="워크플로우 실행기를 초기화할 수 없습니다")
+
+        all_stats = executor.get_all_session_stats()
+
+        # SessionStats 객체로 변환
+        stats_list = []
+        for stats_dict in all_stats:
+            # 모델별 컨텍스트 한계 설정
+            model = stats_dict.get("model", "claude-sonnet-4-5-20250929")
+            context_limits = {
+                "claude-sonnet-4-5-20250929": 200000,
+                "claude-opus-4-5-20250514": 200000,
+                "claude-haiku-4-5-20251001": 200000,
+                "default": 200000,
+            }
+            limit = context_limits.get(model, context_limits["default"])
+
+            stats_obj = SessionStats(**stats_dict)
+            stats_list.append(SessionStatsResponse(stats=stats_obj, model_context_limit=limit))
+
+        logger.info(f"세션 통계 조회 완료: {len(stats_list)}개 세션")
+        return stats_list
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"세션 통계 조회 실패: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"세션 통계 조회 실패: {str(e)}")
+
+
+@router.get("/sessions/{session_id}/stats", response_model=SessionStatsResponse)
+async def get_session_stats(session_id: str) -> SessionStatsResponse:
+    """
+    특정 세션의 통계 조회
+
+    Args:
+        session_id: SDK 세션 ID
+
+    Returns:
+        SessionStatsResponse: 세션 통계 정보
+    """
+    try:
+        from . import dependencies
+
+        executor = dependencies.get_workflow_executor()
+        if not executor:
+            raise HTTPException(status_code=500, detail="워크플로우 실행기를 초기화할 수 없습니다")
+
+        stats_dict = executor.get_session_stats(session_id)
+
+        if not stats_dict:
+            raise HTTPException(status_code=404, detail=f"세션 {session_id}의 통계를 찾을 수 없습니다")
+
+        # 모델별 컨텍스트 한계 설정
+        model = stats_dict.get("model", "claude-sonnet-4-5-20250929")
+        context_limits = {
+            "claude-sonnet-4-5-20250929": 200000,
+            "claude-opus-4-5-20250514": 200000,
+            "claude-haiku-4-5-20251001": 200000,
+            "default": 200000,
+        }
+        limit = context_limits.get(model, context_limits["default"])
+
+        stats_obj = SessionStats(**stats_dict)
+        logger.info(f"세션 통계 조회 완료: {session_id[:8]}...")
+        return SessionStatsResponse(stats=stats_obj, model_context_limit=limit)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"세션 통계 조회 실패: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"세션 통계 조회 실패: {str(e)}")

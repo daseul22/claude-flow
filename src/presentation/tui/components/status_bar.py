@@ -48,6 +48,11 @@ class StatusBar(Widget):
         self.feedback_loop_enabled = False
         self.is_processing = False  # 응답 처리 중 플래그
 
+        # 컨텍스트 윈도우 추적
+        self.cumulative_tokens = 0  # 누적 토큰 (SDK 세션 기준)
+        self.context_window_usage = 0.0  # 사용률 (0.0 ~ 1.0)
+        self.context_window_limit = 200000  # 모델 한계
+
     def compose(self) -> ComposeResult:
         """컴포넌트 구성"""
         with Horizontal():
@@ -67,10 +72,25 @@ class StatusBar(Widget):
         self._refresh_display()
 
     def update_tokens(self, input_tokens: int, output_tokens: int, cost: float = 0.0) -> None:
-        """토큰 사용량 업데이트"""
+        """토큰 사용량 업데이트 (세션 단위 합산)"""
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
         self.estimated_cost = cost
+        self._refresh_display()
+
+    def update_context_window(
+        self, cumulative_tokens: int, usage: float, limit: int = 200000
+    ) -> None:
+        """컨텍스트 윈도우 사용량 업데이트 (SDK 세션 기준)
+
+        Args:
+            cumulative_tokens: 누적 토큰 수
+            usage: 사용률 (0.0 ~ 1.0)
+            limit: 컨텍스트 윈도우 한계 (기본: 200K)
+        """
+        self.cumulative_tokens = cumulative_tokens
+        self.context_window_usage = usage
+        self.context_window_limit = limit
         self._refresh_display()
 
     def update_feedback_loop(self, enabled: bool) -> None:
@@ -107,16 +127,44 @@ class StatusBar(Widget):
         session_widget.update(session_text)
 
         # 토큰 정보 (간결하게)
-        total_tokens = self.input_tokens + self.output_tokens
-        if total_tokens > 0:
-            if total_tokens >= 1000:
-                # K 단위로 표시
-                token_text = f"{total_tokens/1000:.1f}K"
-            else:
-                token_text = f"{total_tokens}"
+        token_parts = []
 
-            if self.estimated_cost > 0:
-                token_text += f" ${self.estimated_cost:.3f}"
+        # 1. 세션 토큰 (단순 합산) 또는 누적 토큰 (SDK 세션 기준)
+        if self.cumulative_tokens > 0:
+            # SDK 세션 누적 토큰 표시 (우선)
+            if self.cumulative_tokens >= 1000:
+                token_text = f"{self.cumulative_tokens/1000:.0f}K"
+            else:
+                token_text = f"{self.cumulative_tokens}"
+
+            # 사용률 표시
+            if self.context_window_usage > 0:
+                usage_pct = int(self.context_window_usage * 100)
+                token_text += f" ({usage_pct}%)"
+
+                # 경고 표시 (80% 이상)
+                if self.context_window_usage >= 0.8:
+                    token_text = f"⚠️  {token_text}"
+
+            token_parts.append(token_text)
+
+        else:
+            # SDK 세션 정보 없으면 세션 합산 토큰 표시
+            total_tokens = self.input_tokens + self.output_tokens
+            if total_tokens > 0:
+                if total_tokens >= 1000:
+                    token_text = f"{total_tokens/1000:.1f}K"
+                else:
+                    token_text = f"{total_tokens}"
+                token_parts.append(token_text)
+
+        # 2. 비용 (optional)
+        if self.estimated_cost > 0:
+            token_parts.append(f"${self.estimated_cost:.3f}")
+
+        # 최종 표시
+        if token_parts:
+            token_text = " ".join(token_parts)
         else:
             token_text = "─"
 

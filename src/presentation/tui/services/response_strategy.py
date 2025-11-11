@@ -1,12 +1,17 @@
 """응답 처리 전략"""
 
 from abc import ABC, abstractmethod
-from typing import Callable
+from typing import Callable, Optional, Dict, Any
 from textual.worker import Worker
 
 from .agent_client import AgentClient
 from .feedback_loop import FeedbackLoop
-from .response_handler import ResponseCallbackHandler, FeedbackLoopCallbackHandler
+from .smart_feedback_loop import SmartFeedbackLoop
+from .response_handler import (
+    ResponseCallbackHandler,
+    FeedbackLoopCallbackHandler,
+    SmartFeedbackLoopCallbackHandler,
+)
 from ..components.chat_view import ChatView
 
 
@@ -21,6 +26,7 @@ class ResponseStrategy(ABC):
         handler: ResponseCallbackHandler,
         worker: Worker,
         should_stop_flag: Callable[[], bool],
+        usage_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> str:
         """
         응답 실행
@@ -31,6 +37,7 @@ class ResponseStrategy(ABC):
             handler: 콜백 핸들러
             worker: Textual Worker (취소 체크용)
             should_stop_flag: 중단 플래그 확인 함수
+            usage_callback: 토큰 사용량 콜백 (세션 통계 추적용)
 
         Returns:
             최종 응답 텍스트
@@ -52,6 +59,7 @@ class NormalResponseStrategy(ResponseStrategy):
         handler: ResponseCallbackHandler,
         worker: Worker,
         should_stop_flag: Callable[[], bool],
+        usage_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> str:
         """일반 응답 실행 (피드백 루프 없음)"""
         response_text = ""
@@ -61,6 +69,8 @@ class NormalResponseStrategy(ResponseStrategy):
             on_thinking=handler.on_thinking,
             on_tool_use=handler.on_tool_use,
             on_tool_result=handler.on_tool_result,
+            on_todo_update=handler.on_todo_update,
+            usage_callback=usage_callback,
         ):
             # Worker 취소 체크
             if self._should_cancel(worker, should_stop_flag):
@@ -101,6 +111,7 @@ class FeedbackLoopResponseStrategy(ResponseStrategy):
         handler: ResponseCallbackHandler,
         worker: Worker,
         should_stop_flag: Callable[[], bool],
+        usage_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> str:
         """피드백 루프 응답 실행"""
         # 핸들러가 FeedbackLoopCallbackHandler인지 확인
@@ -115,6 +126,7 @@ class FeedbackLoopResponseStrategy(ResponseStrategy):
             style="yellow",
         )
 
+        # TODO: FeedbackLoop.run_with_feedback()에 usage_callback 전달 필요
         async for chunk in self.feedback_loop.run_with_feedback(
             agent=agent,
             initial_message=message,
@@ -126,6 +138,77 @@ class FeedbackLoopResponseStrategy(ResponseStrategy):
             on_eval_start=handler.on_eval_start,
             on_eval_output=handler.on_eval_output,
             on_eval_result=handler.on_eval_result,
+            on_todo_update=handler.on_todo_update,
+        ):
+            # Worker 취소 체크
+            if self._should_cancel(worker, should_stop_flag):
+                return response_text
+
+            response_text += chunk
+            handler.chat_view.write_wrapped(chunk)
+
+        return response_text
+
+    def _create_iteration_callback(self, chat_view: ChatView) -> Callable[[int, str], None]:
+        """반복 콜백 생성"""
+
+        def on_iteration(iter_num: int, status: str):
+            chat_view.add_system_message(f"🔄 반복 {iter_num}: {status}", style="dim")
+
+        return on_iteration
+
+
+class SmartFeedbackLoopResponseStrategy(ResponseStrategy):
+    """스마트 피드백 루프 응답 전략 (조건 자동 생성)"""
+
+    def __init__(
+        self,
+        smart_feedback_loop: SmartFeedbackLoop,
+    ):
+        """
+        Args:
+            smart_feedback_loop: 스마트 피드백 루프 인스턴스
+        """
+        self.smart_feedback_loop = smart_feedback_loop
+
+    async def execute(
+        self,
+        agent: AgentClient,
+        message: str,
+        handler: ResponseCallbackHandler,
+        worker: Worker,
+        should_stop_flag: Callable[[], bool],
+        usage_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> str:
+        """스마트 피드백 루프 응답 실행 (조건 자동 생성)"""
+        # 핸들러가 SmartFeedbackLoopCallbackHandler인지 확인
+        if not isinstance(handler, SmartFeedbackLoopCallbackHandler):
+            raise TypeError(
+                "SmartFeedbackLoopResponseStrategy requires SmartFeedbackLoopCallbackHandler"
+            )
+
+        response_text = ""
+        config = self.smart_feedback_loop.config
+
+        # 스마트 피드백 루프 활성화 알림
+        mode_text = {"auto": "자동", "semi-auto": "반자동", "manual": "수동"}[config.mode]
+        handler.chat_view.add_system_message(
+            f"✨ 스마트 피드백 루프 활성화 ({mode_text} 모드, 최대 {config.max_iterations}회)",
+            style="cyan",
+        )
+
+        # TODO: SmartFeedbackLoop.run()에 usage_callback 전달 필요
+        async for chunk in self.smart_feedback_loop.run(
+            agent=agent,
+            user_request=message,
+            on_iteration=self._create_iteration_callback(handler.chat_view),
+            on_thinking=handler.on_thinking,
+            on_tool_use=handler.on_tool_use,
+            on_eval_start=handler.on_eval_start,
+            on_eval_output=handler.on_eval_output,
+            on_eval_result=handler.on_eval_result,
+            on_condition_generation=handler.on_condition_generation,
+            on_todo_update=handler.on_todo_update,
         ):
             # Worker 취소 체크
             if self._should_cancel(worker, should_stop_flag):

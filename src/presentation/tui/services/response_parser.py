@@ -147,6 +147,57 @@ class ResponseParser:
         return text
 
     @staticmethod
+    def format_todo_list(todos: list[Dict[str, Any]]) -> Text:
+        """TodoWrite 투두 리스트 포맷팅 (Claude Code 스타일)
+
+        Args:
+            todos: TodoWrite 도구의 todos 배열
+                [{"content": "...", "status": "pending", "activeForm": "..."}, ...]
+        """
+        text = Text()
+
+        # 헤더
+        text.append("📋 ", style="")
+        text.append("Tasks", style="bold cyan")
+        text.append("\n", style="")
+
+        # 상태별 카운트
+        status_count = {"pending": 0, "in_progress": 0, "completed": 0}
+        for todo in todos:
+            status = todo.get("status", "pending")
+            status_count[status] += 1
+
+        # 카운트 표시
+        text.append(
+            f"  {status_count['completed']}/{len(todos)} completed",
+            style="dim"
+        )
+        text.append("\n\n", style="")
+
+        # 투두 항목들
+        for i, todo in enumerate(todos, 1):
+            status = todo.get("status", "pending")
+            content = todo.get("content", "")
+
+            # 상태 이모지
+            if status == "completed":
+                emoji = "✓"
+                style = "green"
+            elif status == "in_progress":
+                emoji = "●"
+                style = "yellow"
+            else:  # pending
+                emoji = "○"
+                style = "dim"
+
+            # 항목 표시
+            text.append(f"  {emoji} ", style=style)
+            text.append(f"{content}", style=style if status != "completed" else "dim green")
+            text.append("\n", style="")
+
+        return text
+
+    @staticmethod
     def should_display_block(block_type: str) -> bool:
         """블록을 화면에 표시할지 결정"""
         # TextBlock은 일반 텍스트로 표시됨

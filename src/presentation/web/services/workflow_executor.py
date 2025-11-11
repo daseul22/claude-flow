@@ -94,6 +94,11 @@ class WorkflowExecutor:
         # update_node_session에서 워크플로우 세션에 노드 SDK 세션을 저장하기 위해 사용
         self._node_to_workflow_session: Dict[str, str] = {}
 
+        # 세션 통계 저장소 (SDK 세션별 토큰 사용량 누적 추적)
+        # {session_id: SessionStats}
+        # 컨텍스트 윈도우 사용량 및 컴팩션 이벤트 추적
+        self._session_stats: Dict[str, Dict[str, Any]] = {}
+
         # 커스텀 워커 로드 (프로젝트 경로가 주어진 경우)
         self.custom_worker_names = set()
         if project_path:
@@ -128,6 +133,7 @@ class WorkflowExecutor:
             user_input_queues=self.user_input_queues,
             cancelled_sessions=self.cancelled_sessions,
             on_node_session_update=self.update_node_session,
+            on_session_stats_update=self.update_session_stats,
         )
 
     def _get_agent_config(self, agent_name: str) -> AgentConfig:
@@ -1165,3 +1171,241 @@ class WorkflowExecutor:
             if session_id in self._condition_iterations:
                 del self._condition_iterations[session_id]
                 logger.info(f"[{session_id}] Condition 반복 횟수 정리 완료")
+
+    # ========================================================================
+    # 세션 통계 및 컨텍스트 윈도우 추적
+    # ========================================================================
+
+    def update_session_stats(
+        self,
+        session_id: str,
+        node_id: str,
+        agent_name: str,
+        model: str,
+        usage_dict: Dict[str, int]
+    ) -> None:
+        """
+        세션 통계 업데이트 (토큰 사용량 누적)
+
+        Args:
+            session_id: SDK 세션 ID
+            node_id: 노드 ID
+            agent_name: 에이전트 이름
+            model: 사용된 모델
+            usage_dict: 토큰 사용량 딕셔너리
+                {
+                    'input_tokens': int,
+                    'output_tokens': int,
+                    'cache_read_tokens': int,
+                    'cache_creation_tokens': int
+                }
+        """
+        from datetime import datetime
+
+        # 세션 통계 초기화 (첫 실행)
+        if session_id not in self._session_stats:
+            self._session_stats[session_id] = {
+                "session_id": session_id,
+                "node_id": node_id,
+                "agent_name": agent_name,
+                "model": model,
+                "token_history": [],
+                "compaction_events": [],
+                "cumulative_input_tokens": 0,
+                "cumulative_output_tokens": 0,
+                "cumulative_cache_read_tokens": 0,
+                "cumulative_cache_creation_tokens": 0,
+                "cumulative_total_tokens": 0,
+                "estimated_context_window_usage": 0.0,
+                "created_at": datetime.now().isoformat(),
+                "last_updated_at": datetime.now().isoformat(),
+                "last_cache_read_tokens": 0,  # 컴팩션 감지용
+                "last_cumulative_total": 0,  # 컴팩션 감지용
+            }
+            logger.info(f"[{session_id}] 세션 통계 초기화 완료 (노드: {node_id}, 모델: {model})")
+
+        stats = self._session_stats[session_id]
+
+        # 이전 값 저장 (컴팩션 감지용)
+        prev_cache_read = stats.get("last_cache_read_tokens", 0)
+        prev_cumulative = stats.get("last_cumulative_total", 0)
+
+        # 누적 토큰 업데이트
+        input_tokens = usage_dict.get("input_tokens", 0)
+        output_tokens = usage_dict.get("output_tokens", 0)
+        cache_read_tokens = usage_dict.get("cache_read_tokens", 0)
+        cache_creation_tokens = usage_dict.get("cache_creation_tokens", 0)
+
+        stats["cumulative_input_tokens"] += input_tokens
+        stats["cumulative_output_tokens"] += output_tokens
+        stats["cumulative_cache_read_tokens"] += cache_read_tokens
+        stats["cumulative_cache_creation_tokens"] += cache_creation_tokens
+        stats["cumulative_total_tokens"] = (
+            stats["cumulative_input_tokens"] + stats["cumulative_output_tokens"]
+        )
+
+        # 타임스탬프 생성
+        timestamp = datetime.now().isoformat()
+
+        # TokenSnapshot 생성
+        snapshot = {
+            "timestamp": timestamp,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cache_creation_tokens": cache_creation_tokens,
+            "cumulative_input": stats["cumulative_input_tokens"],
+            "cumulative_output": stats["cumulative_output_tokens"],
+            "cumulative_total": stats["cumulative_total_tokens"],
+        }
+        stats["token_history"].append(snapshot)
+
+        # 컨텍스트 윈도우 사용률 추정
+        stats["estimated_context_window_usage"] = self._estimate_context_window_usage(
+            stats["cumulative_total_tokens"], model
+        )
+
+        # 컴팩션 감지
+        compaction_event = self._detect_compaction(
+            cache_read_tokens,
+            cache_creation_tokens,
+            prev_cache_read,
+            stats["cumulative_total_tokens"],
+            prev_cumulative,
+            timestamp,
+        )
+
+        if compaction_event:
+            stats["compaction_events"].append(compaction_event)
+            logger.warning(
+                f"[{session_id}] 🔄 컴팩션 이벤트 감지: {compaction_event['trigger']}"
+            )
+
+        # 이전 값 업데이트
+        stats["last_cache_read_tokens"] = cache_read_tokens
+        stats["last_cumulative_total"] = stats["cumulative_total_tokens"]
+        stats["last_updated_at"] = timestamp
+
+        logger.info(
+            f"[{session_id}] 세션 통계 업데이트: "
+            f"입력={input_tokens}, 출력={output_tokens}, "
+            f"누적={stats['cumulative_total_tokens']}, "
+            f"사용률={stats['estimated_context_window_usage']:.1%}"
+        )
+
+    def _detect_compaction(
+        self,
+        cache_read_tokens: int,
+        cache_creation_tokens: int,
+        prev_cache_read: int,
+        cumulative_total: int,
+        prev_cumulative: int,
+        timestamp: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        컴팩션 이벤트 감지 (휴리스틱 기반)
+
+        컴팩션 감지 조건:
+        1. cache_creation_tokens > 0 → 캐시 재생성 (컴팩션 가능)
+        2. cache_read_tokens == 0 AND prev_cache_read > 0 → 캐시 리셋 (컴팩션 가능)
+        3. cumulative_total < prev_cumulative → 컨텍스트 축소 (컴팩션 발생)
+
+        Args:
+            cache_read_tokens: 현재 캐시 읽기 토큰
+            cache_creation_tokens: 현재 캐시 생성 토큰
+            prev_cache_read: 이전 캐시 읽기 토큰
+            cumulative_total: 현재 누적 총 토큰
+            prev_cumulative: 이전 누적 총 토큰
+            timestamp: 현재 타임스탬프
+
+        Returns:
+            Optional[Dict]: 컴팩션 이벤트 (없으면 None)
+        """
+        trigger = None
+        reduction_tokens = 0
+
+        # 조건 1: 캐시 재생성 감지
+        if cache_creation_tokens > 0:
+            trigger = "cache_creation"
+            # 캐시 생성은 컨텍스트 축소를 의미할 수 있음
+            reduction_tokens = max(0, prev_cumulative - cumulative_total)
+
+        # 조건 2: 캐시 리셋 감지
+        elif cache_read_tokens == 0 and prev_cache_read > 0:
+            trigger = "cache_reset"
+            reduction_tokens = max(0, prev_cumulative - cumulative_total)
+
+        # 조건 3: 컨텍스트 축소 감지
+        elif cumulative_total < prev_cumulative:
+            trigger = "context_limit"
+            reduction_tokens = prev_cumulative - cumulative_total
+
+        if trigger:
+            return {
+                "timestamp": timestamp,
+                "trigger": trigger,
+                "before_tokens": prev_cumulative,
+                "after_tokens": cumulative_total,
+                "reduction_tokens": reduction_tokens,
+                "cache_creation_tokens": cache_creation_tokens,
+            }
+
+        return None
+
+    def _estimate_context_window_usage(self, cumulative_total: int, model: str) -> float:
+        """
+        컨텍스트 윈도우 사용률 추정
+
+        Args:
+            cumulative_total: 누적 총 토큰
+            model: 모델 이름
+
+        Returns:
+            float: 사용률 (0.0 ~ 1.0)
+        """
+        # 모델별 컨텍스트 윈도우 한계 (토큰 수)
+        context_limits = {
+            "claude-sonnet-4-5-20250929": 200000,
+            "claude-opus-4-5-20250514": 200000,
+            "claude-haiku-4-5-20251001": 200000,
+            "claude-sonnet-3-5-20240620": 200000,
+            "claude-3-5-sonnet-20240620": 200000,
+            "default": 200000,
+        }
+
+        limit = context_limits.get(model, context_limits["default"])
+        usage = cumulative_total / limit
+
+        # 1.0을 넘지 않도록 클리핑
+        return min(usage, 1.0)
+
+    def get_session_stats(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """
+        세션 통계 조회
+
+        Args:
+            session_id: SDK 세션 ID
+
+        Returns:
+            Optional[Dict]: 세션 통계 (없으면 None)
+        """
+        stats = self._session_stats.get(session_id)
+
+        if not stats:
+            return None
+
+        # 내부용 필드 제거
+        result = stats.copy()
+        result.pop("last_cache_read_tokens", None)
+        result.pop("last_cumulative_total", None)
+
+        return result
+
+    def get_all_session_stats(self) -> List[Dict[str, Any]]:
+        """
+        모든 세션 통계 조회
+
+        Returns:
+            List[Dict]: 세션 통계 목록
+        """
+        return [self.get_session_stats(sid) for sid in self._session_stats if self.get_session_stats(sid)]

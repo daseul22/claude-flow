@@ -651,3 +651,14 @@ npm run build
 - 영향범위: 기능
 - 테스트: 단위(환경 제약으로 실행 불가, 추후 확인 필요)
 - 후속 조치: Textual/pytest 의존성 설치 가능한 환경에서 단위 테스트 및 린트 재실행
+
+#### fix. TUI 스마트 피드백 루프 Text 객체 TypeError 수정
+- 날짜: 2025-11-11 16:02 (Asia/Seoul)
+- 컨텍스트: 스마트 피드백 루프 실행 시 `TypeError: sequence item 0: expected str instance, Text found` 에러 발생. `response_handler.py`에서 `Text` 객체를 `write_wrapped()`에 전달했으나, `write_wrapped()`는 문자열만 처리하도록 설계됨.
+- 변경사항:
+  - `src/presentation/tui/services/response_handler.py` (118번 라인): `write_wrapped()` → `write()` 변경하여 `Text` 객체의 스타일 보존
+  - `src/presentation/tui/components/chat_view.py`: `write_wrapped()` 메서드를 `Union[str, Text]` 타입 지원하도록 개선, `Text` 객체는 바로 `write()`로 전달
+  - `src/presentation/tui/components/chat_view.py` import: `Union` 타입 힌팅 추가
+- 영향범위: 기능 수정 (버그 수정)
+- 테스트: 스마트 피드백 루프 활성화 후 메시지 전송하여 조건 생성 과정이 정상 출력되는지 확인 필요
+- 후속 조치: Black 포맷팅 적용 (black 설치 후)

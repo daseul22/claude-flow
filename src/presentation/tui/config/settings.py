@@ -142,46 +142,41 @@ class ConfigManager:
         """프로젝트별 설정 로드 (없으면 전역 기본값 반환)"""
         settings_path = self.get_project_settings_path(project_name)
 
+        # 기본값 딕셔너리 (기존 피드백 루프 설정)
+        defaults = {
+            "feedback_loop_enabled": self.config.feedback_loop_defaults.enabled,
+            "feedback_loop_max_iterations": self.config.feedback_loop_defaults.max_iterations,
+            "feedback_loop_condition_model": self.config.feedback_loop_defaults.condition_model,
+            "feedback_loop_quality_threshold": self.config.feedback_loop_defaults.quality_threshold,
+        }
+
         if not settings_path.exists():
             # 프로젝트 설정이 없으면 전역 기본값 반환
-            return {
-                "feedback_loop_enabled": self.config.feedback_loop_defaults.enabled,
-                "feedback_loop_max_iterations": self.config.feedback_loop_defaults.max_iterations,
-                "feedback_loop_condition_model": self.config.feedback_loop_defaults.condition_model,
-                "feedback_loop_quality_threshold": self.config.feedback_loop_defaults.quality_threshold,
-            }
+            return defaults
 
         try:
             with open(settings_path, "r", encoding="utf-8") as f:
                 project_settings = json.load(f)
 
-            # 필수 키가 없으면 기본값 사용
-            return {
-                "feedback_loop_enabled": project_settings.get(
-                    "feedback_loop_enabled",
-                    self.config.feedback_loop_defaults.enabled
-                ),
-                "feedback_loop_max_iterations": project_settings.get(
-                    "feedback_loop_max_iterations",
-                    self.config.feedback_loop_defaults.max_iterations
-                ),
-                "feedback_loop_condition_model": project_settings.get(
-                    "feedback_loop_condition_model",
-                    self.config.feedback_loop_defaults.condition_model
-                ),
-                "feedback_loop_quality_threshold": project_settings.get(
-                    "feedback_loop_quality_threshold",
-                    self.config.feedback_loop_defaults.quality_threshold
-                ),
-            }
+            # 기본값으로 시작한 후, 프로젝트 설정으로 업데이트
+            # 이렇게 하면 새로운 키(예: smart_feedback_*)도 자동으로 로드됨
+            result = defaults.copy()
+
+            # 기존 키는 기본값 적용
+            for key in defaults.keys():
+                if key in project_settings:
+                    result[key] = project_settings[key]
+
+            # 새로운 키는 그대로 추가 (예: smart_feedback_enabled)
+            for key, value in project_settings.items():
+                if key not in result:
+                    result[key] = value
+
+            return result
+
         except Exception as e:
             print(f"⚠️  프로젝트 설정 로드 실패: {e}. 기본 설정 사용")
-            return {
-                "feedback_loop_enabled": self.config.feedback_loop_defaults.enabled,
-                "feedback_loop_max_iterations": self.config.feedback_loop_defaults.max_iterations,
-                "feedback_loop_condition_model": self.config.feedback_loop_defaults.condition_model,
-                "feedback_loop_quality_threshold": self.config.feedback_loop_defaults.quality_threshold,
-            }
+            return defaults
 
     def save_project_settings(self, project_name: str, settings: dict):
         """프로젝트별 설정 저장"""
