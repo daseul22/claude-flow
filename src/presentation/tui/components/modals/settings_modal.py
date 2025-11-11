@@ -17,6 +17,7 @@ class SettingsResult:
     max_iterations: int
     condition_model: str
     feedback_input: str  # 회귀 시 전달할 입력
+    quality_threshold: float  # 품질 임계값 (0.0 ~ 1.0)
     show_statusbar: bool
     show_timestamps: bool
     show_token_counts: bool
@@ -32,6 +33,7 @@ class SettingsResult:
             "max_iterations": self.max_iterations,
             "condition_model": self.condition_model,
             "feedback_input": self.feedback_input,
+            "quality_threshold": self.quality_threshold,
             "show_statusbar": self.show_statusbar,
             "show_timestamps": self.show_timestamps,
             "show_token_counts": self.show_token_counts,
@@ -169,6 +171,14 @@ class SettingsModal(ModalScreen[SettingsResult]):
                 )
 
             with Horizontal(classes="setting-row"):
+                yield Label("  품질 임계값:")
+                yield Input(
+                    value=str(self.settings.get("quality_threshold", 0.8)),
+                    placeholder="0.0-1.0 (기본: 0.8)",
+                    id="quality-threshold"
+                )
+
+            with Horizontal(classes="setting-row"):
                 yield Label("  평가 모델:")
                 yield Select(
                     options=[
@@ -247,12 +257,20 @@ class SettingsModal(ModalScreen[SettingsResult]):
         except ValueError:
             max_iter = 3
 
+        # 품질 임계값 검증
+        try:
+            quality_threshold = float(self.query_one("#quality-threshold", Input).value or "0.8")
+            if not (0.0 <= quality_threshold <= 1.0):
+                quality_threshold = 0.8
+        except ValueError:
+            quality_threshold = 0.8
+
         # Select 값 안전하게 읽기
         model_select = self.query_one("#model-select", Select)
         model_value = model_select.value
         if model_value == Select.BLANK:
             model_value = "claude-sonnet-4.5"
-        
+
         condition_model_select = self.query_one("#condition-model", Select)
         condition_model_value = condition_model_select.value
         if condition_model_value == Select.BLANK:
@@ -265,6 +283,7 @@ class SettingsModal(ModalScreen[SettingsResult]):
             max_iterations=max_iter,
             condition_model=condition_model_value,
             feedback_input=self.query_one("#feedback-input", Input).value.strip(),
+            quality_threshold=quality_threshold,
             show_statusbar=self.query_one("#show-statusbar", Checkbox).value,
             show_timestamps=self.query_one("#show-timestamps", Checkbox).value,
             show_token_counts=self.query_one("#show-token-counts", Checkbox).value,
@@ -284,6 +303,7 @@ class SettingsModal(ModalScreen[SettingsResult]):
             self.query_one("#condition-prompt", Input).value = ""
             self.query_one("#feedback-input", Input).value = ""
             self.query_one("#max-iterations", Input).value = "3"
+            self.query_one("#quality-threshold", Input).value = "0.8"
             self.query_one("#condition-model", Select).value = "claude-haiku-4-5-20251001"
             self.query_one("#show-statusbar", Checkbox).value = True
             self.query_one("#show-timestamps", Checkbox).value = True

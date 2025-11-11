@@ -20,7 +20,7 @@ from .services.session_manager import SessionManager
 from .services.agent_client import AgentClient
 from .services.logger import SessionLogger, LogManager
 from .services.project_utils import get_project_info
-from .services.feedback_loop import FeedbackLoop
+from .services.feedback_loop_improved import ImprovedFeedbackLoop, EvaluationResult
 from .services.response_parser import ResponseParser
 from .services.response_handler import ResponseCallbackHandler, FeedbackLoopCallbackHandler
 from .services.response_strategy import (
@@ -115,8 +115,8 @@ class ClaudeFlowApp(App):
         # 에이전트 클라이언트
         self.agent: Optional[AgentClient] = None
 
-        # 피드백 루프
-        self.feedback_loop: Optional[FeedbackLoop] = None
+        # 피드백 루프 (개선된 버전)
+        self.feedback_loop: Optional[ImprovedFeedbackLoop] = None
 
         # 현재 작업
         self.current_worker: Optional[Worker] = None  # 현재 실행 중인 Worker
@@ -180,12 +180,24 @@ class ClaudeFlowApp(App):
         if worker.state == WorkerState.RUNNING:
             if worker.name == "agent_response":
                 self.is_processing = True
+                # 상태바 업데이트 (처리 중 표시)
+                status_bar = self.query_one(StatusBar)
+                status_bar.update_processing(True)
+                # 입력창 비활성화
+                input_box = self.query_one(InputBox)
+                input_box.disabled = True
 
         # Worker가 완료/취소되면 플래그 초기화
         elif worker.state in (WorkerState.SUCCESS, WorkerState.CANCELLED, WorkerState.ERROR):
             if worker.name == "agent_response":
                 self.is_processing = False
                 self.should_stop = False
+                # 상태바 업데이트 (처리 완료)
+                status_bar = self.query_one(StatusBar)
+                status_bar.update_processing(False)
+                # 입력창 활성화
+                input_box = self.query_one(InputBox)
+                input_box.disabled = False
 
                 # 취소된 경우
                 if worker.state == WorkerState.CANCELLED:
@@ -242,12 +254,17 @@ class ClaudeFlowApp(App):
             # 기존 에이전트 세션 초기화 (새 세션이므로 맥락 리셋)
             self.agent.reset_session()
 
-        # 피드백 루프 생성
+        # 피드백 루프 생성 (개선된 버전)
         if self.config.config.feedback_loop_defaults.enabled:
-            self.feedback_loop = FeedbackLoop(
+            self.feedback_loop = ImprovedFeedbackLoop(
                 project_path=self.project_path,
                 condition_model=self.config.config.feedback_loop_defaults.condition_model,
                 max_iterations=self.config.config.feedback_loop_defaults.max_iterations,
+                quality_threshold=getattr(
+                    self.config.config.feedback_loop_defaults,
+                    "quality_threshold",
+                    0.8  # 기본값: 80점
+                ),
             )
 
         # 상태바 업데이트

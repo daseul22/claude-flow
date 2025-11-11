@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ..config.settings import ConfigManager
 from .session_manager import SessionManager
-from .feedback_loop import FeedbackLoop
+from .feedback_loop_improved import ImprovedFeedbackLoop
 
 
 class SettingsChangeDetector:
@@ -71,6 +71,7 @@ class SettingsApplicator:
         self.config.config.feedback_loop_defaults.enabled = settings["feedback_loop_enabled"]
         self.config.config.feedback_loop_defaults.max_iterations = settings["max_iterations"]
         self.config.config.feedback_loop_defaults.condition_model = settings["condition_model"]
+        self.config.config.feedback_loop_defaults.quality_threshold = settings.get("quality_threshold", 0.8)
         self.config.config.display.show_statusbar = settings["show_statusbar"]
         self.config.config.display.show_timestamps = settings["show_timestamps"]
         self.config.config.display.show_token_counts = settings["show_token_counts"]
@@ -96,12 +97,13 @@ class SettingsApplicator:
         # 세션 저장
         return self.session.save_session(session)
 
-    def create_feedback_loop(self, settings: Dict[str, Any], project_path: Path) -> FeedbackLoop:
-        """피드백 루프 인스턴스 생성"""
-        return FeedbackLoop(
+    def create_feedback_loop(self, settings: Dict[str, Any], project_path: Path) -> ImprovedFeedbackLoop:
+        """피드백 루프 인스턴스 생성 (개선된 버전)"""
+        return ImprovedFeedbackLoop(
             project_path=project_path,
             condition_model=settings["condition_model"],
             max_iterations=settings["max_iterations"],
+            quality_threshold=settings.get("quality_threshold", 0.8),  # 기본값: 80점
         )
 
     def save_config(self) -> None:

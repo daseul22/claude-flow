@@ -24,6 +24,7 @@ class FeedbackLoopDefaults:
     enabled: bool = False
     max_iterations: int = 3
     condition_model: str = "claude-haiku-4-5-20251001"
+    quality_threshold: float = 0.8  # 품질 임계값 (0.0 ~ 1.0, 기본: 80점)
 
 
 @dataclass

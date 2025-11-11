@@ -6,6 +6,7 @@ from rich.text import Text
 from ..components.chat_view import ChatView
 from .response_parser import ResponseParser
 from ..config.settings import DisplaySettings
+from .feedback_loop_improved import EvaluationResult
 
 
 class ResponseCallbackHandler:
@@ -59,13 +60,34 @@ class FeedbackLoopCallbackHandler(ResponseCallbackHandler):
         """평가 LLM 출력"""
         self.chat_view.write_wrapped(chunk)
 
-    def on_eval_result(self, condition_met: bool, eval_response: str) -> None:
-        """평가 결과"""
+    def on_eval_result(self, eval_result: EvaluationResult) -> None:
+        """평가 결과 (개선된 버전 - 구조화된 평가)"""
         result_text = Text()
-        if condition_met:
+
+        # 품질 점수 표시
+        score_emoji = "🟢" if eval_result.score >= 0.8 else "🟡" if eval_result.score >= 0.5 else "🔴"
+        result_text.append(f"\n{score_emoji} ", style="")
+        result_text.append(f"품질 점수: {eval_result.score:.2f} / 1.0", style="bold cyan")
+
+        # 통과 여부
+        result_text.append("\n", style="")
+        if eval_result.passed:
             result_text.append("✅ 조건 충족", style="bold green")
         else:
             result_text.append("❌ 조건 미충족 - 재시도 필요", style="bold red")
+
+        # 평가 이유
+        result_text.append("\n💭 ", style="yellow")
+        result_text.append("평가: ", style="bold yellow")
+        result_text.append(eval_result.reasoning, style="white")
+
+        # 개선 제안 (조건 미충족 시)
+        if not eval_result.passed and eval_result.suggestions:
+            result_text.append("\n\n💡 ", style="cyan")
+            result_text.append("개선 제안:", style="bold cyan")
+            for i, suggestion in enumerate(eval_result.suggestions, 1):
+                result_text.append(f"\n  {i}. {suggestion}", style="white")
+
         result_text.append("\n", style="")
         result_text.append("━" * 60, style="dim yellow")
         self.chat_view.write(result_text)

@@ -326,6 +326,24 @@ export const ExecutionLogsPanel: React.FC<ExecutionLogsPanelProps> = ({ addToast
       }))
   }, [isDetailModalOpen, detailModalNodeId, execution.logs, uniqueNodeIds, nodes])
 
+  // 워크플로우 완료 여부 확인
+  const isWorkflowCompleted = useMemo(() => {
+    return execution.logs.some(log => log.type === 'complete' && log.nodeId === '')
+  }, [execution.logs])
+
+  // 워크플로우 에러 여부 확인
+  const hasWorkflowError = useMemo(() => {
+    return execution.logs.some(log => log.type === 'error' && log.nodeId === '')
+  }, [execution.logs])
+
+  // 실행 상태 결정
+  const executionStatus: 'idle' | 'running' | 'completed' | 'error' = useMemo(() => {
+    if (execution.isExecuting) return 'running'
+    if (hasWorkflowError) return 'error'
+    if (isWorkflowCompleted) return 'completed'
+    return 'idle'
+  }, [execution.isExecuting, hasWorkflowError, isWorkflowCompleted])
+
   return (
     <Card className="h-full flex flex-col overflow-hidden">
       <CardHeader className="pb-3 flex-shrink-0">
@@ -346,9 +364,23 @@ export const ExecutionLogsPanel: React.FC<ExecutionLogsPanelProps> = ({ addToast
                 전체 상세보기
               </Button>
             )}
-            {execution.isExecuting && (
-              <Badge variant="default" className="animate-pulse">
+            {/* 실행 상태 배지 (컴팩트) */}
+            {executionStatus === 'running' && (
+              <Badge variant="default" className="animate-pulse bg-blue-500 text-white flex items-center gap-1 h-6 px-2">
+                <Zap className="h-3 w-3" />
                 실행 중
+              </Badge>
+            )}
+            {executionStatus === 'completed' && (
+              <Badge variant="default" className="bg-green-500 text-white flex items-center gap-1 h-6 px-2">
+                <CheckCircle2 className="h-3 w-3" />
+                완료
+              </Badge>
+            )}
+            {executionStatus === 'error' && (
+              <Badge variant="destructive" className="flex items-center gap-1 h-6 px-2">
+                <AlertCircle className="h-3 w-3" />
+                에러
               </Badge>
             )}
           </div>
@@ -456,36 +488,49 @@ export const ExecutionLogsPanel: React.FC<ExecutionLogsPanelProps> = ({ addToast
               )}
             </div>
           ) : (
-            groupedLogs.map((group, groupIndex) => {
-              const categoryLabel = getCategoryLabel(group.category)
-              const firstLog = group.logs[0]
-              const isUser = group.category === 'user'
+            <>
+              {groupedLogs.map((group, groupIndex) => {
+                const categoryLabel = getCategoryLabel(group.category)
+                const firstLog = group.logs[0]
+                const isUser = group.category === 'user'
 
-              return (
-                <div
-                  key={groupIndex}
-                  className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
-                >
+                // 노드 완료 여부 확인
+                const nodeId = group.nodeId
+                const isNodeCompleted = nodeId ? (execution.nodeMeta[nodeId]?.status === 'completed') : false
+
+                return (
                   <div
-                    className={`flex items-start gap-3 p-3 rounded-lg transition-colors max-w-[85%] ${
-                      isUser
-                        ? 'bg-blue-50 border-l-2 border-blue-400'
-                        : getLogColor(group.category)
-                    }`}
+                    key={groupIndex}
+                    className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
                   >
-                    {!isUser && (
-                      <div className="flex-shrink-0 mt-0.5">{getLogIcon(firstLog.type, group.category)}</div>
-                    )}
-                    <div className="flex-1 min-w-0 space-y-2">
-                      {/* 헤더: 카테고리, 노드, 시간 (그룹당 한번만) */}
-                      <div className={`flex items-center gap-2 flex-wrap ${isUser ? 'justify-end' : ''}`}>
-                        {categoryLabel && (
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                            isUser ? 'bg-blue-200 text-blue-800' : getCategoryLabelClass(group.category)
-                          }`}>
-                            {categoryLabel}
-                          </span>
-                        )}
+                    <div
+                      className={`flex items-start gap-3 p-3 rounded-lg transition-colors max-w-[85%] ${
+                        isUser
+                          ? 'bg-blue-50 border-l-2 border-blue-400'
+                          : isNodeCompleted
+                          ? 'bg-green-50/50 border-l-2 border-green-300'
+                          : getLogColor(group.category)
+                      }`}
+                    >
+                      {!isUser && (
+                        <div className="flex-shrink-0 mt-0.5">
+                          {isNodeCompleted ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-500" />
+                          ) : (
+                            getLogIcon(firstLog.type, group.category)
+                          )}
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0 space-y-2">
+                        {/* 헤더: 카테고리, 노드, 시간 (그룹당 한번만) */}
+                        <div className={`flex items-center gap-2 flex-wrap ${isUser ? 'justify-end' : ''}`}>
+                          {categoryLabel && (
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                              isUser ? 'bg-blue-200 text-blue-800' : getCategoryLabelClass(group.category)
+                            }`}>
+                              {categoryLabel}
+                            </span>
+                          )}
                         {group.nodeId && (
                           <>
                             <Badge variant="outline" className="text-xs">
@@ -553,7 +598,28 @@ export const ExecutionLogsPanel: React.FC<ExecutionLogsPanelProps> = ({ addToast
                   </div>
                 </div>
               )
-            })
+            })}
+
+            {/* 워크플로우 완료 배너 (컴팩트) */}
+            {executionStatus === 'completed' && (
+              <div className="flex justify-center mt-4">
+                <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg px-4 py-2 flex items-center gap-2 shadow-sm">
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  <span className="text-sm font-medium text-green-800">워크플로우 실행 완료</span>
+                </div>
+              </div>
+            )}
+
+            {/* 워크플로우 에러 배너 (컴팩트) */}
+            {executionStatus === 'error' && (
+              <div className="flex justify-center mt-4">
+                <div className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-300 rounded-lg px-4 py-2 flex items-center gap-2 shadow-sm">
+                  <AlertCircle className="h-5 w-5 text-red-600" />
+                  <span className="text-sm font-medium text-red-800">워크플로우 실행 중 오류 발생</span>
+                </div>
+              </div>
+            )}
+          </>
           )}
         </div>
       </CardContent>

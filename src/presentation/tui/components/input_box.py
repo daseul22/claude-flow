@@ -23,6 +23,12 @@ class InputBox(TextArea):
         border: solid #8b5cf6;
         background: #0d1117;
     }
+
+    InputBox:disabled {
+        border: solid #4a4a4a;
+        background: #1a1a1a;
+        opacity: 0.6;
+    }
     """
 
     class Submitted(Message):

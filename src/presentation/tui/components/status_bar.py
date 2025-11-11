@@ -46,6 +46,7 @@ class StatusBar(Widget):
         self.output_tokens = 0
         self.estimated_cost = 0.0
         self.feedback_loop_enabled = False
+        self.is_processing = False  # 응답 처리 중 플래그
 
     def compose(self) -> ComposeResult:
         """컴포넌트 구성"""
@@ -77,6 +78,11 @@ class StatusBar(Widget):
         self.feedback_loop_enabled = enabled
         self._refresh_display()
 
+    def update_processing(self, is_processing: bool) -> None:
+        """처리 상태 업데이트 (응답 대기/완료 표시)"""
+        self.is_processing = is_processing
+        self._refresh_display()
+
     def _refresh_display(self) -> None:
         """화면 갱신 (Claude Code 스타일: 간결하게)"""
         # 프로젝트 정보 (간결하게)
@@ -93,6 +99,8 @@ class StatusBar(Widget):
             session_parts.append(self.session_id)
         if self.feedback_loop_enabled:
             session_parts.append("🔁")
+        if self.is_processing:
+            session_parts.append("⏳")  # 처리 중 상태 표시
 
         session_text = " │ ".join(session_parts) if session_parts else "─"
         session_widget = self.query_one("#session-info", Static)
