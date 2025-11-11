@@ -680,3 +680,19 @@ npm run build
 - 영향범위: 기능 수정 (버그 수정, UX 개선)
 - 테스트: TUI에서 여러 메시지를 연속으로 전송하여 컴팩션 알림이 중복 표시되지 않고, 의미 있는 이벤트만 표시되는지 확인
 - 후속 조치: 없음
+
+#### fix. TUI 토큰 사용량 추적 중복 호출 문제 수정
+- 날짜: 2025-11-11 17:15 (Asia/Seoul)
+- 컨텍스트: Claude SDK가 AssistantMessage와 ResultMessage에서 각각 usage_callback을 호출하여 중복 카운팅 발생. 디버그 로그가 2번씩 출력되어 혼란 야기.
+- 변경사항:
+  - `src/infrastructure/claude/sdk_executor.py`: ResultMessage에서만 usage_callback 호출하도록 수정
+    * AssistantMessage, UserMessage, SystemMessage: usage_callback 제거, debug 로깅만 수행
+    * ResultMessage: 최종 usage만 콜백 호출 (유일한 호출 지점)
+    * 중복 카운팅 방지 주석 추가
+  - `src/presentation/tui/app.py`: on_usage 함수 간소화 및 디버그 로그 제거
+    * 40줄 → 10줄로 간소화
+    * 불필요한 디버그 메시지 전체 제거
+    * 세션 ID 없으면 즉시 return
+- 영향범위: 기능 수정 (버그 수정), 로깅 개선
+- 테스트: TUI에서 메시지 전송 시 usage_callback이 1번만 호출되고, 토큰 추적이 정상 작동하는지 확인
+- 후속 조치: 없음
