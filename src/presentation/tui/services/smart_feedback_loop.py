@@ -9,51 +9,7 @@ from .agent_client import AgentClient
 from .feedback_loop_improved import ImprovedFeedbackLoop, EvaluationResult
 
 
-# 컨텍스트 기반 조건 템플릿
-CONDITION_TEMPLATES = {
-    "test": """
-테스트 코드 품질 기준:
-1. 정상 케이스 테스트가 포함되었는지
-2. 엣지 케이스와 경계값 테스트가 포함되었는지
-3. 예외 처리 테스트가 포함되었는지
-4. 테스트 함수명이 명확한지
-5. assert 메시지가 명확한지
-""",
-    "document": """
-문서 완성도 기준:
-1. 프로젝트 설명이 명확한지
-2. 설치 방법이 포함되었는지
-3. 사용 예시가 포함되었는지
-4. 주요 기능 목록이 있는지
-5. 섹션 구조가 명확한지
-""",
-    "refactor": """
-리팩터링 품질 기준:
-1. 코드 가독성이 개선되었는지
-2. DRY 원칙을 준수하는지 (중복 제거)
-3. 함수/변수명이 명확한지
-4. 복잡도가 낮아졌는지
-5. 주석이 적절히 추가되었는지
-""",
-    "bugfix": """
-버그 수정 품질 기준:
-1. 버그가 재현되지 않는지
-2. 원인이 명확히 해결되었는지
-3. 관련 테스트가 추가되었는지
-4. 유사한 버그 예방 코드가 있는지
-5. 변경 사항이 최소화되었는지
-""",
-    "code": """
-코드 작성 품질 기준:
-1. 요구사항이 충족되었는지
-2. 에러 처리가 적절한지
-3. 타입 힌팅이 있는지 (Python)
-4. docstring/주석이 있는지
-5. 코드가 간결하고 명확한지
-""",
-}
-
-# 범용 품질 평가 기준
+# 범용 품질 평가 기준 (Fallback용)
 UNIVERSAL_QUALITY_CRITERIA = """
 다음 기준으로 출력을 평가하세요:
 
@@ -89,77 +45,89 @@ class SmartFeedbackConfig:
 
 
 class AutoConditionGenerator:
-    """사용자 요청에서 평가 조건을 자동 생성"""
+    """사용자 요청에서 평가 조건을 자동 생성 (LLM 기반)"""
 
     def __init__(self, project_path: Path, model: str = "claude-haiku-4-5-20251001"):
         self.project_path = project_path
         self.model = model
-
-    def extract_keywords(self, user_request: str) -> list[str]:
-        """요청에서 키워드 추출"""
-        keywords = []
-        user_request_lower = user_request.lower()
-
-        keyword_map = {
-            "test": ["테스트", "test", "pytest", "단위 테스트", "통합 테스트"],
-            "document": ["문서", "readme", "doc", "문서화", "가이드"],
-            "refactor": ["리팩터링", "refactor", "개선", "정리"],
-            "bugfix": ["버그", "bug", "수정", "fix", "오류", "에러"],
-            "code": ["코드", "함수", "클래스", "구현", "작성"],
-        }
-
-        for key, patterns in keyword_map.items():
-            if any(pattern in user_request_lower for pattern in patterns):
-                keywords.append(key)
-
-        return keywords if keywords else ["code"]  # 기본값: code
-
-    def get_template_condition(self, user_request: str) -> Optional[str]:
-        """템플릿 기반 조건 생성"""
-        keywords = self.extract_keywords(user_request)
-
-        # 첫 번째 매칭된 키워드의 템플릿 사용
-        if keywords:
-            return CONDITION_TEMPLATES.get(keywords[0], UNIVERSAL_QUALITY_CRITERIA)
-
-        return UNIVERSAL_QUALITY_CRITERIA
 
     async def generate_condition(
         self,
         user_request: str,
         on_generation_output: Optional[Callable[[str], None]] = None,
     ) -> str:
-        """LLM을 사용한 조건 자동 생성"""
-        # 먼저 템플릿 매칭 시도
-        template_condition = self.get_template_condition(user_request)
-
-        # 템플릿이 범용 기준이 아니면 바로 반환 (빠른 경로)
-        if template_condition != UNIVERSAL_QUALITY_CRITERIA:
-            return template_condition
-
-        # 범용 기준이면 LLM으로 맞춤 조건 생성 (느린 경로)
+        """LLM을 사용한 조건 자동 생성 (항상 LLM 기반)"""
         generator = AgentClient(
             project_path=self.project_path,
             model=self.model,
             enable_thinking=False,
         )
 
+        # 개선된 프롬프트: 예시 템플릿을 참고하여 더 나은 조건 생성
         generation_prompt = f"""
-다음 사용자 요청을 분석하고, **출력 품질을 평가할 구체적인 조건**을 생성해주세요.
+다음 사용자 요청을 분석하고, **출력 품질을 평가할 구체적이고 실용적인 조건**을 생성해주세요.
 
 ## 사용자 요청
 {user_request}
+
+## 작업 분석
+1. 사용자가 요청한 작업의 **유형**을 파악하세요 (예: 코드 작성, 테스트 작성, 문서화, 리팩터링, 버그 수정 등).
+2. 해당 작업의 **핵심 목표**를 식별하세요.
+3. 출력 품질을 평가할 **구체적인 기준** 5개를 생성하세요.
+
+## 예시 템플릿 (참고용)
+
+**테스트 코드 작성 시:**
+1. 정상 케이스 테스트가 포함되었는지
+2. 엣지 케이스와 경계값 테스트가 포함되었는지
+3. 예외 처리 테스트가 포함되었는지
+4. 테스트 함수명이 명확한지
+5. assert 메시지가 명확한지
+
+**문서 작성 시:**
+1. 프로젝트 설명이 명확한지
+2. 설치 방법이 포함되었는지
+3. 사용 예시가 포함되었는지
+4. 주요 기능 목록이 있는지
+5. 섹션 구조가 명확한지
+
+**코드 작성 시:**
+1. 요구사항이 충족되었는지
+2. 에러 처리가 적절한지
+3. 타입 힌팅이 있는지 (Python/TypeScript)
+4. 주석/docstring이 있는지
+5. 코드가 간결하고 명확한지
+
+**리팩터링 시:**
+1. 코드 가독성이 개선되었는지
+2. DRY 원칙을 준수하는지 (중복 제거)
+3. 함수/변수명이 명확한지
+4. 복잡도가 낮아졌는지
+5. 주석이 적절히 추가되었는지
+
+**버그 수정 시:**
+1. 버그가 재현되지 않는지
+2. 원인이 명확히 해결되었는지
+3. 관련 테스트가 추가되었는지
+4. 유사한 버그 예방 코드가 있는지
+5. 변경 사항이 최소화되었는지
 
 ## 응답 형식
 다음 형식으로 평가 조건을 작성하세요:
 
 품질 평가 기준:
-1. [기준 1]
-2. [기준 2]
-3. [기준 3]
-...
+1. [구체적인 기준 1]
+2. [구체적인 기준 2]
+3. [구체적인 기준 3]
+4. [구체적인 기준 4]
+5. [구체적인 기준 5]
 
-**주의**: 조건만 출력하세요. 다른 설명은 불필요합니다.
+**총점 80점 이상이면 passed: true로 판단하세요.**
+
+**주의사항:**
+- 조건만 출력하세요. 다른 설명은 불필요합니다.
+- 사용자 요청의 맥락에 맞는 구체적이고 실용적인 기준을 작성하세요.
+- 위 예시를 참고하되, 사용자 요청에 최적화된 기준을 만드세요.
 """
 
         condition = ""
@@ -200,19 +168,19 @@ class SmartFeedbackLoop:
         user_request: str,
         on_generation_output: Optional[Callable[[str], None]] = None,
     ) -> str:
-        """모드에 따라 조건 준비"""
+        """모드에 따라 조건 준비 (항상 LLM 기반)"""
         if self.config.mode == "manual":
             # 수동 모드: 사용자 지정 조건 사용
             return self.config.detailed_condition
 
         elif self.config.mode == "semi-auto":
-            # 반자동 모드: 간단한 목표를 조건으로 확장
+            # 반자동 모드: 간단한 목표를 LLM이 구체적인 조건으로 확장
             if self.config.simple_goal.strip():
-                return f"""
-사용자 목표: {self.config.simple_goal}
-
-위 목표가 달성되었는지 확인하세요.
-"""
+                # LLM을 사용하여 간단한 목표를 구체적인 평가 조건으로 확장
+                expanded_request = f"{user_request}\n\n목표: {self.config.simple_goal}"
+                return await self.condition_generator.generate_condition(
+                    expanded_request, on_generation_output
+                )
             else:
                 # 목표가 없으면 자동 모드로 전환
                 return await self.condition_generator.generate_condition(

@@ -76,7 +76,9 @@ class ChatView(RichLog):
         # 부모 클래스의 write 호출
         super().write(content)
 
-    def add_user_message(self, content: str, timestamp: Optional[str] = None) -> None:
+    def add_user_message(
+        self, content: str, timestamp: Optional[str] = None, tokens: Optional[int] = None
+    ) -> None:
         """사용자 메시지 추가 (Claude Code 스타일: ❯ 사용)"""
         if timestamp is None:
             timestamp = datetime.now().strftime("%H:%M:%S")
@@ -90,14 +92,30 @@ class ChatView(RichLog):
         message.append(content, style="")
         self.write(message)
 
-        # 타임스탬프 표시 (선택적, dim 스타일로 작게)
-        if self.show_timestamps:
-            time_text = Text(f"  {timestamp}", style="dim")
-            self.write(time_text)
+        # 타임스탬프 및 토큰 표시 (선택적, dim 스타일로 작게)
+        if self.show_timestamps or tokens:
+            meta_text = Text()
+            meta_text.append("  ", style="")
+
+            if self.show_timestamps:
+                meta_text.append(timestamp, style="dim")
+
+            if tokens and tokens > 0:
+                if self.show_timestamps:
+                    meta_text.append(" │ ", style="dim")
+                if tokens >= 1000:
+                    token_str = f"{tokens/1000:.1f}K"
+                else:
+                    token_str = f"{tokens}"
+                meta_text.append(f"{token_str} tokens", style="dim cyan")
+
+            self.write(meta_text)
 
         self.write("")  # 간격
 
-    def add_assistant_message(self, content: str, timestamp: Optional[str] = None) -> None:
+    def add_assistant_message(
+        self, content: str, timestamp: Optional[str] = None, tokens: Optional[int] = None
+    ) -> None:
         """어시스턴트 메시지 추가 (Claude Code 스타일: ● 사용)"""
         if timestamp is None:
             timestamp = datetime.now().strftime("%H:%M:%S")
@@ -107,7 +125,7 @@ class ChatView(RichLog):
 
         # 어시스턴트 메시지: ● 로 시작 (Claude Code 스타일 - 큰 원형 bullet)
         # 첫 줄에만 bullet point 표시
-        lines = content.split('\n')
+        lines = content.split("\n")
 
         # 첫 줄
         if lines:
@@ -123,10 +141,24 @@ class ChatView(RichLog):
             indented.append(line, style="")
             self.write(indented)
 
-        # 타임스탬프 표시 (선택적, dim 스타일로 작게)
-        if self.show_timestamps:
-            time_text = Text(f"  {timestamp}", style="dim")
-            self.write(time_text)
+        # 타임스탬프 및 토큰 표시 (선택적, dim 스타일로 작게)
+        if self.show_timestamps or tokens:
+            meta_text = Text()
+            meta_text.append("  ", style="")
+
+            if self.show_timestamps:
+                meta_text.append(timestamp, style="dim")
+
+            if tokens and tokens > 0:
+                if self.show_timestamps:
+                    meta_text.append(" │ ", style="dim")
+                if tokens >= 1000:
+                    token_str = f"{tokens/1000:.1f}K"
+                else:
+                    token_str = f"{tokens}"
+                meta_text.append(f"{token_str} tokens", style="dim cyan")
+
+            self.write(meta_text)
 
         self.write("")  # 간격
 
@@ -170,4 +202,21 @@ class ChatView(RichLog):
     def toggle_timestamps(self) -> None:
         """타임스탬프 표시 토글"""
         self.show_timestamps = not self.show_timestamps
+
+    def add_completion_message(self, tokens_used: Optional[int] = None) -> None:
+        """응답 완료 메시지 추가 (간결한 피드백)"""
+        completion_text = Text()
+        completion_text.append("✓ ", style="green")
+        completion_text.append("응답 완료", style="dim green")
+
+        # 토큰 정보 추가 (선택적)
+        if tokens_used and tokens_used > 0:
+            if tokens_used >= 1000:
+                token_str = f"{tokens_used/1000:.1f}K"
+            else:
+                token_str = f"{tokens_used}"
+            completion_text.append(f" ({token_str} tokens)", style="dim cyan")
+
+        self.write(completion_text)
+        self.write("")  # 간격
 

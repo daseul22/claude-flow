@@ -142,6 +142,9 @@ class ClaudeFlowApp(App):
         self._last_compaction_event: Optional[Dict[str, Any]] = None
         self._compaction_debounce_seconds: float = 5.0
 
+        # 컨텍스트 윈도우 경고 플래그 (80% 경고는 한 번만)
+        self._context_window_80_warned: bool = False
+
     def compose(self) -> ComposeResult:
         """UI 구성"""
         with Container(id="main-container"):
@@ -215,18 +218,38 @@ class ClaudeFlowApp(App):
                 input_box = self.query_one(InputBox)
                 input_box.disabled = False
 
+                chat_view = self.query_one(ChatView)
+
+                # 정상 완료
+                if worker.state == WorkerState.SUCCESS:
+                    # 마지막 메시지의 토큰 수 가져오기 (있으면)
+                    tokens_used = None
+                    if (
+                        self.session_manager.current_session
+                        and self.session_manager.current_session.messages
+                    ):
+                        last_message = self.session_manager.current_session.messages[-1]
+                        if last_message.role == "assistant":
+                            tokens_used = (
+                                last_message.tokens.get("input", 0)
+                                + last_message.tokens.get("output", 0)
+                            )
+
+                    chat_view.add_completion_message(tokens_used)
+
                 # 취소된 경우
-                if worker.state == WorkerState.CANCELLED:
-                    chat_view = self.query_one(ChatView)
+                elif worker.state == WorkerState.CANCELLED:
                     chat_view.add_system_message("✓ 응답이 중단되었습니다.", style="yellow")
 
                 # 에러 발생
                 elif worker.state == WorkerState.ERROR and worker.error:
-                    chat_view = self.query_one(ChatView)
                     chat_view.add_error_message(f"Worker 에러: {worker.error}")
 
     async def create_new_session(self):
         """새 세션 생성"""
+        # 컨텍스트 윈도우 경고 플래그 리셋
+        self._context_window_80_warned = False
+
         # 피드백 루프 설정 준비 (프로젝트별 설정 사용)
         from .services.session_manager import FeedbackLoopConfig
 
@@ -324,14 +347,15 @@ class ClaudeFlowApp(App):
             await self.handle_cd_command(user_message.strip())
             return
 
-        # 사용자 메시지 표시
-        chat_view.add_user_message(user_message)
+        # 사용자 메시지 표시 (토큰 추정: 단어 수 * 1.3)
+        estimated_tokens = int(len(user_message.split()) * 1.3)
+        chat_view.add_user_message(user_message, tokens=estimated_tokens)
 
         # 세션에 저장
         self.session_manager.add_message(
             role="user",
             content=user_message,
-            tokens={"input": len(user_message.split()), "output": 0},  # 간단한 추정
+            tokens={"input": estimated_tokens, "output": 0},  # 간단한 추정
         )
 
         # 로그
@@ -555,11 +579,13 @@ class ClaudeFlowApp(App):
             # 메시지 복원
             for msg in session.messages:
                 timestamp = self._format_timestamp(msg.timestamp)
+                # 메시지별 토큰 수 계산
+                msg_tokens = msg.tokens.get("input", 0) + msg.tokens.get("output", 0)
 
                 if msg.role == "user":
-                    chat_view.add_user_message(msg.content, timestamp)
+                    chat_view.add_user_message(msg.content, timestamp, tokens=msg_tokens)
                 elif msg.role == "assistant":
-                    chat_view.add_assistant_message(msg.content, timestamp)
+                    chat_view.add_assistant_message(msg.content, timestamp, tokens=msg_tokens)
 
             # 상태바 업데이트
             if self.agent:
@@ -748,11 +774,14 @@ class ClaudeFlowApp(App):
                 total_output = session.total_tokens["output"]
                 total_tokens = total_input + total_output
 
+                # 세션 통계 계산
+                cost = (
+                    self.agent.estimate_cost(total_input, total_output) if self.agent else 0.0
+                )
+                message_count = len(session.messages)
+
                 # 종료 이벤트 로그
                 if self.logger:
-                    cost = (
-                        self.agent.estimate_cost(total_input, total_output) if self.agent else 0.0
-                    )
                     self.logger.log_event(
                         "session_end",
                         {
@@ -760,9 +789,26 @@ class ClaudeFlowApp(App):
                             "input_tokens": total_input,
                             "output_tokens": total_output,
                             "estimated_cost": cost,
-                            "message_count": len(session.messages),
+                            "message_count": message_count,
                         },
                     )
+
+                # 세션 통계 표시 (사용자에게)
+                from rich.text import Text
+
+                stats_message = Text()
+                stats_message.append("\n━━━ 세션 종료 통계 ━━━\n", style="bold cyan")
+                stats_message.append(f"📊 메시지 수: {message_count}\n", style="white")
+                stats_message.append(
+                    f"🎯 토큰 사용량: {total_tokens:,} "
+                    f"(입력: {total_input:,}, 출력: {total_output:,})\n",
+                    style="white",
+                )
+                if cost > 0:
+                    stats_message.append(f"💰 예상 비용: ${cost:.4f}\n", style="yellow")
+                stats_message.append("━━━━━━━━━━━━━━━━━━━━\n", style="bold cyan")
+
+                chat_view.write(stats_message)
 
                 # 최종 세션 저장
                 save_success = self.session_manager.save_session(session)
@@ -1024,6 +1070,30 @@ class ClaudeFlowApp(App):
 
                 status_bar = self.query_one(StatusBar)
                 status_bar.update_context_window(cumulative_tokens, usage_pct, limit)
+
+                # 컨텍스트 윈도우 80% 경고 (한 번만)
+                if usage_pct >= 0.8 and not self._context_window_80_warned:
+                    self._context_window_80_warned = True
+                    chat_view = self.query_one(ChatView)
+                    from rich.text import Text
+
+                    warning_msg = Text()
+                    warning_msg.append("\n⚠️  ", style="bold yellow")
+                    warning_msg.append("컨텍스트 윈도우 경고", style="bold yellow")
+                    warning_msg.append(
+                        f"\n현재 사용량: {int(usage_pct * 100)}% "
+                        f"({cumulative_tokens:,} / {limit:,} tokens)\n",
+                        style="yellow",
+                    )
+                    warning_msg.append(
+                        "\n권장 조치:\n"
+                        "  • 새 세션 시작 (Ctrl+N)\n"
+                        "  • 불필요한 대화 내용 정리\n"
+                        "  • 컨텍스트 윈도우가 가득 차면 자동으로 컴팩션됩니다\n",
+                        style="dim yellow",
+                    )
+
+                    chat_view.write(warning_msg)
 
         return on_usage
 
