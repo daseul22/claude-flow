@@ -485,13 +485,13 @@ class WorkerResponseHandler(SDKResponseHandler):
         # [1단계] ResultMessage 처리 (스트리밍 종료, usage 정보만 존재)
         # ====================================================================
         if isinstance(response, ResultMessage):
-            logger.debug("[Worker] Processing ResultMessage (usage info)")
+            logger.debug("[Worker] Processing ResultMessage")
 
-            # usage 정보 추출 및 콜백 호출
+            # usage 정보 추출 및 콜백 호출 (ResultMessage에서만!)
             if response.usage and self.usage_callback:
                 usage_dict = self.extract_usage_info(response.usage, context="Worker")
                 if usage_dict:
-                    logger.info(f"[Worker] Token usage (ResultMessage): {usage_dict}")
+                    logger.info(f"[Worker] Token usage: {usage_dict}")
                     self.usage_callback(usage_dict)
 
             # ResultMessage는 텍스트가 없으므로 여기서 종료
@@ -503,12 +503,14 @@ class WorkerResponseHandler(SDKResponseHandler):
         if isinstance(response, AssistantMessage):
             logger.debug("[Worker] Processing AssistantMessage")
 
-            # (2-1) usage 정보 추출 및 콜백 호출
-            if hasattr(response, 'usage') and response.usage and self.usage_callback:
+            # (2-1) usage 정보는 디버그 로깅만 (콜백 호출 안 함)
+            # ⚠️  중요: AssistantMessage의 usage는 부분적이고, ResultMessage에서 최종 usage가 제공됨
+            #    중복 카운팅 방지를 위해 ResultMessage에서만 콜백 호출
+            if hasattr(response, 'usage') and response.usage:
                 usage_dict = self.extract_usage_info(response.usage, context="Worker")
                 if usage_dict:
-                    logger.info(f"[Worker] Token usage (AssistantMessage): {usage_dict}")
-                    self.usage_callback(usage_dict)
+                    logger.debug(f"[Worker] Token usage (AssistantMessage, 디버그용): {usage_dict}")
+                    # usage_callback은 호출하지 않음 (ResultMessage에서만 호출)
 
             # (2-2) 텍스트 추출 및 yield
             text = self.extract_text_from_response(response)
@@ -522,12 +524,12 @@ class WorkerResponseHandler(SDKResponseHandler):
         if isinstance(response, UserMessage):
             logger.debug("[Worker] Processing UserMessage")
 
-            # UserMessage는 usage 정보가 없을 수 있으므로 확인 후 처리
-            if hasattr(response, 'usage') and response.usage and self.usage_callback:
+            # UserMessage의 usage는 디버그 로깅만 (콜백 호출 안 함)
+            # ResultMessage에서만 최종 usage를 처리
+            if hasattr(response, 'usage') and response.usage:
                 usage_dict = self.extract_usage_info(response.usage, context="Worker")
                 if usage_dict:
-                    logger.info(f"[Worker] Token usage (UserMessage): {usage_dict}")
-                    self.usage_callback(usage_dict)
+                    logger.debug(f"[Worker] Token usage (UserMessage, 디버그용): {usage_dict}")
 
             # 텍스트 추출 및 yield
             text = self.extract_text_from_response(response)
@@ -541,12 +543,12 @@ class WorkerResponseHandler(SDKResponseHandler):
         if isinstance(response, SystemMessage):
             logger.debug("[Worker] Processing SystemMessage")
 
-            # SystemMessage는 usage 정보가 없을 수 있으므로 확인 후 처리
-            if hasattr(response, 'usage') and response.usage and self.usage_callback:
+            # SystemMessage의 usage는 디버그 로깅만 (콜백 호출 안 함)
+            # ResultMessage에서만 최종 usage를 처리
+            if hasattr(response, 'usage') and response.usage:
                 usage_dict = self.extract_usage_info(response.usage, context="Worker")
                 if usage_dict:
-                    logger.info(f"[Worker] Token usage (SystemMessage): {usage_dict}")
-                    self.usage_callback(usage_dict)
+                    logger.debug(f"[Worker] Token usage (SystemMessage, 디버그용): {usage_dict}")
 
             # 텍스트 추출 및 yield
             text = self.extract_text_from_response(response)
@@ -559,12 +561,11 @@ class WorkerResponseHandler(SDKResponseHandler):
         # ====================================================================
         logger.info(f"⚠️  [Worker] Unknown response type: {type(response).__name__}")
 
-        # (3-1) usage 정보 추출 시도
-        if hasattr(response, 'usage') and response.usage and self.usage_callback:
+        # usage 정보는 디버그 로깅만 (콜백 호출 안 함)
+        if hasattr(response, 'usage') and response.usage:
             usage_dict = self.extract_usage_info(response.usage, context="Worker")
             if usage_dict:
-                logger.info(f"[Worker] Token usage (fallback): {usage_dict}")
-                self.usage_callback(usage_dict)
+                logger.debug(f"[Worker] Token usage (fallback, 디버그용): {usage_dict}")
 
         # (3-2) 텍스트 추출 시도
         text = self.extract_text_from_response(response)

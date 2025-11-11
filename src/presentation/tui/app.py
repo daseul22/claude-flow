@@ -138,6 +138,10 @@ class ClaudeFlowApp(App):
         # 디렉토리 히스토리 (cd - 용)
         self.directory_history: list[Path] = []
 
+        # 컴팩션 이벤트 중복 알림 방지 (최근 5초 내 동일 트리거 무시)
+        self._last_compaction_event: Optional[Dict[str, Any]] = None
+        self._compaction_debounce_seconds: float = 5.0
+
     def compose(self) -> ComposeResult:
         """UI 구성"""
         with Container(id="main-container"):
@@ -951,16 +955,14 @@ class ClaudeFlowApp(App):
         """
 
         def on_usage(usage_dict: Dict[str, Any]) -> None:
-            """토큰 사용량 정보 수신 시 호출"""
-            # SDK 세션 ID 확인
+            """토큰 사용량 정보 수신 시 호출 (ResultMessage에서만 호출됨)"""
+            # Agent 및 세션 ID 확인
             if not self.agent or not self.agent.current_session_id:
-                return
+                return  # 세션 ID 없으면 스킵
 
-            sdk_session_id = self.agent.current_session_id
             model = self.agent.model
-
-            # 정규화된 모델 이름 사용
             normalized_model = self.agent._normalize_model_name(model)
+            sdk_session_id = self.agent.current_session_id
 
             # 세션 통계 업데이트
             compaction_event = self.session_manager.update_session_stats(
@@ -969,26 +971,56 @@ class ClaudeFlowApp(App):
                 usage_dict=usage_dict,
             )
 
-            # 컴팩션 이벤트 감지 시 알림
+            # 컴팩션 이벤트 감지 시 알림 (감소 토큰 > 0 + 중복 방지)
             if compaction_event:
+                reduction = compaction_event["reduction_tokens"]
+
+                # 감소 토큰이 0이면 무시 (의미 없는 이벤트)
+                if reduction <= 0:
+                    return
+
+                # 중복 알림 방지 (최근 N초 내 동일 트리거 무시)
+                from datetime import datetime
+                now = datetime.now()
+                trigger = compaction_event["trigger"]
+
+                if self._last_compaction_event:
+                    last_trigger = self._last_compaction_event.get("trigger")
+                    last_time_str = self._last_compaction_event.get("timestamp")
+
+                    if last_time_str and last_trigger == trigger:
+                        try:
+                            last_time = datetime.fromisoformat(last_time_str)
+                            time_diff = (now - last_time).total_seconds()
+
+                            # N초 내 동일 트리거는 중복으로 간주
+                            if time_diff < self._compaction_debounce_seconds:
+                                return
+                        except Exception:
+                            pass  # 파싱 실패 시 무시하고 알림 표시
+
+                # 알림 표시
                 trigger_text = {
                     "cache_creation": "캐시 재생성",
                     "cache_reset": "캐시 리셋",
                     "context_limit": "컨텍스트 윈도우 축소",
-                }.get(compaction_event["trigger"], compaction_event["trigger"])
+                }.get(trigger, trigger)
 
-                reduction = compaction_event["reduction_tokens"]
                 chat_view.add_system_message(
-                    f"🔄 컨텍스트 컴팩션 발생: {trigger_text} (감소: {reduction} tokens)",
+                    f"🔄 컨텍스트 컴팩션 발생: {trigger_text} (감소: {reduction:,} tokens)",
                     style="yellow",
                 )
+
+                # 마지막 이벤트 저장 (중복 방지용)
+                self._last_compaction_event = compaction_event
 
             # 세션 통계 조회 및 StatusBar 업데이트
             stats = self.session_manager.get_current_sdk_session_stats(sdk_session_id)
             if stats:
                 cumulative_tokens = stats["cumulative_total_tokens"]
                 usage_pct = stats["estimated_context_window_usage"]
-                limit = 200000  # 기본 한계
+                # 모델별 컨텍스트 한계 동적 조회
+                limit = self.session_manager.get_context_limit(normalized_model)
 
                 status_bar = self.query_one(StatusBar)
                 status_bar.update_context_window(cumulative_tokens, usage_pct, limit)
