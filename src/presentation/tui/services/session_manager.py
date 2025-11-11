@@ -289,10 +289,39 @@ class SessionManager:
         stats["cumulative_output_tokens"] += usage_dict.get("output_tokens", 0)
         stats["cumulative_cache_read_tokens"] += usage_dict.get("cache_read_tokens", 0)
         stats["cumulative_cache_creation_tokens"] += usage_dict.get("cache_creation_tokens", 0)
+
+        # 디버그 로그: 토큰 분석
+        logger.info(
+            f"[SessionStats] 🔍 토큰 분석: "
+            f"input={usage_dict.get('input_tokens', 0)}, "
+            f"output={usage_dict.get('output_tokens', 0)}, "
+            f"cache_read={usage_dict.get('cache_read_tokens', 0)}, "
+            f"cache_creation={usage_dict.get('cache_creation_tokens', 0)} | "
+            f"누적: input={stats['cumulative_input_tokens']}, "
+            f"output={stats['cumulative_output_tokens']}, "
+            f"cache_read={stats['cumulative_cache_read_tokens']}, "
+            f"cache_creation={stats['cumulative_cache_creation_tokens']}"
+        )
+
+        # 컨텍스트 윈도우 사용량 계산
+        #
+        # Claude API 토큰 의미:
+        # - input_tokens: 새 입력 토큰 (캐싱 활성화 시 캐시 제외)
+        # - output_tokens: 모델 출력 토큰
+        # - cache_read_tokens: 캐시에서 읽은 토큰 (컨텍스트에 포함되지만 이미 첫 요청 input에 포함됨)
+        # - cache_creation_tokens: 캐시 생성 비용 (컨텍스트는 input_tokens에 이미 포함됨)
+        #
+        # 컨텍스트 윈도우 = input + output (cache_read, cache_creation 제외!)
+        #
+        # 예시:
+        # - 첫 요청: input=50K (시스템 프롬프트 포함), cache_creation=45K (비용), output=5K
+        #   → context = 50K + 5K = 55K
+        # - 두 번째 요청: input=10K (새 입력+이전 대화), cache_read=45K, output=5K
+        #   → context = 50K + 10K + 5K + 5K = 70K (누적)
+        #   (cache_read는 첫 요청의 input에 이미 포함되어 있으므로 제외!)
         stats["cumulative_total_tokens"] = (
             stats["cumulative_input_tokens"]
             + stats["cumulative_output_tokens"]
-            + stats["cumulative_cache_read_tokens"]
         )
 
         # 토큰 스냅샷 생성
@@ -355,7 +384,7 @@ class SessionManager:
         SDK는 컴팩션 이벤트를 직접 노출하지 않으므로, 토큰 패턴을 분석하여 추론합니다.
 
         컴팩션 감지 조건:
-        1. cache_creation_tokens > 0: 새 캐시 생성 (기존 캐시 재구성 신호)
+        1. cache_creation_tokens > 0 AND 토큰 감소 발생: 새 캐시 생성 (기존 캐시 재구성 신호)
         2. cache_read_tokens == 0 AND prev > 0: 캐시 리셋 (컨텍스트 윈도우 초기화)
         3. cumulative_total < prev_cumulative: 컨텍스트 윈도우 축소 (직접 감소)
 
@@ -371,9 +400,11 @@ class SessionManager:
             Dict[str, Any]: 컴팩션 이벤트 딕셔너리 또는 None
         """
         trigger = None
+        reduction_tokens = max(prev_cumulative - current_cumulative, 0)
 
         # 조건 1: 캐시 재생성 (가장 일반적인 컴팩션 신호)
-        if cache_creation_tokens > 0:
+        # ⚠️  중요: 토큰 감소가 없으면 의미 없는 이벤트이므로 무시
+        if cache_creation_tokens > 0 and reduction_tokens > 0:
             trigger = "cache_creation"
 
         # 조건 2: 캐시 리셋 (cache_read가 0으로 떨어짐)
@@ -385,7 +416,6 @@ class SessionManager:
             trigger = "context_limit"
 
         if trigger:
-            reduction_tokens = max(prev_cumulative - current_cumulative, 0)
             return {
                 "timestamp": timestamp,
                 "trigger": trigger,
@@ -401,13 +431,17 @@ class SessionManager:
         """컨텍스트 윈도우 사용률 추정 (0.0 ~ 1.0)
 
         Args:
-            cumulative_total: 누적 총 토큰 수
+            cumulative_total: 누적 총 토큰 수 (input + output만, cache_read 제외)
             model: 모델 이름
 
         Returns:
             float: 사용률 (0.0 ~ 1.0)
         """
         # 모델별 컨텍스트 한계 (토큰)
+        # 참고: Claude 공식 문서 기준 (2025-01 기준)
+        # - 기본 컨텍스트: 200K
+        # - Extended Context: 최대 1M (별도 요청 시)
+        # - Auto-compaction: 200K 근처에서 자동 압축 발생
         context_limits = {
             "claude-sonnet-4-5-20250929": 200000,
             "claude-opus-4-5-20250514": 200000,
@@ -417,6 +451,23 @@ class SessionManager:
 
         limit = context_limits.get(model, context_limits["default"])
         return min(cumulative_total / limit, 1.0)
+
+    def get_context_limit(self, model: str) -> int:
+        """모델별 컨텍스트 윈도우 한계 조회
+
+        Args:
+            model: 모델 이름
+
+        Returns:
+            int: 컨텍스트 윈도우 한계 (토큰)
+        """
+        context_limits = {
+            "claude-sonnet-4-5-20250929": 200000,
+            "claude-opus-4-5-20250514": 200000,
+            "claude-haiku-4-5-20251001": 200000,
+            "default": 200000,
+        }
+        return context_limits.get(model, context_limits["default"])
 
     def get_current_sdk_session_stats(self, sdk_session_id: str) -> Optional[Dict[str, Any]]:
         """현재 SDK 세션 통계 조회
