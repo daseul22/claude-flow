@@ -134,3 +134,63 @@ class ConfigManager:
         """프로젝트 로그 디렉토리 반환"""
         return self.get_claude_flow_dir() / project_name / "logs"
 
+    def get_project_settings_path(self, project_name: str) -> Path:
+        """프로젝트 설정 파일 경로 반환"""
+        return self.get_claude_flow_dir() / project_name / "settings.json"
+
+    def load_project_settings(self, project_name: str) -> dict:
+        """프로젝트별 설정 로드 (없으면 전역 기본값 반환)"""
+        settings_path = self.get_project_settings_path(project_name)
+
+        if not settings_path.exists():
+            # 프로젝트 설정이 없으면 전역 기본값 반환
+            return {
+                "feedback_loop_enabled": self.config.feedback_loop_defaults.enabled,
+                "feedback_loop_max_iterations": self.config.feedback_loop_defaults.max_iterations,
+                "feedback_loop_condition_model": self.config.feedback_loop_defaults.condition_model,
+                "feedback_loop_quality_threshold": self.config.feedback_loop_defaults.quality_threshold,
+            }
+
+        try:
+            with open(settings_path, "r", encoding="utf-8") as f:
+                project_settings = json.load(f)
+
+            # 필수 키가 없으면 기본값 사용
+            return {
+                "feedback_loop_enabled": project_settings.get(
+                    "feedback_loop_enabled",
+                    self.config.feedback_loop_defaults.enabled
+                ),
+                "feedback_loop_max_iterations": project_settings.get(
+                    "feedback_loop_max_iterations",
+                    self.config.feedback_loop_defaults.max_iterations
+                ),
+                "feedback_loop_condition_model": project_settings.get(
+                    "feedback_loop_condition_model",
+                    self.config.feedback_loop_defaults.condition_model
+                ),
+                "feedback_loop_quality_threshold": project_settings.get(
+                    "feedback_loop_quality_threshold",
+                    self.config.feedback_loop_defaults.quality_threshold
+                ),
+            }
+        except Exception as e:
+            print(f"⚠️  프로젝트 설정 로드 실패: {e}. 기본 설정 사용")
+            return {
+                "feedback_loop_enabled": self.config.feedback_loop_defaults.enabled,
+                "feedback_loop_max_iterations": self.config.feedback_loop_defaults.max_iterations,
+                "feedback_loop_condition_model": self.config.feedback_loop_defaults.condition_model,
+                "feedback_loop_quality_threshold": self.config.feedback_loop_defaults.quality_threshold,
+            }
+
+    def save_project_settings(self, project_name: str, settings: dict):
+        """프로젝트별 설정 저장"""
+        settings_path = self.get_project_settings_path(project_name)
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            with open(settings_path, "w", encoding="utf-8") as f:
+                json.dump(settings, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"⚠️  프로젝트 설정 저장 실패: {e}")
+

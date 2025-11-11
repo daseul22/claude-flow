@@ -103,6 +103,9 @@ class ClaudeFlowApp(App):
         self.git_info = project_info["git"]
         self.claude_md_content = project_info["claude_md_content"]
 
+        # 프로젝트별 설정 로드
+        self.project_settings = self.config.load_project_settings(self.project_name)
+
         # 세션 관리자
         sessions_dir = self.config.get_project_sessions_dir(self.project_name)
         self.session_manager = SessionManager(sessions_dir)
@@ -211,14 +214,14 @@ class ClaudeFlowApp(App):
 
     async def create_new_session(self):
         """새 세션 생성"""
-        # 피드백 루프 설정 준비
+        # 피드백 루프 설정 준비 (프로젝트별 설정 사용)
         from .services.session_manager import FeedbackLoopConfig
 
         feedback_loop_config = FeedbackLoopConfig(
-            enabled=self.config.config.feedback_loop_defaults.enabled,
+            enabled=self.project_settings["feedback_loop_enabled"],
             condition_prompt="",
-            condition_model=self.config.config.feedback_loop_defaults.condition_model,
-            max_iterations=self.config.config.feedback_loop_defaults.max_iterations,
+            condition_model=self.project_settings["feedback_loop_condition_model"],
+            max_iterations=self.project_settings["feedback_loop_max_iterations"],
             current_iteration=0,
             feedback_input="",
         )
@@ -254,17 +257,13 @@ class ClaudeFlowApp(App):
             # 기존 에이전트 세션 초기화 (새 세션이므로 맥락 리셋)
             self.agent.reset_session()
 
-        # 피드백 루프 생성 (개선된 버전)
-        if self.config.config.feedback_loop_defaults.enabled:
+        # 피드백 루프 생성 (개선된 버전, 프로젝트별 설정 사용)
+        if self.project_settings["feedback_loop_enabled"]:
             self.feedback_loop = ImprovedFeedbackLoop(
                 project_path=self.project_path,
-                condition_model=self.config.config.feedback_loop_defaults.condition_model,
-                max_iterations=self.config.config.feedback_loop_defaults.max_iterations,
-                quality_threshold=getattr(
-                    self.config.config.feedback_loop_defaults,
-                    "quality_threshold",
-                    0.8  # 기본값: 80점
-                ),
+                condition_model=self.project_settings["feedback_loop_condition_model"],
+                max_iterations=self.project_settings["feedback_loop_max_iterations"],
+                quality_threshold=self.project_settings["feedback_loop_quality_threshold"],
             )
 
         # 상태바 업데이트
@@ -604,7 +603,7 @@ class ClaudeFlowApp(App):
             detector = SettingsChangeDetector(old_settings, settings)
 
             # 설정 적용
-            applicator = SettingsApplicator(self.config, self.session_manager)
+            applicator = SettingsApplicator(self.config, self.session_manager, self.project_name)
             applicator.apply_global_settings(settings)
 
             # 설정 저장
@@ -623,6 +622,12 @@ class ClaudeFlowApp(App):
                     "⚠️  세션 저장 실패 (설정은 적용되었으나 세션에 저장되지 않음)",
                     style="yellow",
                 )
+
+            # 프로젝트 설정 메모리 업데이트
+            self.project_settings["feedback_loop_enabled"] = settings["feedback_loop_enabled"]
+            self.project_settings["feedback_loop_max_iterations"] = settings["max_iterations"]
+            self.project_settings["feedback_loop_condition_model"] = settings["condition_model"]
+            self.project_settings["feedback_loop_quality_threshold"] = settings.get("quality_threshold", 0.8)
 
             # 피드백 루프 재생성
             if settings["feedback_loop_enabled"]:
@@ -821,12 +826,12 @@ class ClaudeFlowApp(App):
         self.should_stop = False
 
     def _get_current_settings_dict(self) -> Dict[str, Any]:
-        """현재 설정을 딕셔너리로 반환"""
+        """현재 설정을 딕셔너리로 반환 (프로젝트별 설정 사용)"""
         return {
             "model": self.config.config.default_model,
-            "feedback_loop_enabled": self.config.config.feedback_loop_defaults.enabled,
-            "max_iterations": self.config.config.feedback_loop_defaults.max_iterations,
-            "condition_model": self.config.config.feedback_loop_defaults.condition_model,
+            "feedback_loop_enabled": self.project_settings["feedback_loop_enabled"],
+            "max_iterations": self.project_settings["feedback_loop_max_iterations"],
+            "condition_model": self.project_settings["feedback_loop_condition_model"],
         }
 
     def _apply_ui_settings(self, settings: Dict[str, Any], chat_view: ChatView) -> None:

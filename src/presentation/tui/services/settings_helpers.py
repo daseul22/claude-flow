@@ -56,14 +56,16 @@ class SettingsChangeDetector:
 class SettingsApplicator:
     """설정 적용기"""
 
-    def __init__(self, config_manager: ConfigManager, session_manager: SessionManager):
+    def __init__(self, config_manager: ConfigManager, session_manager: SessionManager, project_name: str):
         """
         Args:
             config_manager: 설정 관리자
             session_manager: 세션 관리자
+            project_name: 프로젝트 이름 (프로젝트별 설정 저장에 사용)
         """
         self.config = config_manager
         self.session = session_manager
+        self.project_name = project_name
 
     def apply_global_settings(self, settings: Dict[str, Any]) -> None:
         """전역 설정 적용 (config 파일)"""
@@ -94,8 +96,21 @@ class SettingsApplicator:
         session.feedback_loop.condition_model = settings["condition_model"]
         session.feedback_loop.feedback_input = settings.get("feedback_input", "")
 
+        # 프로젝트별 설정 저장 (피드백 루프 설정)
+        self.save_project_settings(settings)
+
         # 세션 저장
         return self.session.save_session(session)
+
+    def save_project_settings(self, settings: Dict[str, Any]) -> None:
+        """프로젝트별 설정 저장 (피드백 루프 설정만)"""
+        project_settings = {
+            "feedback_loop_enabled": settings["feedback_loop_enabled"],
+            "feedback_loop_max_iterations": settings["max_iterations"],
+            "feedback_loop_condition_model": settings["condition_model"],
+            "feedback_loop_quality_threshold": settings.get("quality_threshold", 0.8),
+        }
+        self.config.save_project_settings(self.project_name, project_settings)
 
     def create_feedback_loop(self, settings: Dict[str, Any], project_path: Path) -> ImprovedFeedbackLoop:
         """피드백 루프 인스턴스 생성 (개선된 버전)"""
