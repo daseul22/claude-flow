@@ -821,3 +821,37 @@ npm run build
   - `Label(..., style=...)` 패턴 완전 제거 확인 (grep 검색 결과: No files found)
   - dim italic 스타일 유지 확인
 - 후속 조치: 없음
+
+#### fix. TUI 토큰 계산 수정 - 캐시 토큰 포함
+- 날짜: 2025-11-12 (Asia/Seoul)
+- 컨텍스트: TUI의 세션 통계에서 총 토큰 계산 시 캐시 토큰(cache_creation_tokens, cache_read_tokens)이 누락되어 실제 사용량보다 적게 표시되는 문제 발생. 사용자가 "메인 에이전트에 입력+출력 모든 토큰수를 합친걸 카운트해야되는데 이상하게 카운트되고있어"라고 보고.
+- 변경사항:
+  - `src/presentation/tui/services/session_manager.py` (라인 322-327):
+    * **cumulative_total_tokens 계산식 수정**: 기존에는 `input_tokens + output_tokens`만 계산했으나, **cache_creation_tokens + cache_read_tokens 추가**
+    * 주석 업데이트: Claude API 토큰 구조 명확히 설명 (input, output, cache_creation, cache_read)
+    * 예시 추가: 첫 요청(100K), 두 번째 요청(60K), 누적(160K)
+  - `src/presentation/tui/services/session_manager.py` (라인 329-352):
+    * **토큰 스냅샷 개선**: `cumulative_cache_read`, `cumulative_cache_creation` 필드 추가
+    * **디버그 로그 추가**: 총 토큰 계산 상세 (input + output + cache_creation + cache_read = total)
+  - **수정 전**:
+    ```python
+    stats["cumulative_total_tokens"] = (
+        stats["cumulative_input_tokens"]
+        + stats["cumulative_output_tokens"]
+    )
+    ```
+  - **수정 후**:
+    ```python
+    stats["cumulative_total_tokens"] = (
+        stats["cumulative_input_tokens"]
+        + stats["cumulative_output_tokens"]
+        + stats["cumulative_cache_creation_tokens"]
+        + stats["cumulative_cache_read_tokens"]
+    )
+    ```
+- 영향범위: 기능 수정 (버그 수정), 통계 정확도 향상
+- 테스트:
+  - TUI에서 메시지 전송 후 로그 확인: "[SessionStats] ✅ 총 토큰 계산: X (input) + Y (output) + Z (cache_creation) + W (cache_read) = Total (total)"
+  - StatusBar의 컨텍스트 윈도우 사용량이 정확히 표시되는지 확인
+  - 캐시가 활성화된 세션에서 cache_creation_tokens, cache_read_tokens가 정상 누적되는지 확인
+- 후속 조치: 없음

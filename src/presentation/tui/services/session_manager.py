@@ -303,25 +303,27 @@ class SessionManager:
             f"cache_creation={stats['cumulative_cache_creation_tokens']}"
         )
 
-        # 컨텍스트 윈도우 사용량 계산
+        # 총 토큰 계산
         #
         # Claude API 토큰 의미:
-        # - input_tokens: 새 입력 토큰 (캐싱 활성화 시 캐시 제외)
+        # - input_tokens: 새 입력 토큰 (캐싱 활성화 시 캐시는 별도)
         # - output_tokens: 모델 출력 토큰
-        # - cache_read_tokens: 캐시에서 읽은 토큰 (컨텍스트에 포함되지만 이미 첫 요청 input에 포함됨)
-        # - cache_creation_tokens: 캐시 생성 비용 (컨텍스트는 input_tokens에 이미 포함됨)
+        # - cache_creation_tokens: 캐시 생성 시 사용된 토큰 (첫 요청, 추가 과금)
+        # - cache_read_tokens: 캐시에서 읽은 토큰 (이후 요청, 할인 가격)
         #
-        # 컨텍스트 윈도우 = input + output (cache_read, cache_creation 제외!)
+        # 총 사용 토큰 = input + output + cache_creation + cache_read (모든 토큰 포함!)
         #
         # 예시:
-        # - 첫 요청: input=50K (시스템 프롬프트 포함), cache_creation=45K (비용), output=5K
-        #   → context = 50K + 5K = 55K
-        # - 두 번째 요청: input=10K (새 입력+이전 대화), cache_read=45K, output=5K
-        #   → context = 50K + 10K + 5K + 5K = 70K (누적)
-        #   (cache_read는 첫 요청의 input에 이미 포함되어 있으므로 제외!)
+        # - 첫 요청: input=50K, cache_creation=45K, output=5K
+        #   → total = 50K + 45K + 5K = 100K
+        # - 두 번째 요청: input=10K, cache_read=45K, output=5K
+        #   → total = 10K + 45K + 5K = 60K
+        # - 누적 총합: 100K + 60K = 160K
         stats["cumulative_total_tokens"] = (
             stats["cumulative_input_tokens"]
             + stats["cumulative_output_tokens"]
+            + stats["cumulative_cache_creation_tokens"]
+            + stats["cumulative_cache_read_tokens"]
         )
 
         # 토큰 스냅샷 생성
@@ -333,9 +335,21 @@ class SessionManager:
             "cache_creation_tokens": usage_dict.get("cache_creation_tokens", 0),
             "cumulative_input": stats["cumulative_input_tokens"],
             "cumulative_output": stats["cumulative_output_tokens"],
+            "cumulative_cache_read": stats["cumulative_cache_read_tokens"],
+            "cumulative_cache_creation": stats["cumulative_cache_creation_tokens"],
             "cumulative_total": stats["cumulative_total_tokens"],
         }
         stats["token_history"].append(snapshot)
+
+        # 디버그 로그: 총 토큰 계산 상세
+        logger.info(
+            f"[SessionStats] ✅ 총 토큰 계산: "
+            f"{stats['cumulative_input_tokens']} (input) + "
+            f"{stats['cumulative_output_tokens']} (output) + "
+            f"{stats['cumulative_cache_creation_tokens']} (cache_creation) + "
+            f"{stats['cumulative_cache_read_tokens']} (cache_read) = "
+            f"{stats['cumulative_total_tokens']} (total)"
+        )
 
         # 컨텍스트 윈도우 사용률 추정
         stats["estimated_context_window_usage"] = self._estimate_context_window_usage(
