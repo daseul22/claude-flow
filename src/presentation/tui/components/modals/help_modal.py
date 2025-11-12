@@ -44,11 +44,14 @@ class HelpModal(ModalScreen):
             # 세션 관리
             table.add_row("Ctrl+N", "새 세션")
             table.add_row("Ctrl+O", "세션 불러오기")
-            
+
             # 프로젝트
             table.add_row("Ctrl+I", "프로젝트 정보")
             table.add_row("cd [경로]", "작업 디렉토리 변경")
             table.add_row("cd -", "이전 디렉토리로 돌아가기")
+
+            # 컨텍스트 관리
+            table.add_row("Ctrl+K", "컨텍스트 관리 (파일 추가/프리셋)")
             
             # 설정
             table.add_row("Ctrl+S", "설정 열기")

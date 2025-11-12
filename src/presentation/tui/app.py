@@ -5,21 +5,27 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from textual.app import App, ComposeResult
-from textual.containers import Container
+from textual.containers import Container, Horizontal
 from textual.worker import Worker, WorkerState
 from rich.text import Text
 
 from .components.status_bar import StatusBar
 from .components.chat_view import ChatView
 from .components.input_box import InputBox
+from .components.context_sidebar import ContextSidebar
 from .components.modals.session_list import SessionListModal
 from .components.modals.settings_modal import SettingsModal
 from .components.modals.help_modal import HelpModal
+from .components.modals.context_modal import (
+    AddContextFileModal,
+    ManagePresetsModal,
+)
 from .config.settings import ConfigManager
 from .services.session_manager import SessionManager
 from .services.agent_client import AgentClient
 from .services.logger import SessionLogger, LogManager
 from .services.project_utils import get_project_info
+from .services.context_manager import ContextManager
 from .services.feedback_loop_improved import ImprovedFeedbackLoop, EvaluationResult
 from .services.smart_feedback_loop import SmartFeedbackLoop, create_smart_feedback_loop
 from .services.response_parser import ResponseParser
@@ -58,17 +64,22 @@ class ClaudeFlowApp(App):
         height: 100%;
     }
 
-    ChatView {
+    Horizontal {
+        width: 100%;
         height: 1fr;
+    }
+
+    ChatView {
+        width: 1fr;
+        height: 100%;
         border: none;
         padding: 0 1;
-        margin-bottom: 1;
         background: #0d1117;
     }
 
     InputBox {
         height: 3;
-        margin: 0 0 1 0;
+        margin: 1 0 1 0;
         border: solid #8b5cf6;
         background: #0d1117;
     }
@@ -83,6 +94,7 @@ class ClaudeFlowApp(App):
         ShortcutDefinition("ctrl+n", "new_session", "새 세션"),
         ShortcutDefinition("ctrl+o", "open_session", "세션 불러오기"),
         ShortcutDefinition("ctrl+i", "project_info", "프로젝트 정보"),
+        ShortcutDefinition("ctrl+k", "toggle_context", "컨텍스트"),
         ShortcutDefinition("ctrl+s", "settings", "설정"),
         ShortcutDefinition("ctrl+slash", "help", "도움말"),
         ShortcutDefinition("f1", "help", "도움말"),
@@ -145,10 +157,20 @@ class ClaudeFlowApp(App):
         # 컨텍스트 윈도우 경고 플래그 (80% 경고는 한 번만)
         self._context_window_80_warned: bool = False
 
+        # 컨텍스트 관리자
+        self.context_manager = ContextManager(self.project_path)
+        # 마지막 컨텍스트 복원
+        self.context_manager.restore_last_context()
+
     def compose(self) -> ComposeResult:
         """UI 구성"""
         with Container(id="main-container"):
-            yield ChatView(show_timestamps=self.config.config.display.show_timestamps)
+            with Horizontal():
+                yield ChatView(show_timestamps=self.config.config.display.show_timestamps)
+                yield ContextSidebar(
+                    self.context_manager,
+                    show=False  # 기본적으로 숨김
+                )
             yield InputBox()
             yield StatusBar()
 
@@ -347,24 +369,35 @@ class ClaudeFlowApp(App):
             await self.handle_cd_command(user_message.strip())
             return
 
-        # 사용자 메시지 표시 (토큰 추정: 단어 수 * 1.3)
-        estimated_tokens = int(len(user_message.split()) * 1.3)
+        # 컨텍스트 주입
+        final_message = self._inject_context(user_message)
+
+        # 사용자 메시지 표시 (원본 메시지만 표시)
+        estimated_tokens = int(len(final_message.split()) * 1.3)
         chat_view.add_user_message(user_message, tokens=estimated_tokens)
 
-        # 세션에 저장
+        # 컨텍스트가 추가되었으면 알림 표시
+        enabled_files = self.context_manager.get_enabled_files()
+        if enabled_files:
+            chat_view.add_system_message(
+                f"📎 컨텍스트: {len(enabled_files)}개 파일 포함됨",
+                style="dim cyan"
+            )
+
+        # 세션에 저장 (컨텍스트 포함된 메시지 저장)
         self.session_manager.add_message(
             role="user",
-            content=user_message,
+            content=final_message,
             tokens={"input": estimated_tokens, "output": 0},  # 간단한 추정
         )
 
         # 로그
         if self.logger:
-            self.logger.log_message("user", user_message)
+            self.logger.log_message("user", final_message)
 
-        # 에이전트 응답 (Worker로 실행)
+        # 에이전트 응답 (Worker로 실행) - 컨텍스트 포함된 메시지 전달
         self.current_worker = self.run_worker(
-            self.get_agent_response(user_message),
+            self.get_agent_response(final_message),
             name="agent_response",
             group="agent",
             exclusive=True,  # 같은 그룹의 다른 워커 취소
@@ -1128,3 +1161,85 @@ class ClaudeFlowApp(App):
             return timestamp.split("T")[1][:8]
         # 이미 HH:MM:SS 형식이면 그대로
         return timestamp[:8]
+
+    # === 컨텍스트 관리 ===
+
+    def _inject_context(self, user_message: str) -> str:
+        """
+        사용자 메시지에 컨텍스트 파일 내용을 자동으로 주입
+
+        Args:
+            user_message: 원본 사용자 메시지
+
+        Returns:
+            컨텍스트가 주입된 메시지 (컨텍스트가 없으면 원본 그대로)
+        """
+        context_message = self.context_manager.build_context_message(
+            max_size_bytes=100_000  # 최대 100KB
+        )
+
+        if context_message:
+            # 컨텍스트 + 사용자 메시지 조합
+            return f"{context_message}\n\n---\n\n사용자 요청: {user_message}"
+        else:
+            # 컨텍스트가 없으면 원본 그대로
+            return user_message
+
+    # === 컨텍스트 관리 액션 ===
+
+    def action_toggle_context(self) -> None:
+        """컨텍스트 사이드바 표시/숨김 토글"""
+        sidebar = self.query_one(ContextSidebar)
+        sidebar.toggle_visibility()
+
+    def on_context_sidebar_add_file_requested(
+        self, message: ContextSidebar.AddFileRequested
+    ) -> None:
+        """파일 추가 요청 처리"""
+        self.push_screen(
+            AddContextFileModal(self.context_manager, self.project_path),
+            self.on_file_added
+        )
+
+    def on_context_sidebar_manage_presets_requested(
+        self, message: ContextSidebar.ManagePresetsRequested
+    ) -> None:
+        """프리셋 관리 요청 처리"""
+        self.push_screen(
+            ManagePresetsModal(self.context_manager),
+            self.on_preset_action
+        )
+
+    def on_context_sidebar_file_toggled(
+        self, message: ContextSidebar.FileToggled
+    ) -> None:
+        """파일 토글 처리 (활성화/비활성화)"""
+        chat_view = self.query_one(ChatView)
+        chat_view.add_system_message(
+            f"컨텍스트 파일 토글: {message.file_path}",
+            style="dim"
+        )
+
+    def on_file_added(self, result: Optional[Path]) -> None:
+        """파일 추가 완료 콜백"""
+        if result:
+            sidebar = self.query_one(ContextSidebar)
+            sidebar.refresh_file_list()
+
+            chat_view = self.query_one(ChatView)
+            chat_view.add_system_message(
+                f"✓ 컨텍스트에 파일 추가됨: {result.name}",
+                style="green"
+            )
+
+    def on_preset_action(self, result: Optional[str]) -> None:
+        """프리셋 액션 완료 콜백"""
+        if result:
+            sidebar = self.query_one(ContextSidebar)
+            sidebar.refresh_file_list()
+
+            chat_view = self.query_one(ChatView)
+            chat_view.add_system_message(
+                f"✓ 프리셋 '{result}' 불러오기 완료",
+                style="green"
+            )

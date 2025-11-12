@@ -756,3 +756,68 @@ npm run build
 - 후속 조치:
   - 조건 생성 품질 모니터링
   - 사용자 피드백 기반 프롬프트 개선
+
+#### feat. TUI 컨텍스트 관리자 (Context Manager) - 버티컬 확장
+- 날짜: 2025-11-12 (Asia/Seoul)
+- 컨텍스트: TUI 프로젝트의 버티컬 확장으로, 파일/디렉토리를 세션 컨텍스트에 동적으로 추가하고 관리하는 시스템 구현. 대화 기능에 깊이를 더하여 반복적인 파일 참조를 자동화하고 개발 작업 효율성 향상.
+- 변경사항:
+  1. **ContextManager 서비스** (`src/presentation/tui/services/context_manager.py`):
+     - 파일/디렉토리 추가/제거 기능
+     - 파일별 활성화/비활성화 토글
+     - 프리셋 저장/불러오기/삭제 (JSON 기반)
+     - 마지막 컨텍스트 자동 저장/복원 (`~/.claude-flow/{project}/contexts/`)
+     - 컨텍스트 메시지 자동 생성 (최대 크기 제한: 기본 100KB)
+     - 총 크기, 파일 수 통계 제공
+  2. **ContextSidebar 컴포넌트** (`src/presentation/tui/components/context_sidebar.py`):
+     - 컨텍스트 파일 목록 실시간 표시
+     - 파일 상태 표시: ✓ (활성) / ○ (비활성), 파일 타입 아이콘 (📁/📄), 크기
+     - 통계 정보 표시 (총 파일, 활성 파일, 총 크기)
+     - ➕ 추가 버튼, 📦 프리셋 버튼
+     - Ctrl+K로 표시/숨김 토글
+  3. **컨텍스트 관리 모달** (`src/presentation/tui/components/modals/context_modal.py`):
+     - `AddContextFileModal`: 파일 추가 (절대/상대 경로 지원, 라벨 지정)
+     - `ManagePresetsModal`: 프리셋 목록 표시, 불러오기/삭제
+     - `SavePresetModal`: 현재 컨텍스트를 프리셋으로 저장 (이름/설명 입력)
+  4. **자동 컨텍스트 주입** (`src/presentation/tui/app.py`):
+     - `_inject_context()` 메서드: 사용자 메시지에 활성화된 파일 내용 자동 포함
+     - 메시지 전송 시 "📎 컨텍스트: N개 파일 포함됨" 알림 표시
+     - 최대 100KB 크기 제한 (설정 가능)
+  5. **UI 통합**:
+     - 레이아웃 변경: Horizontal 컨테이너로 ChatView와 ContextSidebar 나란히 배치
+     - 단축키 추가: Ctrl+K (컨텍스트 사이드바 토글)
+     - 도움말 업데이트: Ctrl+K 안내 추가
+- 영향범위: 기능 추가 (버티컬 확장), UX 향상, 자동화 개선
+- 테스트:
+  - 파일 추가/제거 정상 작동 확인
+  - 파일 토글 (활성/비활성) 확인
+  - 프리셋 저장/불러오기/삭제 확인
+  - 메시지 전송 시 컨텍스트 자동 주입 확인
+  - 마지막 컨텍스트 복원 확인 (앱 재시작 후)
+  - Ctrl+K 단축키로 사이드바 토글 확인
+- 후속 조치:
+  - 컨텍스트 크기 경고 기능 추가 (90% 도달 시)
+  - 파일 변경 감지 및 자동 재로드 (선택적)
+  - 컨텍스트 검색 기능 (파일명, 라벨 기반)
+  - 프리셋 내보내기/가져오기 (다른 프로젝트와 공유)
+
+#### fix. TUI 컨텍스트 관리자 Label TypeError 수정
+- 날짜: 2025-11-12 (Asia/Seoul)
+- 컨텍스트: 컨텍스트 관리자 구현 후 TUI 실행 시 `TypeError: Label.__init__() got an unexpected keyword argument 'style'` 에러 발생. Textual의 `Label` 위젯이 `style` 키워드 인자를 받지 않음.
+- 변경사항:
+  - `src/presentation/tui/components/context_sidebar.py`:
+    * Import 문: `Label` 제거, `Static`만 사용
+    * `ContextFileItem.compose()`: `Label(text)` → `Static(text)` (50번 라인)
+    * `refresh_file_list()`: `Label("파일이 없습니다", style=...)` → `Text("파일이 없습니다", style="dim italic")` + `Static(empty_text)` (151-152번 라인)
+    * CSS 수정: `ContextSidebar Label` → `ContextSidebar #sidebar-title`
+  - `src/presentation/tui/components/modals/context_modal.py`:
+    * `ManagePresetsModal.refresh_presets()`: 빈 프리셋 메시지 및 프리셋 아이템에 `Static` 사용 (175-176, 185번 라인)
+  - 기술적 해결 방법:
+    1. Rich `Text` 객체 생성: `Text("메시지", style="dim italic")`
+    2. `Static` 위젯으로 감싸기: `Static(text)`
+    3. `ListItem`에 추가: `ListItem(Static(text))`
+- 영향범위: 버그 수정 (TypeError 해결)
+- 테스트:
+  - Python 문법 검사 통과 (`python3 -m py_compile`)
+  - `Label(..., style=...)` 패턴 완전 제거 확인 (grep 검색 결과: No files found)
+  - dim italic 스타일 유지 확인
+- 후속 조치: 없음
